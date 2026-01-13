@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reputy - Roadmap & Tâches</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #1F2937;
+      padding: 30px;
+      max-width: 900px;
+      margin: 0 auto;
+      background: #fff;
+    }
+    @media print {
+      body { padding: 15px; font-size: 10px; }
+      .no-break { page-break-inside: avoid; }
+      h2 { page-break-after: avoid; }
+    }
+    h1 { font-size: 24px; color: #3B82F6; margin-bottom: 5px; }
+    .subtitle { color: #6B7280; margin-bottom: 20px; font-size: 12px; }
+    h2 { font-size: 16px; margin: 25px 0 10px; padding: 8px 12px; background: #F3F4F6; border-radius: 6px; border-left: 4px solid #3B82F6; }
+    h2.red { border-left-color: #EF4444; background: #FEF2F2; }
+    h2.yellow { border-left-color: #F59E0B; background: #FFFBEB; }
+    h2.green { border-left-color: #10B981; background: #ECFDF5; }
+    h3 { font-size: 13px; margin: 15px 0 8px; color: #374151; }
+    ul { margin-left: 20px; }
+    li { margin: 4px 0; }
+    .checkbox { display: inline-block; width: 12px; height: 12px; border: 1.5px solid #9CA3AF; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 10px; }
+    th, td { padding: 8px 10px; border: 1px solid #E5E7EB; text-align: left; }
+    th { background: #F9FAFB; font-weight: 600; color: #374151; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 9px; font-weight: 600; }
+    .tag-done { background: #D1FAE5; color: #065F46; }
+    .tag-partial { background: #FEF3C7; color: #92400E; }
+    .tag-todo { background: #FEE2E2; color: #991B1B; }
+    .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 9px; }
+    .header-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #3B82F6; }
+    .logo { width: 40px; height: 40px; background: #3B82F6; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 20px; }
+  </style>
+</head>
+<body>
+  <div class="header-logo">
+    <div class="logo">R</div>
+    <div>
+      <h1>REPUTY - Roadmap & Tâches</h1>
+      <p class="subtitle">Document généré le 11 janvier 2026 • Liste complète des développements à réaliser</p>
+    </div>
+  </div>
+
+  <!-- PRIORITÉ HAUTE -->
+  <h2 class="red">🔴 PRIORITÉ HAUTE (Production-ready)</h2>
+
+  <div class="no-break">
+    <h3>1. Backend & Infrastructure</h3>
+    <ul>
+      <li><span class="checkbox"></span>Créer une vraie base de données (PostgreSQL/MongoDB)</li>
+      <li><span class="checkbox"></span>Remplacer les données mock par des vraies requêtes BDD</li>
+      <li><span class="checkbox"></span>Implémenter l'authentification réelle (NextAuth.js ou Clerk)</li>
+      <li><span class="checkbox"></span>Configurer les variables d'environnement production</li>
+      <li><span class="checkbox"></span>Déployer le backend (Vercel/Railway/AWS)</li>
+      <li><span class="checkbox"></span>Configurer un domaine (reputy.fr, reputy.io)</li>
+      <li><span class="checkbox"></span>Mettre en place HTTPS/SSL</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>2. Intégration Google Business Profile</h3>
+    <ul>
+      <li><span class="checkbox"></span>Implémenter l'OAuth2 Google</li>
+      <li><span class="checkbox"></span>Connecter l'API Google Business Profile</li>
+      <li><span class="checkbox"></span>Récupérer les avis en temps réel</li>
+      <li><span class="checkbox"></span>Publier les réponses aux avis</li>
+      <li><span class="checkbox"></span>Synchroniser les infos établissement</li>
+      <li><span class="checkbox"></span>Gérer le refresh token automatique</li>
+      <li><span class="checkbox"></span>Webhook pour nouveaux avis (polling ou Pub/Sub)</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>3. Intégration Stripe (Production)</h3>
+    <ul>
+      <li><span class="checkbox"></span>Créer les produits/prix dans Stripe Dashboard</li>
+      <li><span class="checkbox"></span>Remplacer les stripePriceId mock par les vrais IDs</li>
+      <li><span class="checkbox"></span>Implémenter createCheckoutSession avec vraie API Stripe</li>
+      <li><span class="checkbox"></span>Implémenter le portail client Stripe</li>
+      <li><span class="checkbox"></span>Tester le flux complet : paiement → webhook → activation</li>
+      <li><span class="checkbox"></span>Gérer les échecs de paiement et relances automatiques</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>4. Envoi SMS réel</h3>
+    <ul>
+      <li><span class="checkbox"></span>Créer compte Twilio/Vonage/OVH SMS</li>
+      <li><span class="checkbox"></span>Implémenter l'API d'envoi SMS</li>
+      <li><span class="checkbox"></span>Gérer les erreurs et logs d'envoi</li>
+      <li><span class="checkbox"></span>Créer le service de liens courts (rpt.ly)</li>
+      <li><span class="checkbox"></span>Tracker les clics sur liens</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>5. Envoi Email réel</h3>
+    <ul>
+      <li><span class="checkbox"></span>Configurer Resend/SendGrid/Mailgun</li>
+      <li><span class="checkbox"></span>Créer les templates emails (HTML responsive)</li>
+      <li><span class="checkbox"></span>Implémenter l'envoi transactionnel</li>
+      <li><span class="checkbox"></span>Tracker ouvertures et clics</li>
+    </ul>
+  </div>
+
+  <!-- PRIORITÉ MOYENNE -->
+  <h2 class="yellow">🟡 PRIORITÉ MOYENNE (Fonctionnalités complètes)</h2>
+
+  <div class="no-break">
+    <h3>6. Pages Admin à compléter</h3>
+    <table>
+      <tr><th style="width:20%">Page</th><th>À faire</th></tr>
+      <tr><td><strong>Reviews</strong></td><td>Drawer complet avec historique réponses, assignation, tags, filtres avancés</td></tr>
+      <tr><td><strong>Inbox</strong></td><td>Vraie messagerie avec threads, statuts, priorités, notes internes</td></tr>
+      <tr><td><strong>Campaigns</strong></td><td>Wizard création campagne, planification, segments, aperçu, stats détaillées</td></tr>
+      <tr><td><strong>Analytics</strong></td><td>Graphiques détaillés, export CSV/PDF, comparaisons périodes, thèmes</td></tr>
+      <tr><td><strong>Locations</strong></td><td>CRUD établissements complet, statut Google, gestion multi-sites</td></tr>
+      <tr><td><strong>Team</strong></td><td>Gestion utilisateurs, rôles (Admin/Manager/Staff), permissions, invitations</td></tr>
+      <tr><td><strong>Settings</strong></td><td>Section facturation détaillée, branding page collecte, templates complets</td></tr>
+    </table>
+  </div>
+
+  <div class="no-break">
+    <h3>7. Assistant IA (Production)</h3>
+    <ul>
+      <li><span class="checkbox"></span>Intégrer OpenAI API (GPT-4 ou Claude)</li>
+      <li><span class="checkbox"></span>Créer les prompts optimisés par ton et contexte</li>
+      <li><span class="checkbox"></span>Gérer le Mode Santé dans les prompts (garde-fous médicaux)</li>
+      <li><span class="checkbox"></span>Tracker l'usage réel des tokens</li>
+      <li><span class="checkbox"></span>Implémenter le cache pour suggestions similaires</li>
+      <li><span class="checkbox"></span>Ajouter champ consignes personnalisées par établissement</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>8. Extension Chrome Doctolib</h3>
+    <ul>
+      <li><span class="checkbox"></span>Tester sur vraies pages Doctolib Pro (différents cabinets)</li>
+      <li><span class="checkbox"></span>Améliorer la détection automatique des patients</li>
+      <li><span class="checkbox"></span>Pré-remplissage automatique (nom, email, téléphone)</li>
+      <li><span class="checkbox"></span>Publier sur Chrome Web Store</li>
+      <li><span class="checkbox"></span>Gérer les mises à jour automatiques</li>
+      <li><span class="checkbox"></span>Support Firefox (WebExtension)</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>9. Génération QR/NFC</h3>
+    <ul>
+      <li><span class="checkbox"></span>Générer de vrais QR codes (lib qrcode.js)</li>
+      <li><span class="checkbox"></span>Créer les pages de collecte personnalisées (branding)</li>
+      <li><span class="checkbox"></span>Implémenter le tracking scans NFC</li>
+      <li><span class="checkbox"></span>Créer le système de liens courts avec analytics</li>
+      <li><span class="checkbox"></span>Export QR en PNG/SVG haute résolution</li>
+    </ul>
+  </div>
+
+  <!-- PRIORITÉ BASSE -->
+  <h2 class="green">🟢 PRIORITÉ BASSE (Améliorations)</h2>
+
+  <div class="no-break">
+    <h3>10. UX & Design</h3>
+    <ul>
+      <li><span class="checkbox"></span>Mode sombre (dark mode)</li>
+      <li><span class="checkbox"></span>Animations et transitions fluides</li>
+      <li><span class="checkbox"></span>Notifications en temps réel (WebSocket/SSE)</li>
+      <li><span class="checkbox"></span>PWA pour mobile</li>
+      <li><span class="checkbox"></span>Onboarding nouvel utilisateur (wizard)</li>
+      <li><span class="checkbox"></span>Tour guidé des fonctionnalités</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>11. Analytics avancés</h3>
+    <ul>
+      <li><span class="checkbox"></span>Analyse de sentiment IA sur les avis</li>
+      <li><span class="checkbox"></span>Extraction automatique de tags/thèmes</li>
+      <li><span class="checkbox"></span>Benchmarks sectoriels</li>
+      <li><span class="checkbox"></span>Export PDF des rapports</li>
+      <li><span class="checkbox"></span>Alertes personnalisées (avis &lt;3*, mots-clés)</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>12. Concurrence (Production)</h3>
+    <ul>
+      <li><span class="checkbox"></span>Intégrer Google Places API pour vrais concurrents</li>
+      <li><span class="checkbox"></span>Scraping éthique des avis concurrents</li>
+      <li><span class="checkbox"></span>Alertes nouveaux concurrents dans la zone</li>
+      <li><span class="checkbox"></span>Comparatifs automatisés et rapports</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>13. Multi-langue</h3>
+    <ul>
+      <li><span class="checkbox"></span>i18n (français, anglais, hébreu)</li>
+      <li><span class="checkbox"></span>Détection langue automatique</li>
+      <li><span class="checkbox"></span>Traduction des templates SMS/Email</li>
+      <li><span class="checkbox"></span>Interface RTL pour l'hébreu</li>
+    </ul>
+  </div>
+
+  <div class="no-break">
+    <h3>14. Sécurité & Compliance</h3>
+    <ul>
+      <li><span class="checkbox"></span>RGPD : export/suppression données utilisateur</li>
+      <li><span class="checkbox"></span>Logs d'audit complets</li>
+      <li><span class="checkbox"></span>Rate limiting API</li>
+      <li><span class="checkbox"></span>Protection CSRF/XSS</li>
+      <li><span class="checkbox"></span>Backup automatique BDD (quotidien)</li>
+      <li><span class="checkbox"></span>Tests de pénétration</li>
+    </ul>
+  </div>
+
+  <!-- RÉCAP -->
+  <h2>📊 RÉCAPITULATIF PAR MODULE</h2>
+  <table>
+    <tr><th style="width:20%">Module</th><th style="width:15%">État</th><th>Reste à faire</th></tr>
+    <tr><td><strong>Dashboard</strong></td><td><span class="tag tag-done">90%</span></td><td>Données réelles, alertes temps réel</td></tr>
+    <tr><td><strong>Reviews</strong></td><td><span class="tag tag-partial">70%</span></td><td>Drawer complet, Google API, assignation</td></tr>
+    <tr><td><strong>Inbox</strong></td><td><span class="tag tag-todo">30%</span></td><td>Page complète avec threads</td></tr>
+    <tr><td><strong>Collect</strong></td><td><span class="tag tag-done">80%</span></td><td>QR réel, NFC réel, liens courts</td></tr>
+    <tr><td><strong>Campaigns</strong></td><td><span class="tag tag-todo">20%</span></td><td>Wizard complet, planification</td></tr>
+    <tr><td><strong>Analytics</strong></td><td><span class="tag tag-partial">40%</span></td><td>Graphiques détaillés, exports</td></tr>
+    <tr><td><strong>Competitors</strong></td><td><span class="tag tag-done">85%</span></td><td>Google Places API production</td></tr>
+    <tr><td><strong>Locations</strong></td><td><span class="tag tag-todo">30%</span></td><td>CRUD complet, multi-sites</td></tr>
+    <tr><td><strong>Team</strong></td><td><span class="tag tag-todo">30%</span></td><td>Rôles, permissions, invitations</td></tr>
+    <tr><td><strong>Billing</strong></td><td><span class="tag tag-done">80%</span></td><td>Stripe production, webhooks</td></tr>
+    <tr><td><strong>Settings</strong></td><td><span class="tag tag-partial">70%</span></td><td>Facturation détaillée, branding</td></tr>
+    <tr><td><strong>Help</strong></td><td><span class="tag tag-done">90%</span></td><td>Vidéos tutoriels, docs externes</td></tr>
+    <tr><td><strong>Assistant IA</strong></td><td><span class="tag tag-done">80%</span></td><td>OpenAI production, cache</td></tr>
+    <tr><td><strong>SMS Module</strong></td><td><span class="tag tag-done">90%</span></td><td>Twilio production, tracking</td></tr>
+    <tr><td><strong>Extension Chrome</strong></td><td><span class="tag tag-partial">70%</span></td><td>Tests réels, Chrome Store</td></tr>
+  </table>
+
+  <!-- ESTIMATION -->
+  <h2>⏱️ ESTIMATION TEMPS DE DÉVELOPPEMENT</h2>
+  <table>
+    <tr><th style="width:60%">Phase</th><th>Durée estimée</th></tr>
+    <tr><td>Backend + Auth + BDD (PostgreSQL/Prisma)</td><td>2-3 semaines</td></tr>
+    <tr><td>Google Business Profile API</td><td>1 semaine</td></tr>
+    <tr><td>Stripe production + webhooks</td><td>3-4 jours</td></tr>
+    <tr><td>SMS/Email réels (Twilio + Resend)</td><td>2-3 jours</td></tr>
+    <tr><td>Pages admin complètes</td><td>2 semaines</td></tr>
+    <tr><td>IA production (OpenAI)</td><td>3-4 jours</td></tr>
+    <tr><td>Extension Chrome finalisée</td><td>3-4 jours</td></tr>
+    <tr><td>Tests + Debug + QA</td><td>1 semaine</td></tr>
+    <tr style="font-weight: bold; background: #EFF6FF;"><td>TOTAL MVP Production</td><td>6-8 semaines</td></tr>
+  </table>
+
+  <!-- TECHNOLOGIES -->
+  <h2>🛠️ STACK TECHNIQUE</h2>
+  <table>
+    <tr><th style="width:25%">Catégorie</th><th>Technologies</th></tr>
+    <tr><td><strong>Frontend</strong></td><td>Next.js 14 (App Router), TypeScript, TailwindCSS, shadcn/ui, Recharts</td></tr>
+    <tr><td><strong>Backend</strong></td><td>Node.js, Next.js API Routes, Prisma ORM</td></tr>
+    <tr><td><strong>Base de données</strong></td><td>PostgreSQL (Neon/Supabase) ou MongoDB</td></tr>
+    <tr><td><strong>Auth</strong></td><td>NextAuth.js ou Clerk</td></tr>
+    <tr><td><strong>Paiements</strong></td><td>Stripe (abonnements + paiements ponctuels)</td></tr>
+    <tr><td><strong>SMS</strong></td><td>Twilio ou OVH SMS</td></tr>
+    <tr><td><strong>Email</strong></td><td>Resend ou SendGrid</td></tr>
+    <tr><td><strong>IA</strong></td><td>OpenAI GPT-4 ou Anthropic Claude</td></tr>
+    <tr><td><strong>Hébergement</strong></td><td>Vercel (frontend) + Railway/Render (backend)</td></tr>
+    <tr><td><strong>CDN/Storage</strong></td><td>Cloudflare R2 ou AWS S3</td></tr>
+  </table>
+
+  <div class="footer">
+    <p><strong>Reputy</strong> © 2026 • Document de roadmap interne • Version 1.0</p>
+    <p style="margin-top: 5px;">Pour toute question : contact@reputy.fr</p>
+  </div>
+</body>
+</html>
+
+
+
+
+
+

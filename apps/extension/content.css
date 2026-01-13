@@ -1,0 +1,530 @@
+/* ===========================================
+   REPUTY - Extension Chrome Styles
+   Branding: Bleu-marine #2D3748 / Gris #F1F5F9
+   =========================================== */
+
+/* Variables CSS Reputy */
+:root {
+  --reputy-primary: #2D3748;
+  --reputy-primary-dark: #1A202C;
+  --reputy-accent: #3B82F6;
+  --reputy-accent-hover: #2563EB;
+  --reputy-success: #10B981;
+  --reputy-warning: #F59E0B;
+  --reputy-error: #EF4444;
+  --reputy-star: #EAB308;
+  --reputy-bg-light: #F1F5F9;
+  --reputy-bg-card: #FFFFFF;
+  --reputy-text: #1E293B;
+  --reputy-text-muted: #64748B;
+  --reputy-border: #E2E8F0;
+  --reputy-shadow: 0 20px 60px rgba(45, 55, 72, 0.25);
+  --reputy-radius: 16px;
+  --reputy-radius-sm: 10px;
+}
+
+/* ===== OVERLAY ===== */
+.reputy-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 999998;
+  animation: reputy-fade-in 0.2s ease-out;
+}
+
+/* ===== MODAL ===== */
+.reputy-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  max-width: 90vw;
+  background: var(--reputy-bg-card);
+  border-radius: var(--reputy-radius);
+  box-shadow: var(--reputy-shadow);
+  z-index: 999999;
+  overflow: hidden;
+  animation: reputy-slide-up 0.3s ease-out;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* Header du modal */
+.reputy-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  background: var(--reputy-primary);
+  color: white;
+}
+
+.reputy-modal-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.5px;
+}
+
+.reputy-logo-icon {
+  display: flex;
+  align-items: center;
+}
+
+.reputy-logo-icon svg {
+  width: 24px;
+  height: 34px;
+  fill: white;
+}
+
+.reputy-modal-close {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.reputy-modal-close:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+/* Body du modal */
+.reputy-modal-body {
+  padding: 24px 20px;
+}
+
+.reputy-modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--reputy-text);
+  margin: 0 0 20px 0;
+  text-align: center;
+}
+
+/* Choix canal (SMS / Email) */
+.reputy-channel-selector {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.reputy-channel-btn {
+  flex: 1;
+  padding: 16px 12px;
+  border: 2px solid var(--reputy-border);
+  border-radius: var(--reputy-radius-sm);
+  background: var(--reputy-bg-light);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.reputy-channel-btn:hover {
+  border-color: var(--reputy-accent);
+  background: #EFF6FF;
+}
+
+.reputy-channel-btn.active {
+  border-color: var(--reputy-accent);
+  background: #DBEAFE;
+}
+
+.reputy-channel-btn svg {
+  width: 28px;
+  height: 28px;
+  color: var(--reputy-primary);
+}
+
+.reputy-channel-btn.active svg {
+  color: var(--reputy-accent);
+}
+
+.reputy-channel-btn span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--reputy-text);
+}
+
+/* Champs de formulaire */
+.reputy-form-group {
+  margin-bottom: 16px;
+}
+
+.reputy-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--reputy-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.reputy-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid var(--reputy-border);
+  border-radius: var(--reputy-radius-sm);
+  font-size: 14px;
+  color: var(--reputy-text);
+  background: var(--reputy-bg-light);
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.reputy-input:focus {
+  outline: none;
+  border-color: var(--reputy-accent);
+  background: white;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.reputy-input::placeholder {
+  color: var(--reputy-text-muted);
+}
+
+/* Info patient pré-remplie */
+.reputy-patient-info {
+  background: var(--reputy-bg-light);
+  border-radius: var(--reputy-radius-sm);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  border-left: 4px solid var(--reputy-accent);
+}
+
+.reputy-patient-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--reputy-text);
+  margin-bottom: 4px;
+}
+
+.reputy-patient-detail {
+  font-size: 13px;
+  color: var(--reputy-text-muted);
+}
+
+/* Bouton principal */
+.reputy-btn-primary {
+  width: 100%;
+  padding: 14px 20px;
+  background: var(--reputy-accent);
+  color: white;
+  border: none;
+  border-radius: var(--reputy-radius-sm);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.reputy-btn-primary:hover {
+  background: var(--reputy-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.reputy-btn-primary:active {
+  transform: translateY(0);
+}
+
+.reputy-btn-primary:disabled {
+  background: var(--reputy-text-muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.reputy-btn-primary svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Bouton secondaire */
+.reputy-btn-secondary {
+  padding: 10px 16px;
+  background: white;
+  color: var(--reputy-text);
+  border: 2px solid var(--reputy-border);
+  border-radius: var(--reputy-radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reputy-btn-secondary:hover {
+  border-color: var(--reputy-primary);
+  background: var(--reputy-bg-light);
+}
+
+/* ===== TOAST ===== */
+.reputy-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  min-width: 260px;
+  max-width: 340px;
+  background: var(--reputy-bg-card);
+  border-radius: var(--reputy-radius-sm);
+  box-shadow: var(--reputy-shadow);
+  z-index: 100000;
+  animation: reputy-slide-in-right 0.3s ease-out;
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  pointer-events: none;
+}
+
+.reputy-toast-inner {
+  pointer-events: auto;
+  position: relative;
+}
+
+.reputy-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.reputy-link-btn {
+  margin-left: 8px;
+  text-decoration: underline;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--reputy-accent);
+}
+.reputy-toast-success {
+  border-left: 4px solid var(--reputy-success);
+}
+
+.reputy-toast-error {
+  border-left: 4px solid var(--reputy-error);
+}
+
+.reputy-toast-warning {
+  border-left: 4px solid var(--reputy-warning);
+}
+
+.reputy-toast-content {
+  padding: 16px 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.reputy-toast-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.reputy-toast-success .reputy-toast-icon {
+  color: var(--reputy-success);
+}
+
+.reputy-toast-error .reputy-toast-icon {
+  color: var(--reputy-error);
+}
+
+.reputy-toast-warning .reputy-toast-icon {
+  color: var(--reputy-warning);
+}
+
+.reputy-toast-body {
+  flex: 1;
+}
+
+.reputy-toast-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--reputy-text);
+  margin-bottom: 4px;
+}
+
+.reputy-toast-message {
+  font-size: 13px;
+  color: var(--reputy-text-muted);
+  line-height: 1.4;
+}
+
+.reputy-toast-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.reputy-toast-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.reputy-toast-btn-primary {
+  background: var(--reputy-accent);
+  color: white;
+}
+
+.reputy-toast-btn-primary:hover {
+  background: var(--reputy-accent-hover);
+}
+
+.reputy-toast-btn-secondary {
+  background: var(--reputy-bg-light);
+  color: var(--reputy-text);
+}
+
+.reputy-toast-btn-secondary:hover {
+  background: var(--reputy-border);
+}
+
+.reputy-toast-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--reputy-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.reputy-toast-close:hover {
+  background: var(--reputy-bg-light);
+  color: var(--reputy-text);
+}
+
+/* ===== BOUTON VU (injecté) ===== */
+.reputy-vu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin-left: 8px;
+  background: var(--reputy-primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(45, 55, 72, 0.3);
+}
+
+.reputy-vu-btn:hover {
+  background: var(--reputy-primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(45, 55, 72, 0.4);
+}
+
+.reputy-btn-logo svg {
+  width: 16px;
+  height: 22px;
+  fill: white;
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes reputy-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes reputy-slide-up {
+  from { 
+    opacity: 0; 
+    transform: translate(-50%, -45%);
+  }
+  to { 
+    opacity: 1; 
+    transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes reputy-slide-in-right {
+  from { 
+    opacity: 0; 
+    transform: translateX(100px);
+  }
+  to { 
+    opacity: 1; 
+    transform: translateX(0);
+  }
+}
+
+@keyframes reputy-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.reputy-fade-out {
+  animation: reputy-fade-out 0.2s ease-out forwards;
+}
+
+/* ===== LOADING SPINNER ===== */
+.reputy-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: reputy-spin 0.8s linear infinite;
+}
+
+@keyframes reputy-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== BADGE REPUTY (coin de page) ===== */
+.reputy-badge {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  background: var(--reputy-primary);
+  color: white;
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 12px rgba(45, 55, 72, 0.3);
+  z-index: 999990;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reputy-badge:hover {
+  transform: scale(1.05);
+}
+
+.reputy-badge svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--reputy-star);
+}
+

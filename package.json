@@ -1,0 +1,18 @@
+{
+  "name": "avis-doctolib-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "cd apps/backend && npm run dev",
+    "start:backend": "cd apps/backend && npm start",
+    "dev:reputy": "cd apps/reputy-admin && npm run dev",
+    "build:reputy": "cd apps/reputy-admin && npm run build",
+    "lint:reputy": "cd apps/reputy-admin && npm run lint",
+    "dev:extension": "echo \"Charger l’extension Chrome depuis apps/extension (mode dév MV3).\""
+  }
+}
+
