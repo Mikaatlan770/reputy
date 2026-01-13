@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>REPUTY - Générateur d'icônes</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #F1F5F9;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      color: #2D3748;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #64748B;
+      margin-bottom: 40px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      margin-bottom: 24px;
+    }
+    .card h2 {
+      color: #2D3748;
+      font-size: 18px;
+      margin-bottom: 16px;
+    }
+    .upload-zone {
+      border: 3px dashed #E2E8F0;
+      border-radius: 12px;
+      padding: 48px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #F8FAFC;
+    }
+    .upload-zone:hover {
+      border-color: #3B82F6;
+      background: #EFF6FF;
+    }
+    .upload-zone.dragover {
+      border-color: #3B82F6;
+      background: #DBEAFE;
+    }
+    .upload-zone p {
+      color: #64748B;
+      margin-bottom: 12px;
+    }
+    .upload-zone .btn {
+      display: inline-block;
+      background: #3B82F6;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .upload-zone .btn:hover {
+      background: #2563EB;
+    }
+    #file-input {
+      display: none;
+    }
+    .preview-section {
+      display: none;
+      margin-top: 32px;
+    }
+    .preview-section.active {
+      display: block;
+    }
+    .original-preview {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .original-preview img {
+      max-width: 300px;
+      max-height: 200px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .icons-grid {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .icon-item {
+      text-align: center;
+      background: #F8FAFC;
+      padding: 24px;
+      border-radius: 12px;
+    }
+    .icon-item canvas {
+      display: block;
+      margin: 0 auto 12px;
+      border-radius: 22%;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .icon-item .name {
+      font-weight: 600;
+      color: #2D3748;
+      margin-bottom: 4px;
+    }
+    .icon-item .size {
+      font-size: 12px;
+      color: #64748B;
+      margin-bottom: 12px;
+    }
+    .download-btn {
+      display: inline-block;
+      background: #2D3748;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+    }
+    .download-btn:hover {
+      background: #1A202C;
+    }
+    .download-all {
+      text-align: center;
+      margin-top: 32px;
+    }
+    .download-all button {
+      background: #10B981;
+      color: white;
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+    .download-all button:hover {
+      background: #059669;
+    }
+    .instructions {
+      background: #FEF3C7;
+      border: 1px solid #FCD34D;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 24px;
+    }
+    .instructions h3 {
+      color: #92400E;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .instructions ol {
+      color: #78350F;
+      padding-left: 20px;
+      font-size: 14px;
+    }
+    .instructions li {
+      margin: 8px 0;
+    }
+    .instructions code {
+      background: rgba(0,0,0,0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎨 Générateur d'icônes REPUTY</h1>
+    <p class="subtitle">Uploadez votre logo pour créer les icônes de l'extension</p>
+    
+    <div class="card">
+      <h2>1. Uploadez votre logo</h2>
+      <div class="upload-zone" id="upload-zone">
+        <p>Glissez-déposez votre logo ici</p>
+        <p style="font-size: 13px; color: #94A3B8;">ou</p>
+        <div class="btn">Choisir un fichier</div>
+        <input type="file" id="file-input" accept="image/*">
+      </div>
+      
+      <div class="preview-section" id="preview-section">
+        <h2 style="margin-top: 32px;">2. Aperçu des icônes générées</h2>
+        
+        <div class="original-preview">
+          <p style="color: #64748B; font-size: 13px; margin-bottom: 12px;">Logo original :</p>
+          <img id="original-img" src="" alt="Logo original">
+        </div>
+        
+        <div class="icons-grid" id="icons-grid"></div>
+        
+        <div class="download-all">
+          <button id="download-all-btn">📥 Télécharger toutes les icônes</button>
+        </div>
+        
+        <div class="instructions">
+          <h3>📋 Comment installer les icônes :</h3>
+          <ol>
+            <li>Téléchargez les 3 icônes ci-dessus</li>
+            <li>Placez-les dans le dossier <code>chrome-extension/icons/</code></li>
+            <li>Remplacez les fichiers existants</li>
+            <li>Allez dans <code>chrome://extensions</code></li>
+            <li>Cliquez sur "Recharger" sur l'extension Reputy</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    const uploadZone = document.getElementById('upload-zone');
+    const fileInput = document.getElementById('file-input');
+    const previewSection = document.getElementById('preview-section');
+    const originalImg = document.getElementById('original-img');
+    const iconsGrid = document.getElementById('icons-grid');
+    const downloadAllBtn = document.getElementById('download-all-btn');
+    
+    const SIZES = [
+      { name: 'icon16', size: 16, label: 'Favicon' },
+      { name: 'icon48', size: 48, label: 'Toolbar' },
+      { name: 'icon128', size: 128, label: 'Chrome Store' }
+    ];
+    
+    let generatedIcons = [];
+    
+    // Click to upload
+    uploadZone.addEventListener('click', () => fileInput.click());
+    
+    // Drag & drop
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('dragover');
+    });
+    
+    uploadZone.addEventListener('dragleave', () => {
+      uploadZone.classList.remove('dragover');
+    });
+    
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        processImage(file);
+      }
+    });
+    
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        processImage(file);
+      }
+    });
+    
+    function processImage(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          generateIcons(img);
+        };
+        img.src = e.target.result;
+        originalImg.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    function generateIcons(sourceImg) {
+      iconsGrid.innerHTML = '';
+      generatedIcons = [];
+      
+      SIZES.forEach(({ name, size, label }) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        
+        // Fond blanc avec coins arrondis (optionnel)
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, size, size);
+        
+        // Calculer le ratio pour garder les proportions
+        const ratio = Math.min(size / sourceImg.width, size / sourceImg.height);
+        const newWidth = sourceImg.width * ratio;
+        const newHeight = sourceImg.height * ratio;
+        const x = (size - newWidth) / 2;
+        const y = (size - newHeight) / 2;
+        
+        // Dessiner l'image centrée
+        ctx.drawImage(sourceImg, x, y, newWidth, newHeight);
+        
+        // Créer l'élément
+        const item = document.createElement('div');
+        item.className = 'icon-item';
+        
+        const displayCanvas = document.createElement('canvas');
+        displayCanvas.width = size;
+        displayCanvas.height = size;
+        displayCanvas.style.width = Math.max(size, 64) + 'px';
+        displayCanvas.style.height = Math.max(size, 64) + 'px';
+        displayCanvas.getContext('2d').drawImage(canvas, 0, 0);
+        
+        const nameEl = document.createElement('div');
+        nameEl.className = 'name';
+        nameEl.textContent = name + '.png';
+        
+        const sizeEl = document.createElement('div');
+        sizeEl.className = 'size';
+        sizeEl.textContent = `${size}×${size}px • ${label}`;
+        
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'download-btn';
+        downloadBtn.textContent = 'Télécharger';
+        downloadBtn.onclick = () => downloadIcon(canvas, name);
+        
+        item.appendChild(displayCanvas);
+        item.appendChild(nameEl);
+        item.appendChild(sizeEl);
+        item.appendChild(downloadBtn);
+        iconsGrid.appendChild(item);
+        
+        generatedIcons.push({ canvas, name });
+      });
+      
+      previewSection.classList.add('active');
+    }
+    
+    function downloadIcon(canvas, name) {
+      const link = document.createElement('a');
+      link.download = name + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+    
+    downloadAllBtn.addEventListener('click', () => {
+      generatedIcons.forEach(({ canvas, name }) => {
+        setTimeout(() => downloadIcon(canvas, name), 100);
+      });
+    });
+  </script>
+</body>
+</html>

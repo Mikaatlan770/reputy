@@ -1,0 +1,17 @@
+const fs = require('fs');
+
+// PNG 16x16 - Bleu simple avec R
+const png16 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAYklEQVQ4T2NkYGD4z0ABYCRXPwMDA8N/BgYGRgYGhn9kGcDIyPiHgYHhPwMDwz9GRsb/5BrAyMj4n4GB4R8DA8M/RkbG/+QawMjI+J+BgeEfAwPDP0ZGxv/kGsDIyPifgYHhHwA85w8RwSn+LAAAAABJRU5ErkJggg==', 'base64');
+
+// PNG 48x48 - Bleu avec R
+const png48 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAAfklEQVRoQ+3YsQ0AIAwDwez/aNIwAQU0ltzYKe0XB0gaPX5tfH7fMEBdQQeoA+qAOqAOqAPqgDqgDqgD6sBvB5aZ2dn9l/u+m10YsH9h48cMUAfUAXVAHVAH1AF1QB1QB9SB3w6sqqXu+m52YcD+hY0fM0AdUAfUAXVAHbjcgQMxmDAx0VPT2AAAAABJRU5ErkJggg==', 'base64');
+
+// PNG 128x128 - Bleu avec R  
+const png128 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAAhElEQVR4Xu3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA7gcUqAABMT3lLAAAAABJRU5ErkJggg==', 'base64');
+
+fs.writeFileSync('icon16.png', png16);
+fs.writeFileSync('icon48.png', png48);
+fs.writeFileSync('icon128.png', png128);
+
+console.log('Icônes placeholder créées !');
+console.log('Pour de vraies icônes, ouvrez generate-icons.html dans Chrome.');
