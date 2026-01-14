@@ -5,6 +5,7 @@
  */
 
 const REPUTY_VERSION = '1.0.0';
+const REPUTY_DEBUG = false; // Mettre à true uniquement pour diagnostiquer
 console.log(`[REPUTY] Content script loaded v${REPUTY_VERSION}`);
 
 // ===== ICÔNES SVG =====
@@ -43,6 +44,60 @@ let lastHoverPhone = '';
 let lastHoverTs = 0;
 
 // ===== UTILITAIRES =====
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * MOD: parseFullName amélioré
+ * - groupe les tokens MAJ consécutifs en nom ("DE LA CRUZ")
+ * - enlève la civilité en tête ("Mme", "Madame", etc.)
+ */
+function parseFullName(displayName = '') {
+  const cleaned = displayName
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return { firstName: '', lastName: '', full: '' };
+
+  const civility = new Set(['mme', 'madame', 'mr', 'm.', 'monsieur', 'dr', 'docteur', 'm']);
+  const tokensRaw = cleaned.split(' ').filter(Boolean);
+
+  // enlever civilité au début
+  const tokens = [];
+  for (const t of tokensRaw) {
+    const norm = t.toLowerCase().replace(/\.+$/, '');
+    if (tokens.length === 0 && civility.has(norm)) continue;
+    tokens.push(t);
+  }
+
+  if (!tokens.length) return { firstName: '', lastName: '', full: cleaned };
+  if (tokens.length === 1) return { firstName: '', lastName: tokens[0], full: cleaned };
+
+  const isUpper = (s) => s === s.toUpperCase() && s.replace(/[^A-ZÀ-ÖØ-Ý]/g, '').length >= 2;
+
+  // ✅ NOUVEAU : regroupe les tokens MAJ consécutifs au début (DE LA CRUZ)
+  let i = 0;
+  while (i < tokens.length && isUpper(tokens[i])) i++;
+
+  if (i >= 1 && i < tokens.length) {
+    return {
+      lastName: tokens.slice(0, i).join(' '),
+      firstName: tokens.slice(i).join(' '),
+      full: cleaned
+    };
+  }
+
+  // fallback prénom puis nom
+  return { firstName: tokens[0], lastName: tokens.slice(1).join(' '), full: cleaned };
+}
+
 function getRuntime() {
   if (typeof globalThis !== 'undefined') {
     if (globalThis.chrome && globalThis.chrome.runtime) return globalThis.chrome.runtime;
@@ -74,26 +129,7 @@ function sendMessageToBackground(msg) {
   });
 }
 
-async function pingBackground() {
-  try {
-    const r = await sendMessageToBackground({ type: 'PING' });
-    console.log('[REPUTY] BG ping:', r);
-  } catch (e) {
-    console.warn('[REPUTY] BG ping failed:', e);
-  }
-}
-
 // ===== HELPERS DOM =====
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 /**
  * Essaie de remonter un "bloc rendez-vous/patient" depuis un event.
  * Sans dépendre d’un selector Doctolib exact (car ça bouge).
@@ -182,13 +218,184 @@ function markAsSeen(rootEl) {
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
 }
+
+/**
+ * MOD: Extraction identité fiable depuis la colonne gauche (agenda + fiche RDV)
+ * Cherche civilité -> NOM (caps) -> Prénom (ligne suivante)
+ */
+function extractIdentityFromLeftPanel() {
+  const containers = Array.from(document.querySelectorAll("aside, section, article, div"))
+    .filter((el) => el && el.offsetParent !== null);
+
+  const phoneRe = /(\+33|0)[1-9](?:[\s.-]?\d{2}){4}/;
+  const dobRe = /\d{2}\/\d{2}\/\d{4}/;
+  const leftCandidates = containers.filter((el) => {
+    const r = el.getBoundingClientRect?.();
+    return r && r.left >= 0 && r.left < window.innerWidth * 0.45 && r.width > 220 && r.height > 120;
+  });
+
+  // Priorité : panneau identité hover agenda (nom + téléphone + date de naissance)
+  const hoverPanels = leftCandidates.filter((el) => {
+    const txt = (el.innerText || "").trim();
+    return txt && phoneRe.test(txt) && dobRe.test(txt);
+  });
+
+  // Si aucun panneau avec téléphone + date de naissance, on ne prend rien (évite les titres d’agendas)
+  if (!hoverPanels.length) return null;
+
+  const pool = hoverPanels;
+  const civRe = /^(madame|monsieur|mme|mr|m\.)$/i;
+  const isPlaceholder = (s) =>
+    /provisoire|identité provisoire|trouver un créneau|filtrer les présents|rechercher/i.test(s || '');
+
+  for (const el of pool) {
+    const lines = (el.innerText || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) continue;
+
+    // Cas où civilité + nom/prénom sont sur la même ligne : "M. LEMAIRE Mathieu" ou "M. LEMAIRE Mathieu 🔵"
+    for (const line of lines) {
+      // Regex plus souple : civilité au début, puis on prend tout ce qui suit jusqu'aux emojis/icônes
+      const civInline = line.match(/^(madame|monsieur|mme|mr|m\.?)\s+([A-ZÀ-ÖØ-Ýa-zà-öø-ÿ\s-]+)/i);
+      if (civInline) {
+        const namePart = civInline[2].trim();
+        if (namePart.length >= 3) {
+          const parsed = parseFullName(namePart);
+          if ((parsed.firstName || parsed.lastName) && !isPlaceholder(parsed.firstName) && !isPlaceholder(parsed.lastName)) {
+            return {
+              lastName: (parsed.lastName || "").toUpperCase(),
+              firstName: parsed.firstName || "",
+              full: `${(parsed.lastName || "").toUpperCase()} ${parsed.firstName || ""}`.trim(),
+            };
+          }
+        }
+      }
+    }
+
+    const civIdx = lines.findIndex((l) => civRe.test(l));
+    if (civIdx === -1) continue;
+
+    const lineAfterCiv = lines[civIdx + 1] || "";
+    const nextLine = lines[civIdx + 2] || "";
+
+    // Cas combiné sur une ligne "AVERLANT Myriam"
+    const parsedCombined = parseFullName(lineAfterCiv);
+    if (parsedCombined.lastName || parsedCombined.firstName) {
+      if (isPlaceholder(parsedCombined.lastName) || isPlaceholder(parsedCombined.firstName)) continue;
+      const full = `${(parsedCombined.lastName || "").toUpperCase()} ${parsedCombined.firstName || ""}`.trim();
+      return {
+        lastName: (parsedCombined.lastName || "").toUpperCase(),
+        firstName: parsedCombined.firstName || "",
+        full,
+      };
+    }
+
+    // Cas sur deux lignes (ligne suivante = prénom)
+    const looksLikeLast =
+      lineAfterCiv &&
+      lineAfterCiv === lineAfterCiv.toUpperCase() &&
+      lineAfterCiv.replace(/[^A-ZÀ-ÖØ-Ý]/g, "").length >= 2;
+
+    const looksLikeFirst =
+      nextLine &&
+      nextLine.length >= 2 &&
+      nextLine.length <= 40 &&
+      !/\d/.test(nextLine);
+
+    if (!looksLikeLast) continue;
+    if (isPlaceholder(lineAfterCiv) || isPlaceholder(nextLine)) continue;
+
+    return {
+      lastName: lineAfterCiv,
+      firstName: looksLikeFirst ? nextLine : "",
+      full: `${lineAfterCiv} ${looksLikeFirst ? nextLine : ""}`.trim(),
+    };
+  }
+
+  // Fallback sans civilité : chercher une ligne tout en MAJ suivie d'une ligne prénom
+  for (const el of pool) {
+    const lines = (el.innerText || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const l1 = lines[i];
+      const l2 = lines[i + 1] || "";
+      const looksLikeLast =
+        l1 &&
+        l1 === l1.toUpperCase() &&
+        l1.replace(/[^A-ZÀ-ÖØ-Ý]/g, "").length >= 2 &&
+        !isPlaceholder(l1);
+      const looksLikeFirst =
+        l2 &&
+        l2.length >= 2 &&
+        l2.length <= 40 &&
+        !/\d/.test(l2) &&
+        !isPlaceholder(l2);
+      if (looksLikeLast && looksLikeFirst) {
+        return {
+          lastName: l1,
+          firstName: l2,
+          full: `${l1} ${l2}`.trim(),
+        };
+      }
+    }
+  }
+
+  // Dernier fallback : ligne combinée NOM Prénom (ex: "LEMAIRE Mathieu" sans civilité)
+  for (const el of pool) {
+    const lines = (el.innerText || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const line of lines) {
+      // Ignorer les lignes avec chiffres (téléphone, date) ou trop courtes
+      if (/\d/.test(line) || line.length < 4) continue;
+      if (isPlaceholder(line)) continue;
+      const parsed = parseFullName(line);
+      if (parsed.lastName && parsed.firstName && !isPlaceholder(parsed.lastName) && !isPlaceholder(parsed.firstName)) {
+        return {
+          lastName: (parsed.lastName || "").toUpperCase(),
+          firstName: parsed.firstName || "",
+          full: `${(parsed.lastName || "").toUpperCase()} ${parsed.firstName || ""}`.trim(),
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * MOD: Extraction ciblée email depuis "Infos administratives" (ligne "E-mail : ...")
+ * - retourne '' si non trouvé OU si ligne vide (patient sans email)
+ */
+function extractEmailFromInfosAdministratives() {
+  const leafs = Array.from(document.querySelectorAll("*"))
+    .filter((el) => el && el.childElementCount === 0 && el.offsetParent !== null)
+    .map((el) => (el.textContent || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const line = leafs.find((t) => /e-?mail\s*:/i.test(t));
+  if (!line) return "";
+
+  const after = line.split(":").slice(1).join(":").trim();
+  if (!after) return ""; // ligne existe mais vide
+
+  const m = after.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return m ? m[0] : "";
+}
+
 // ===== EXTRACTION DONNÉES PATIENT =====
 function extractPatientInfo(rootEl) {
   if (!rootEl) {
-    return { name: '', phone: '', email: '', missing: true };
+    return { name: '', firstName: '', lastName: '', phone: '', email: '', missing: true };
   }
   const scope = rootEl;
-  const info = { name: '', phone: '', email: '', missing: false };
+  const info = { name: '', firstName: '', lastName: '', phone: '', email: '', missing: false };
 
   // Nom
   const nameSelectors = [
@@ -208,8 +415,20 @@ function extractPatientInfo(rootEl) {
       const text = el.textContent.trim();
       if (text.length > 2 && text.length < 100 && !text.includes('Doctolib')) {
         info.name = text;
+        const parsed = parseFullName(text);
+        info.firstName = parsed.firstName;
+        info.lastName = parsed.lastName;
         break;
       }
+    }
+  }
+  // MOD: Fallback fiable via identité colonne gauche (évite "Madame" tout seul)
+  if (!info.name || !info.firstName || !info.lastName) {
+    const left = extractIdentityFromLeftPanel();
+    if (left?.full && left.firstName && left.lastName && !/provisoire|identité provisoire|trouver un créneau/i.test(left.full)) {
+      info.name = left.full;
+      info.firstName = left.firstName;
+      info.lastName = left.lastName;
     }
   }
 
@@ -249,8 +468,19 @@ function extractPatientInfo(rootEl) {
     if (m) info.email = m[0];
   }
 
+  // MOD: si une fiche RDV est déjà ouverte, tente email côté "Infos administratives"
+  if (!info.email) {
+    const e = extractEmailFromInfosAdministratives();
+    if (e) info.email = e;
+  }
+
   if (!info.name && !info.phone && !info.email) {
     info.missing = true;
+  }
+  if (info.name && (!info.firstName || !info.lastName)) {
+    const parsed = parseFullName(info.name);
+    info.firstName = info.firstName || parsed.firstName;
+    info.lastName = info.lastName || parsed.lastName;
   }
   return info;
 }
@@ -359,6 +589,8 @@ function waitForEmail(timeoutMs = 2500) {
 // ===== MODAL =====
 function createModal(patientInfo, rootEl) {
   currentRootEl = rootEl || currentRootEl;
+  // Réinitialiser le canal à SMS par défaut à chaque ouverture du modal
+  selectedChannel = 'sms';
   // Overlay
   currentOverlay = document.createElement('div');
   currentOverlay.className = 'reputy-overlay';
@@ -366,9 +598,24 @@ function createModal(patientInfo, rootEl) {
   document.body.appendChild(currentOverlay);
   
   // Modal
-  currentModal = document.createElement('div');
-  currentModal.className = 'reputy-modal';
-  currentModal.addEventListener('click', (e) => e.stopPropagation());
+  currentModal = document.createElement("div");
+  currentModal.className = "reputy-modal";
+  currentModal.addEventListener("click", (e) => e.stopPropagation());
+
+  // MOD: Nom/prénom affichage conforme :
+  // - bandeau patient : NOM PRENOM en MAJ
+  // - input : NOM en caps + prénom normal
+  const parsedForDisplay = parseFullName(
+    patientInfo.name || `${patientInfo.lastName || ""} ${patientInfo.firstName || ""}`
+  );
+
+  const lastCaps = (parsedForDisplay.lastName || "").toUpperCase().trim();
+  const firstNorm = (parsedForDisplay.firstName || "").trim();
+
+  const bannerName = `${lastCaps} ${firstNorm}`.trim(); // NOM en caps, prénom en casse normale
+  const formName = `${lastCaps} ${firstNorm}`.trim() || (patientInfo.name || "");
+  const displayName = formName; // compat: éviter ReferenceError
+  const contactValue = patientInfo.phone || patientInfo.email || "Coordonnées à compléter";
 
   currentModal.innerHTML = `
     <div class="reputy-modal-header">
@@ -394,18 +641,18 @@ function createModal(patientInfo, rootEl) {
       </div>
       
       <!-- Info patient -->
-      ${patientInfo.name ? `
+      ${bannerName ? `
         <div class="reputy-patient-info">
-          <div class="reputy-patient-name">${escapeHtml(patientInfo.name)}</div>
-          <div class="reputy-patient-detail">${patientInfo.phone || patientInfo.email || 'Coordonnées à compléter'}</div>
+          <div class="reputy-patient-name">${escapeHtml(bannerName)}</div>
+          <div class="reputy-patient-detail">${escapeHtml(contactValue)}</div>
         </div>
-      ` : ''}
+      ` : ""}
       
       <!-- Formulaire -->
       <div class="reputy-form-group">
-        <label class="reputy-label">Nom du patient</label>
+        <label class="reputy-label">Nom et prénom du patient</label>
         <input type="text" class="reputy-input" id="reputy-name" 
-               value="${escapeHtml(patientInfo.name)}" 
+               value="${escapeHtml(displayName)}" 
                placeholder="Prénom NOM">
       </div>
       
@@ -476,17 +723,33 @@ function createModal(patientInfo, rootEl) {
       fetchEmailBtn.disabled = true;
       fetchEmailBtn.textContent = 'Récupération...';
       try {
+        // Ouvrir la fiche RDV si possible
         if (lastRightClickAppointmentEl?.click) lastRightClickAppointmentEl.click();
-        const email = await waitForEmail(2500);
+
+        // petit délai rendu
+        await new Promise((r) => setTimeout(r, 350));
+
+        // MOD: extraction ciblée "Infos administratives"
+        let email = extractEmailFromInfosAdministratives();
+        if (!email) {
+          // fallback : observer quelques ms
+          email = await waitForEmail(2500);
+        }
+
         if (email) {
-          const input = currentModal.querySelector('#reputy-email');
+          const input = currentModal.querySelector("#reputy-email");
           if (input) input.value = email;
+          showToast("success", "Email récupéré", email);
         } else {
-          showToast('warning', 'Email non trouvé', 'Impossible de récupérer l’email automatiquement. Ajoutez-le manuellement.');
+          showToast(
+            "warning",
+            "Email non trouvé",
+            "Aucun email sur la fiche (ou patient non renseigné)."
+          );
         }
       } catch (err) {
-        console.error('[REPUTY] fetch email error', err);
-        showToast('error', 'Erreur', 'Récupération email impossible.');
+        console.error("[REPUTY] fetch email error", err);
+        showToast("error", "Erreur", "Récupération email impossible.");
       } finally {
         fetchEmailBtn.disabled = false;
         fetchEmailBtn.textContent = original;
@@ -508,13 +771,19 @@ function createModal(patientInfo, rootEl) {
 
 function closeModal() {
   if (currentOverlay) {
+    // Désactiver immédiatement les clics sur l'overlay
+    currentOverlay.style.pointerEvents = 'none';
     currentOverlay.classList.add('reputy-fade-out');
-    setTimeout(() => currentOverlay?.remove(), 200);
+    const overlayToRemove = currentOverlay;
+    setTimeout(() => overlayToRemove?.remove(), 200);
     currentOverlay = null;
   }
   if (currentModal) {
+    // Désactiver immédiatement les clics sur le modal
+    currentModal.style.pointerEvents = 'none';
     currentModal.classList.add('reputy-fade-out');
-    setTimeout(() => currentModal?.remove(), 200);
+    const modalToRemove = currentModal;
+    setTimeout(() => modalToRemove?.remove(), 200);
     currentModal = null;
   }
 }
@@ -554,18 +823,21 @@ async function handleSend() {
       type: 'SEND_REVIEW_REQUEST',
       payload: {
         patientName: name,
+        patientFirstName: parseFullName(name).firstName || undefined,
+        patientLastName: parseFullName(name).lastName || undefined,
         patientPhone: selectedChannel === 'sms' ? phone : undefined,
         patientEmail: selectedChannel === 'email' ? email : undefined,
         channel: selectedChannel
       }
     });
     
-    if (response && response.success) {
+  if (response && response.success) {
       closeModal();
-      showToast('success', 'Demande envoyée !', 
-        `La demande d'avis a été envoyée par ${selectedChannel.toUpperCase()}.`,
-        response.reviewUrl
-      );
+      const parsed = parseFullName(name);
+      const fullForToast = `${(parsed.lastName || '').toUpperCase()} ${parsed.firstName || ''}`.trim();
+      const successTitle = `${fullForToast} • ${selectedChannel.toUpperCase()} envoyé`.trim();
+      const successMsg = `Contact: ${selectedChannel === 'sms' ? phone : email}`;
+    showToast('success', successTitle.trim(), successMsg /* pas de bouton copier */);
       markAsSeen(resolveRootFromEvent(lastClickEvent));
     } else {
       throw new Error(response?.error || 'Erreur inconnue');
@@ -584,21 +856,37 @@ async function handleSend() {
     }
   } finally {
     cancelFailsafe();
+    // Nettoyage immédiat
     cleanupOverlayAndBlockers();
-    if (document.querySelector('.reputy-overlay')) {
-      setTimeout(() => cleanupOverlayAndBlockers(), 1000);
+    // Nettoyage différé pour s'assurer que tout est supprimé
+    setTimeout(() => cleanupOverlayAndBlockers(), 300);
+    setTimeout(() => cleanupOverlayAndBlockers(), 1000);
+    setTimeout(() => cleanupOverlayAndBlockers(), 2000);
+    // Restaurer le bouton (si le modal existe encore)
+    if (sendBtn && document.body.contains(sendBtn)) {
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = originalContent;
     }
-    sendBtn.disabled = false;
-    sendBtn.innerHTML = originalContent;
   }
 }
 
 // ===== TOAST =====
 function cleanupOverlayAndBlockers() {
+  // Supprimer SEULEMENT les overlays (PAS le modal qui doit rester ouvert)
   document.querySelectorAll('.reputy-overlay').forEach(el => el.remove());
+  // Reset des styles sur html et body
   document.documentElement.style.pointerEvents = '';
+  document.documentElement.style.overflow = '';
+  document.documentElement.style.position = '';
   document.body.style.pointerEvents = '';
   document.body.style.overflow = '';
+  document.body.style.position = '';
+  // Log debug
+  if (REPUTY_DEBUG) {
+    console.log('[REPUTY][DEBUG] cleanupOverlayAndBlockers called');
+    const remaining = document.querySelectorAll('.reputy-overlay, .reputy-modal, .reputy-toast');
+    console.log('[REPUTY][DEBUG] Remaining Reputy elements:', remaining.length);
+  }
 }
 
 function cleanupToasts() {
@@ -616,23 +904,29 @@ function cancelFailsafe() {
 
 function showToast(type, title, message, reviewUrl = null, showReload = false) {
   cleanupToasts();
+  // Nettoyage agressif de tout élément Reputy bloquant AVANT d'afficher le toast
+  cleanupOverlayAndBlockers();
   
   const toast = document.createElement('div');
   toast.className = `reputy-toast reputy-toast-${type}`;
-  toast.style.pointerEvents = 'none';
+  // Force non-bloquant : position fixe coin inférieur droit, dimensions auto
+  toast.style.cssText = `
+    pointer-events: none !important;
+    position: fixed !important;
+    bottom: 18px !important;
+    right: 18px !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: 360px !important;
+  `;
   
   const icon = type === 'success' ? ICONS.check : ICONS.alert;
   
   let actionsHtml = '';
-  if (reviewUrl) {
-    actionsHtml = `
-      <div class="reputy-toast-actions">
-        <button class="reputy-toast-btn reputy-toast-btn-secondary" data-action="copy">
-          ${ICONS.copy} Copier le lien
-        </button>
-      </div>
-    `;
-  } else if (showReload) {
+  // Simplifié : plus de bouton copier (gagne de la place)
+  if (showReload) {
     actionsHtml = `
       <div class="reputy-toast-actions">
         <button class="reputy-toast-btn reputy-toast-btn-primary" data-action="reload">
@@ -658,12 +952,77 @@ function showToast(type, title, message, reviewUrl = null, showReload = false) {
   
   document.body.appendChild(toast);
   
+  // Force pointer-events: none sur toast-inner, auto uniquement sur les boutons
+  const toastInner = toast.querySelector('.reputy-toast-inner');
+  if (toastInner) {
+    toastInner.style.pointerEvents = 'none';
+  }
+  const closeBtn = toast.querySelector('.reputy-toast-close');
+  if (closeBtn) {
+    closeBtn.style.pointerEvents = 'auto';
+  }
+  const actionBtns = toast.querySelectorAll('.reputy-toast-btn');
+  actionBtns.forEach(btn => { btn.style.pointerEvents = 'auto'; });
+  
+  // Debug : diagnostiquer quel élément couvre le centre
+  if (REPUTY_DEBUG) {
+    setTimeout(() => {
+      const centerX = window.innerWidth / 2;
+      const centerY = window.innerHeight / 2;
+      const centerEl = document.elementFromPoint(centerX, centerY);
+      console.log('[REPUTY][DEBUG] Element at center (' + centerX + ',' + centerY + '):', centerEl);
+      if (centerEl) {
+        const cs = getComputedStyle(centerEl);
+        console.log('[REPUTY][DEBUG] Center element style:', {
+          tagName: centerEl.tagName,
+          id: centerEl.id,
+          className: centerEl.className,
+          pointerEvents: cs.pointerEvents,
+          position: cs.position,
+          zIndex: cs.zIndex,
+          width: cs.width,
+          height: cs.height,
+          top: cs.top,
+          left: cs.left
+        });
+      }
+      // Liste tous les éléments Reputy
+      const reputyEls = document.querySelectorAll('.reputy-toast, .reputy-overlay, .reputy-modal, [class*="reputy"]');
+      console.log('[REPUTY][DEBUG] All Reputy elements:', reputyEls.length);
+      reputyEls.forEach((el, i) => {
+        const cs = getComputedStyle(el);
+        console.log('[REPUTY][DEBUG] Reputy el #' + i + ':', {
+          className: el.className,
+          position: cs.position,
+          zIndex: cs.zIndex,
+          pointerEvents: cs.pointerEvents,
+          width: cs.width,
+          height: cs.height,
+          inDOM: document.body.contains(el)
+        });
+      });
+      // Vérifier si body/html ont des styles bloquants
+      console.log('[REPUTY][DEBUG] body style:', {
+        pointerEvents: document.body.style.pointerEvents,
+        overflow: document.body.style.overflow,
+        position: document.body.style.position
+      });
+      console.log('[REPUTY][DEBUG] html style:', {
+        pointerEvents: document.documentElement.style.pointerEvents,
+        overflow: document.documentElement.style.overflow,
+        position: document.documentElement.style.position
+      });
+    }, 500);
+  }
+  
   const closeToast = () => {
     toast.classList.add('reputy-fade-out');
     setTimeout(() => toast.remove(), 150);
   };
   
-  toast.querySelector('.reputy-toast-close')?.addEventListener('click', closeToast);
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeToast);
+  }
   
   if (reviewUrl) {
     const copyBtn = toast.querySelector('[data-action="copy"]');
@@ -745,12 +1104,23 @@ function injectReputyButtons() {
         }
         if (!patientInfo.name && lastRightClickPatientName) {
           patientInfo.name = lastRightClickPatientName;
+          const parsed = parseFullName(lastRightClickPatientName);
+          patientInfo.firstName = parsed.firstName;
+          patientInfo.lastName = parsed.lastName;
           patientInfo.missing = false;
           console.log('[REPUTY][AGENDA] name from appointment:', lastRightClickPatientName);
         }
+
+        // MOD: si identité gauche dispo, elle écrase (source de vérité)
+        const left = extractIdentityFromLeftPanel();
+        if (left?.full) {
+          patientInfo.name = left.full;
+          patientInfo.firstName = left.firstName;
+          patientInfo.lastName = left.lastName;
+        }
+
         createModal(patientInfo, rootEl);
-        // Failsafe overlay au cas où
-        setTimeout(() => cleanupOverlayAndBlockers(), 1000);
+        // Note: pas de failsafe ici, l'overlay doit rester avec le modal
       } catch (err) {
         console.error('[REPUTY] Click handler error:', err);
         cleanupOverlayAndBlockers?.();
@@ -776,50 +1146,46 @@ function openReputyModal() {
   createModal(patientInfo);
 }
 
-// ===== HELPERS =====
-function escapeHtml(str) {
-  if (!str) return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+
 
 // ===== INIT =====
 function init() {
   console.log('[REPUTY] Initializing...');
   // Mémoriser la carte/popup au clic droit (agenda)
-  document.addEventListener('contextmenu', (e) => {
-    try {
-      const el = e.target instanceof Element ? e.target : null;
-      const txt = (el?.textContent || '').trim();
-      if (txt.length > 2 && txt.length < 80) {
-        lastRightClickPatientName = txt;
-      }
+  document.addEventListener(
+    "contextmenu",
+    (e) => {
+      try {
+        const el = e.target instanceof Element ? e.target : null;
+        const txt = (el?.textContent || "").trim();
+        if (txt.length > 2 && txt.length < 80) lastRightClickPatientName = txt;
 
-      const path = e.composedPath?.() || [];
-      lastRightClickAppointmentEl =
-        path.find(node =>
-          node instanceof Element &&
-          (node.matches?.('[data-testid*="appointment"], [class*="appointment"], [class*="booking"], [role="button"]') ||
-           node.querySelector?.('[data-testid*="patient"], [class*="patient"]'))
-        ) || null;
+        const path = e.composedPath?.() || [];
+        lastRightClickAppointmentEl =
+          path.find(
+            (node) =>
+              node instanceof Element &&
+              (node.matches?.(
+                '[data-testid*="appointment"], [class*="appointment"], [class*="booking"], [role="button"]'
+              ) ||
+                node.querySelector?.('[data-testid*="patient"], [class*="patient"]'))
+          ) || null;
 
-      if (lastRightClickAppointmentEl) {
-        const n = extractNameFromAppointmentEl(lastRightClickAppointmentEl);
-        if (n) {
-          lastRightClickPatientName = n;
-          console.log('[REPUTY][AGENDA] name from appointment:', n);
+        if (lastRightClickAppointmentEl) {
+          const n = extractNameFromAppointmentEl(lastRightClickAppointmentEl);
+          if (n) {
+            lastRightClickPatientName = n;
+            console.log("[REPUTY][AGENDA] name from appointment:", n);
+          }
         }
-      }
 
-      lastContextMenuEl = resolveRootFromEvent(e);
-    } catch (_) {
-      lastContextMenuEl = null;
-    }
-  }, true);
+        lastContextMenuEl = resolveRootFromEvent(e);
+      } catch (_) {
+        lastContextMenuEl = null;
+      }
+    },
+    true
+  );
 
   sendMessageToBackground({ type: 'PING' })
     .then(r => console.log('[REPUTY] BG ping:', r))
@@ -870,4 +1236,5 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
 
