@@ -85,6 +85,582 @@
         "source": "chrome-extension",
         "pageUrl": "https://pro.doctolib.fr/calendar/today/day"
       }
+    },
+    "cb94cb9f45c6c712ac26ffc5": {
+      "id": "cb94cb9f45c6c712ac26ffc5",
+      "createdAt": "2026-01-14T21:36:10.843Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MALIK Amina",
+        "firstName": "Amina",
+        "lastName": "MALIK",
+        "email": "",
+        "phone": "0789411698"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/cb94cb9f45c6c712ac26ffc5",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "7d702a2e3a19d0e6e46ae641": {
+      "id": "7d702a2e3a19d0e6e46ae641",
+      "createdAt": "2026-01-14T21:41:08.235Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MALIK Amina",
+        "firstName": "Amina",
+        "lastName": "MALIK",
+        "email": "",
+        "phone": "0789411698"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/7d702a2e3a19d0e6e46ae641",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "c02195862f1335e8f9f88339": {
+      "id": "c02195862f1335e8f9f88339",
+      "createdAt": "2026-01-14T21:41:15.822Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MALIK",
+        "firstName": "",
+        "lastName": "MALIK",
+        "email": "",
+        "phone": "0789411698"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/c02195862f1335e8f9f88339",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "12a1022547de742d8af3db5d": {
+      "id": "12a1022547de742d8af3db5d",
+      "createdAt": "2026-01-14T21:46:42.619Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MALIK",
+        "firstName": "",
+        "lastName": "MALIK",
+        "email": "",
+        "phone": "0789411698"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/12a1022547de742d8af3db5d",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "22adad7a6169b51ef04239dd": {
+      "id": "22adad7a6169b51ef04239dd",
+      "createdAt": "2026-01-14T21:46:52.268Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MALIK Amina",
+        "firstName": "Amina",
+        "lastName": "MALIK",
+        "email": "",
+        "phone": "0789411698"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/22adad7a6169b51ef04239dd",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "d152a35cdb5176966997c225": {
+      "id": "d152a35cdb5176966997c225",
+      "createdAt": "2026-01-15T08:59:26.584Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MALIK",
+        "firstName": "",
+        "lastName": "MALIK",
+        "email": "",
+        "phone": "0789411698"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/d152a35cdb5176966997c225",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "93bb0ab43684604746d53c96": {
+      "id": "93bb0ab43684604746d53c96",
+      "createdAt": "2026-01-15T08:59:34.872Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MALIK Amina",
+        "firstName": "Amina",
+        "lastName": "MALIK",
+        "email": "",
+        "phone": "0789411698"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/93bb0ab43684604746d53c96",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "1cb966f797643df0cc367fbc": {
+      "id": "1cb966f797643df0cc367fbc",
+      "createdAt": "2026-01-15T14:29:43.679Z",
+      "channel": "sms",
+      "patient": {
+        "name": "IBRAHIM",
+        "firstName": "",
+        "lastName": "IBRAHIM",
+        "email": "",
+        "phone": "0659151540"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/1cb966f797643df0cc367fbc",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "bf405c5b20b13027dc3f2849": {
+      "id": "bf405c5b20b13027dc3f2849",
+      "createdAt": "2026-01-15T14:29:54.686Z",
+      "channel": "sms",
+      "patient": {
+        "name": "VARGA DALAN DE",
+        "firstName": "VARGA",
+        "lastName": "DALAN DE",
+        "email": "",
+        "phone": "0619143440"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/bf405c5b20b13027dc3f2849",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "cef1ea82387c186b3dda5327": {
+      "id": "cef1ea82387c186b3dda5327",
+      "createdAt": "2026-01-15T14:30:01.320Z",
+      "channel": "sms",
+      "patient": {
+        "name": "PLISSONNEAU Gabriel",
+        "firstName": "Gabriel",
+        "lastName": "PLISSONNEAU",
+        "email": "",
+        "phone": "0630709718"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/cef1ea82387c186b3dda5327",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "4c8813c1fc4b431ca039de4d": {
+      "id": "4c8813c1fc4b431ca039de4d",
+      "createdAt": "2026-01-15T14:30:06.909Z",
+      "channel": "sms",
+      "patient": {
+        "name": "PLISSONNEAU Gabriel",
+        "firstName": "Gabriel",
+        "lastName": "PLISSONNEAU",
+        "email": "",
+        "phone": "0630709718"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/4c8813c1fc4b431ca039de4d",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "38f6afe0e8d7144ce6892f54": {
+      "id": "38f6afe0e8d7144ce6892f54",
+      "createdAt": "2026-01-15T14:30:13.003Z",
+      "channel": "sms",
+      "patient": {
+        "name": "VARGA DALAN DE",
+        "firstName": "VARGA",
+        "lastName": "DALAN DE",
+        "email": "",
+        "phone": "0619143440"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/38f6afe0e8d7144ce6892f54",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "2c16a46a6a93ae21b9e85bbb": {
+      "id": "2c16a46a6a93ae21b9e85bbb",
+      "createdAt": "2026-01-15T14:30:21.595Z",
+      "channel": "sms",
+      "patient": {
+        "name": "BENOIT Andy",
+        "firstName": "Andy",
+        "lastName": "BENOIT",
+        "email": "",
+        "phone": "0676220265"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/2c16a46a6a93ae21b9e85bbb",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "4e379262dabf84d056ad0cb4": {
+      "id": "4e379262dabf84d056ad0cb4",
+      "createdAt": "2026-01-15T14:30:34.305Z",
+      "channel": "sms",
+      "patient": {
+        "name": "VARGA DALAN DE",
+        "firstName": "VARGA",
+        "lastName": "DALAN DE",
+        "email": "",
+        "phone": "0619143440"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/4e379262dabf84d056ad0cb4",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "fa7eddf755528a7ad829f04f": {
+      "id": "fa7eddf755528a7ad829f04f",
+      "createdAt": "2026-01-15T14:30:40.694Z",
+      "channel": "sms",
+      "patient": {
+        "name": "VARGA DALAN DE",
+        "firstName": "VARGA",
+        "lastName": "DALAN DE",
+        "email": "",
+        "phone": "0619143440"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/fa7eddf755528a7ad829f04f",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "6586414a16e209bdf2a74fc7": {
+      "id": "6586414a16e209bdf2a74fc7",
+      "createdAt": "2026-01-15T14:30:46.441Z",
+      "channel": "sms",
+      "patient": {
+        "name": "BENOIT Andy",
+        "firstName": "Andy",
+        "lastName": "BENOIT",
+        "email": "",
+        "phone": "0676220265"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/6586414a16e209bdf2a74fc7",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "2ebee83d30ac1f32429469f0": {
+      "id": "2ebee83d30ac1f32429469f0",
+      "createdAt": "2026-01-15T14:30:51.446Z",
+      "channel": "sms",
+      "patient": {
+        "name": "BONNAUD",
+        "firstName": "",
+        "lastName": "BONNAUD",
+        "email": "",
+        "phone": "0622701755"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/2ebee83d30ac1f32429469f0",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "593286a021355e0789dfe234": {
+      "id": "593286a021355e0789dfe234",
+      "createdAt": "2026-01-15T14:30:56.190Z",
+      "channel": "sms",
+      "patient": {
+        "name": "BAGGARI EL",
+        "firstName": "BAGGARI",
+        "lastName": "EL",
+        "email": "",
+        "phone": "0749681379"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/593286a021355e0789dfe234",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "7913adc51444e5427d10c655": {
+      "id": "7913adc51444e5427d10c655",
+      "createdAt": "2026-01-15T14:31:01.795Z",
+      "channel": "sms",
+      "patient": {
+        "name": "BAGGARI EL",
+        "firstName": "BAGGARI",
+        "lastName": "EL",
+        "email": "",
+        "phone": "0749681379"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/7913adc51444e5427d10c655",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "a4b3fbda7c7afaf22dd357a2": {
+      "id": "a4b3fbda7c7afaf22dd357a2",
+      "createdAt": "2026-01-15T14:31:06.490Z",
+      "channel": "sms",
+      "patient": {
+        "name": "BONNAUD",
+        "firstName": "",
+        "lastName": "BONNAUD",
+        "email": "",
+        "phone": "0622701755"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/a4b3fbda7c7afaf22dd357a2",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "26acac1e139cf3c55386ff57": {
+      "id": "26acac1e139cf3c55386ff57",
+      "createdAt": "2026-01-15T14:31:13.842Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MILADI",
+        "firstName": "",
+        "lastName": "MILADI",
+        "email": "",
+        "phone": "0669520035"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/26acac1e139cf3c55386ff57",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "597750ba8140f5ba191b699a": {
+      "id": "597750ba8140f5ba191b699a",
+      "createdAt": "2026-01-15T14:31:18.445Z",
+      "channel": "sms",
+      "patient": {
+        "name": "JAZIRI",
+        "firstName": "",
+        "lastName": "JAZIRI",
+        "email": "",
+        "phone": "0626767127"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/597750ba8140f5ba191b699a",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "df797629da2f931650e8d8c9": {
+      "id": "df797629da2f931650e8d8c9",
+      "createdAt": "2026-01-15T14:31:23.052Z",
+      "channel": "sms",
+      "patient": {
+        "name": "JAZIRI",
+        "firstName": "",
+        "lastName": "JAZIRI",
+        "email": "",
+        "phone": "0626767127"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/df797629da2f931650e8d8c9",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "18f82eed8e1d3aee6b28de8c": {
+      "id": "18f82eed8e1d3aee6b28de8c",
+      "createdAt": "2026-01-15T14:31:26.739Z",
+      "channel": "sms",
+      "patient": {
+        "name": "MILADI",
+        "firstName": "",
+        "lastName": "MILADI",
+        "email": "",
+        "phone": "0669520035"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/18f82eed8e1d3aee6b28de8c",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "3fc2363da26b44ef2d70cb50": {
+      "id": "3fc2363da26b44ef2d70cb50",
+      "createdAt": "2026-01-15T14:33:11.782Z",
+      "channel": "email",
+      "patient": {
+        "name": "BEYECK RIFOE Asleen",
+        "firstName": "Asleen",
+        "lastName": "BEYECK RIFOE",
+        "email": "asleenbr@hotmail.com",
+        "phone": ""
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/3fc2363da26b44ef2d70cb50",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "8edf6c2baba92749ad2e1855": {
+      "id": "8edf6c2baba92749ad2e1855",
+      "createdAt": "2026-01-15T14:33:17.574Z",
+      "channel": "sms",
+      "patient": {
+        "name": "BEYECK RIFOE Asleen",
+        "firstName": "Asleen",
+        "lastName": "BEYECK RIFOE",
+        "email": "",
+        "phone": "0766074637"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/8edf6c2baba92749ad2e1855",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "22fe22944ad004c8804700d6": {
+      "id": "22fe22944ad004c8804700d6",
+      "createdAt": "2026-01-15T14:33:26.094Z",
+      "channel": "email",
+      "patient": {
+        "name": "RAZANI Mehdi",
+        "firstName": "Mehdi",
+        "lastName": "RAZANI",
+        "email": "mehdikkal@gmail.com",
+        "phone": ""
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/22fe22944ad004c8804700d6",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "9117cea95dc1284835c61d97": {
+      "id": "9117cea95dc1284835c61d97",
+      "createdAt": "2026-01-15T14:33:32.096Z",
+      "channel": "sms",
+      "patient": {
+        "name": "RAZANI Mehdi",
+        "firstName": "Mehdi",
+        "lastName": "RAZANI",
+        "email": "",
+        "phone": "0624583680"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/9117cea95dc1284835c61d97",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "2dc48583f0cd06ce1b45c260": {
+      "id": "2dc48583f0cd06ce1b45c260",
+      "createdAt": "2026-01-15T14:57:23.310Z",
+      "channel": "sms",
+      "patient": {
+        "name": "FAURE",
+        "firstName": "",
+        "lastName": "FAURE",
+        "email": "",
+        "phone": "0610195387"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/2dc48583f0cd06ce1b45c260",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "78345b66472068a82b13b30e": {
+      "id": "78345b66472068a82b13b30e",
+      "createdAt": "2026-01-15T14:59:25.622Z",
+      "channel": "email",
+      "patient": {
+        "name": "CANNESAN Antonin",
+        "firstName": "Antonin",
+        "lastName": "CANNESAN",
+        "email": "acannesan@hotmail.fr",
+        "phone": ""
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/78345b66472068a82b13b30e",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": ""
+      }
+    },
+    "77272c415ebb2ed222510075": {
+      "id": "77272c415ebb2ed222510075",
+      "idempotencyKey": "906770965241589df113d031c6ed0a62",
+      "createdAt": "2026-01-15T16:27:47.642Z",
+      "lastSentAt": "2026-01-15T16:27:54.488Z",
+      "sendCount": 2,
+      "channel": "sms",
+      "patient": {
+        "name": "Jean Test",
+        "firstName": "",
+        "lastName": "",
+        "email": "",
+        "phone": "0612345678"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/77272c415ebb2ed222510075",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": "",
+        "appointmentDate": "",
+        "locationId": ""
+      }
+    },
+    "ec03a12eae783e096886eae9": {
+      "id": "ec03a12eae783e096886eae9",
+      "idempotencyKey": "22bf51eb0ec1e99fc06e5441b391a895",
+      "createdAt": "2026-01-15T16:30:38.768Z",
+      "lastSentAt": "2026-01-15T16:30:43.960Z",
+      "sendCount": 2,
+      "channel": "sms",
+      "patient": {
+        "name": "MULLER",
+        "firstName": "",
+        "lastName": "MULLER",
+        "email": "",
+        "phone": "0784957296"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/ec03a12eae783e096886eae9",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": "",
+        "appointmentDate": "",
+        "locationId": ""
+      }
+    },
+    "3cc01fdbfab925d24ea2d909": {
+      "id": "3cc01fdbfab925d24ea2d909",
+      "idempotencyKey": "142f00fbb60642bd497da9dcb727e267",
+      "createdAt": "2026-01-15T16:40:25.313Z",
+      "lastSentAt": "2026-01-15T16:40:25.313Z",
+      "sendCount": 1,
+      "channel": "sms",
+      "patient": {
+        "name": "Marie Dupont",
+        "firstName": "Marie",
+        "lastName": "Dupont",
+        "email": "",
+        "phone": "0698765432"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/3cc01fdbfab925d24ea2d909",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": "",
+        "appointmentDate": "",
+        "locationId": ""
+      }
     }
   },
   "feedbacks": {
@@ -110,6 +686,150 @@
         "email": "",
         "phone": "+33619560785"
       }
+    },
+    "6d2529d2d7b87bfa4729d2de": {
+      "requestId": "6d2529d2d7b87bfa4729d2de",
+      "createdAt": "2026-01-14T21:17:03.688Z",
+      "rating": 4,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "LEMPICKI",
+        "email": "elsa.lempicki@icloud.com",
+        "phone": "+33643937755"
+      }
+    },
+    "78345b66472068a82b13b30e": {
+      "requestId": "78345b66472068a82b13b30e",
+      "createdAt": "2026-01-15T15:06:34.550Z",
+      "rating": 2,
+      "comment": "mauvaise experience",
+      "channel": "email",
+      "patient": {
+        "name": "CANNESAN Antonin",
+        "firstName": "Antonin",
+        "lastName": "CANNESAN",
+        "email": "acannesan@hotmail.fr",
+        "phone": ""
+      }
+    },
+    "2dc48583f0cd06ce1b45c260": {
+      "requestId": "2dc48583f0cd06ce1b45c260",
+      "createdAt": "2026-01-15T15:06:47.274Z",
+      "rating": 5,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "FAURE",
+        "firstName": "",
+        "lastName": "FAURE",
+        "email": "",
+        "phone": "0610195387"
+      }
+    },
+    "9117cea95dc1284835c61d97": {
+      "requestId": "9117cea95dc1284835c61d97",
+      "createdAt": "2026-01-15T15:08:20.471Z",
+      "rating": 5,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "RAZANI Mehdi",
+        "firstName": "Mehdi",
+        "lastName": "RAZANI",
+        "email": "",
+        "phone": "0624583680"
+      }
+    },
+    "77272c415ebb2ed222510075": {
+      "requestId": "77272c415ebb2ed222510075",
+      "submittedAt": "2026-01-15T16:28:05.911Z",
+      "createdAt": "2026-01-15T16:28:05.911Z",
+      "rating": 4,
+      "comment": "Très bien",
+      "channel": "sms",
+      "patient": {
+        "name": "Jean Test",
+        "firstName": "",
+        "lastName": "",
+        "email": "",
+        "phone": "0612345678"
+      },
+      "meta": {
+        "userAgent": "curl/8.7.1"
+      }
+    },
+    "ec03a12eae783e096886eae9": {
+      "requestId": "ec03a12eae783e096886eae9",
+      "submittedAt": "2026-01-15T16:31:54.890Z",
+      "createdAt": "2026-01-15T16:31:54.890Z",
+      "rating": 5,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "MULLER",
+        "firstName": "",
+        "lastName": "MULLER",
+        "email": "",
+        "phone": "0784957296"
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+      }
+    },
+    "3cc01fdbfab925d24ea2d909": {
+      "requestId": "3cc01fdbfab925d24ea2d909",
+      "submittedAt": "2026-01-15T16:41:11.853Z",
+      "createdAt": "2026-01-15T16:41:11.853Z",
+      "rating": 5,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "Marie Dupont",
+        "firstName": "Marie",
+        "lastName": "Dupont",
+        "email": "",
+        "phone": "0698765432"
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+      }
+    },
+    "3fc2363da26b44ef2d70cb50": {
+      "requestId": "3fc2363da26b44ef2d70cb50",
+      "submittedAt": "2026-01-15T17:58:30.315Z",
+      "createdAt": "2026-01-15T17:58:30.315Z",
+      "rating": 5,
+      "comment": "",
+      "channel": "email",
+      "patient": {
+        "name": "BEYECK RIFOE Asleen",
+        "firstName": "Asleen",
+        "lastName": "BEYECK RIFOE",
+        "email": "asleenbr@hotmail.com",
+        "phone": ""
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cursor/2.3.35 Chrome/138.0.7204.251 Electron/37.7.0 Safari/537.36"
+      }
+    },
+    "bf405c5b20b13027dc3f2849": {
+      "requestId": "bf405c5b20b13027dc3f2849",
+      "submittedAt": "2026-01-16T13:14:28.484Z",
+      "createdAt": "2026-01-16T13:14:28.484Z",
+      "rating": 5,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "VARGA DALAN DE",
+        "firstName": "VARGA",
+        "lastName": "DALAN DE",
+        "email": "",
+        "phone": "0619143440"
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cursor/2.3.35 Chrome/138.0.7204.251 Electron/37.7.0 Safari/537.36"
+      }
     }
   },
   "users": {
@@ -132,5 +852,9 @@
       "userId": "23e908ac1509f1f5eaedf22d",
       "createdAt": "2025-12-24T00:16:29.188Z"
     }
+  },
+  "settings": {
+    "googleReviewUrl": "https://g.page/r/CcRGV3wmtmZxEBM/review",
+    "cabinetName": "Dr Michael ATLAN"
   }
 }

@@ -17,7 +17,7 @@ import {
   Menu,
   AlertTriangle,
 } from 'lucide-react'
-import { cn, getInitials } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 
 export function Topbar() {
@@ -116,7 +116,9 @@ export function Topbar() {
           {/* Profile */}
           <div className="flex items-center gap-3 pl-3 border-l border-border">
             <div className="hidden sm:block text-right">
-              <p className="text-sm font-medium">{currentUser?.name}</p>
+              <p className="text-sm font-medium">
+                {currentUser ? `${currentUser.civility} ${currentUser.firstName} ${currentUser.lastName}` : ''}
+              </p>
               <p className="text-xs text-muted-foreground capitalize">
                 {currentUser?.role}
               </p>
@@ -124,7 +126,10 @@ export function Topbar() {
             <Avatar className="h-9 w-9">
               <AvatarImage src={currentUser?.avatar} />
               <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                {currentUser ? getInitials(currentUser.name) : 'U'}
+                {currentUser 
+                  ? `${currentUser.lastName[0]}${currentUser.firstName[0]}`.toUpperCase()
+                  : 'U'
+                }
               </AvatarFallback>
             </Avatar>
           </div>

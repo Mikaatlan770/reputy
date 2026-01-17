@@ -31,10 +31,12 @@ import {
   CheckCircle,
   Clock,
   AlertTriangle,
+  Globe,
 } from 'lucide-react'
 import { cn, formatDate, getInitials } from '@/lib/utils'
 import type { Review } from '@/types'
 import { AiReplyAssistant } from '@/components/ai/AiReplyAssistant'
+import { WebsiteWidgetManager } from '@/components/embed'
 
 export default function ReviewsPage() {
   const { currentLocation } = useAppStore()
@@ -44,6 +46,7 @@ export default function ReviewsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [responseText, setResponseText] = useState('')
   const [selectedTone, setSelectedTone] = useState<string>('professional')
+  const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
 
   // Filter reviews
   const reviews = allReviews
@@ -89,6 +92,15 @@ export default function ReviewsPage() {
           <Badge variant="secondary" className="px-3 py-1.5">
             {reviews.filter((r) => !r.responded).length} non répondus
           </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setWidgetManagerOpen(true)}
+            className="gap-1"
+          >
+            <Globe className="h-4 w-4" />
+            Widget site
+          </Button>
         </div>
       </div>
 
@@ -351,6 +363,24 @@ export default function ReviewsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Widget Manager Modal */}
+      {currentLocation && (
+        <WebsiteWidgetManager
+          locationId={currentLocation.id}
+          locationName={currentLocation.name}
+          open={widgetManagerOpen}
+          onOpenChange={setWidgetManagerOpen}
+          availableReviews={reviews.map((r) => ({
+            id: r.id,
+            author: r.author,
+            rating: r.rating,
+            content: r.content,
+            date: r.date,
+            source: 'google' as const,
+          }))}
+        />
+      )}
     </div>
   )
 }

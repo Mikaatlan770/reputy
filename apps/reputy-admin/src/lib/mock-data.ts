@@ -259,21 +259,27 @@ export const competitors: Competitor[] = [
 export const users: User[] = [
   {
     id: 'user-1',
-    name: 'Dr. Michael Atlan',
+    civility: 'Dr',
+    firstName: 'Michael',
+    lastName: 'ATLAN',
     email: 'michael@cabinet-atlan.fr',
     role: 'admin',
     locationIds: ['loc-1', 'loc-2', 'loc-3'],
   },
   {
     id: 'user-2',
-    name: 'Sophie Durand',
+    civility: 'Mme',
+    firstName: 'Sophie',
+    lastName: 'DURAND',
     email: 'sophie@cabinet-atlan.fr',
     role: 'manager',
     locationIds: ['loc-1'],
   },
   {
     id: 'user-3',
-    name: 'Marc Leroy',
+    civility: 'M',
+    firstName: 'Marc',
+    lastName: 'LEROY',
     email: 'marc@petitbistrot.fr',
     role: 'staff',
     locationIds: ['loc-3'],
@@ -444,8 +450,8 @@ export const threads: Thread[] = [
 
 // ===== AUDIT LOG =====
 export const auditLogs: AuditLog[] = [
-  { id: 'log-1', userId: 'user-1', userName: 'Dr. Michael Atlan', action: 'Réponse avis', target: 'rev-1', createdAt: '2026-01-08T15:30:00' },
-  { id: 'log-2', userId: 'user-2', userName: 'Sophie Durand', action: 'Création campagne', target: 'camp-2', createdAt: '2026-01-10T09:00:00' },
-  { id: 'log-3', userId: 'user-1', userName: 'Dr. Michael Atlan', action: 'Ajout concurrent', target: 'comp-1', createdAt: '2026-01-05T11:20:00' },
+  { id: 'log-1', userId: 'user-1', userName: 'Dr Michael ATLAN', action: 'Réponse avis', target: 'rev-1', createdAt: '2026-01-08T15:30:00' },
+  { id: 'log-2', userId: 'user-2', userName: 'Mme Sophie DURAND', action: 'Création campagne', target: 'camp-2', createdAt: '2026-01-10T09:00:00' },
+  { id: 'log-3', userId: 'user-1', userName: 'Dr Michael ATLAN', action: 'Ajout concurrent', target: 'comp-1', createdAt: '2026-01-05T11:20:00' },
 ]
 

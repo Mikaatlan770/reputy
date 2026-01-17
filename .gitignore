@@ -9,3 +9,8 @@ package-lock.json
 yarn.lock
 *.log
 
+.env
+.env.*
+
+# TypeScript build cache
+*.tsbuildinfo
