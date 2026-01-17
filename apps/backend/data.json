@@ -661,6 +661,50 @@
         "appointmentDate": "",
         "locationId": ""
       }
+    },
+    "8fc12d899a9c21d07a25f29b": {
+      "id": "8fc12d899a9c21d07a25f29b",
+      "idempotencyKey": "dadb936c512f7a51bac511814a9e0dfe",
+      "createdAt": "2026-01-17T21:03:28.910Z",
+      "lastSentAt": "2026-01-17T21:03:28.910Z",
+      "sendCount": 1,
+      "channel": "sms",
+      "patient": {
+        "name": "CORDA",
+        "firstName": "",
+        "lastName": "CORDA",
+        "email": "",
+        "phone": "0631060299"
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/8fc12d899a9c21d07a25f29b",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": "",
+        "appointmentDate": "",
+        "locationId": ""
+      }
+    },
+    "23118ac385185d2ef63de265": {
+      "id": "23118ac385185d2ef63de265",
+      "idempotencyKey": "379ae51abc04810d30696dce95a42f92",
+      "createdAt": "2026-01-17T21:03:36.578Z",
+      "lastSentAt": "2026-01-17T21:03:36.578Z",
+      "sendCount": 1,
+      "channel": "email",
+      "patient": {
+        "name": "CORDA Bérénice",
+        "firstName": "Bérénice",
+        "lastName": "CORDA",
+        "email": "corda.berenice@gmail.com",
+        "phone": ""
+      },
+      "feedbackUrl": "http://127.0.0.1:8787/r/23118ac385185d2ef63de265",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": "",
+        "appointmentDate": "",
+        "locationId": ""
+      }
     }
   },
   "feedbacks": {
@@ -830,6 +874,96 @@
       "meta": {
         "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cursor/2.3.35 Chrome/138.0.7204.251 Electron/37.7.0 Safari/537.36"
       }
+    },
+    "8fc12d899a9c21d07a25f29b": {
+      "requestId": "8fc12d899a9c21d07a25f29b",
+      "submittedAt": "2026-01-17T21:05:26.239Z",
+      "createdAt": "2026-01-17T21:05:26.239Z",
+      "rating": 3,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "CORDA",
+        "firstName": "",
+        "lastName": "CORDA",
+        "email": "",
+        "phone": "0631060299"
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cursor/2.3.35 Chrome/138.0.7204.251 Electron/37.7.0 Safari/537.36"
+      },
+      "routing": {
+        "mode": "PUBLIC_REVIEW",
+        "target": "GOOGLE",
+        "redirectUrl": "https://g.page/r/CcRGV3wmtmZxEBM/review"
+      }
+    },
+    "23118ac385185d2ef63de265": {
+      "requestId": "23118ac385185d2ef63de265",
+      "submittedAt": "2026-01-17T21:06:33.880Z",
+      "createdAt": "2026-01-17T21:06:33.880Z",
+      "rating": 3,
+      "comment": "",
+      "channel": "email",
+      "patient": {
+        "name": "CORDA Bérénice",
+        "firstName": "Bérénice",
+        "lastName": "CORDA",
+        "email": "corda.berenice@gmail.com",
+        "phone": ""
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cursor/2.3.35 Chrome/138.0.7204.251 Electron/37.7.0 Safari/537.36"
+      },
+      "routing": {
+        "mode": "INTERNAL_FEEDBACK"
+      }
+    },
+    "22fe22944ad004c8804700d6": {
+      "requestId": "22fe22944ad004c8804700d6",
+      "submittedAt": "2026-01-17T21:06:57.308Z",
+      "createdAt": "2026-01-17T21:06:57.308Z",
+      "rating": 5,
+      "comment": "",
+      "channel": "email",
+      "patient": {
+        "name": "RAZANI Mehdi",
+        "firstName": "Mehdi",
+        "lastName": "RAZANI",
+        "email": "mehdikkal@gmail.com",
+        "phone": ""
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cursor/2.3.35 Chrome/138.0.7204.251 Electron/37.7.0 Safari/537.36"
+      },
+      "routing": {
+        "mode": "PUBLIC_REVIEW",
+        "target": "GOOGLE",
+        "redirectUrl": "https://g.page/r/CcRGV3wmtmZxEBM/review"
+      }
+    },
+    "8edf6c2baba92749ad2e1855": {
+      "requestId": "8edf6c2baba92749ad2e1855",
+      "submittedAt": "2026-01-17T21:15:13.885Z",
+      "createdAt": "2026-01-17T21:15:13.885Z",
+      "rating": 4,
+      "comment": "",
+      "channel": "sms",
+      "patient": {
+        "name": "BEYECK RIFOE Asleen",
+        "firstName": "Asleen",
+        "lastName": "BEYECK RIFOE",
+        "email": "",
+        "phone": "0766074637"
+      },
+      "meta": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cursor/2.3.35 Chrome/138.0.7204.251 Electron/37.7.0 Safari/537.36"
+      },
+      "routing": {
+        "mode": "PUBLIC_REVIEW",
+        "target": "GOOGLE",
+        "redirectUrl": "https://g.page/r/CcRGV3wmtmZxEBM/review"
+      }
     }
   },
   "users": {
@@ -855,6 +989,101 @@
   },
   "settings": {
     "googleReviewUrl": "https://g.page/r/CcRGV3wmtmZxEBM/review",
-    "cabinetName": "Dr Michael ATLAN"
-  }
+    "cabinetName": "Dr Michael ATLAN",
+    "reviewRouting": {
+      "enabled": true,
+      "threshold": 4,
+      "publicTarget": "GOOGLE"
+    }
+  },
+  "orgs": [
+    {
+      "id": "2aa53d56e1dec85d46bb22dd",
+      "name": "Cabinet Dr. Atlan",
+      "vertical": "health",
+      "status": "active",
+      "createdAt": "2026-01-17T21:38:51.049Z",
+      "updatedAt": "2026-01-17T21:57:33.559Z",
+      "billing": {
+        "provider": "none",
+        "stripeCustomerId": null,
+        "gocardlessMandateId": null
+      },
+      "plan": {
+        "code": "health_basic",
+        "basePriceCents": 4900,
+        "currency": "EUR",
+        "billingCycle": "monthly"
+      },
+      "negotiated": {
+        "enabled": true,
+        "customPriceCents": 3900,
+        "discountPercent": 0,
+        "notes": "",
+        "contractRef": null
+      },
+      "options": {
+        "reviewRouting": true,
+        "widgetsSeo": false,
+        "multiLocations": false,
+        "prioritySupport": false,
+        "custom": {}
+      },
+      "quotas": {
+        "smsIncluded": 50,
+        "emailIncluded": 50
+      },
+      "balances": {
+        "smsExtra": 150,
+        "emailExtra": 150
+      }
+    }
+  ],
+  "usageLedger": [
+    {
+      "id": "74aa75628a9a6de72d55470b",
+      "orgId": "2aa53d56e1dec85d46bb22dd",
+      "type": "sms",
+      "qty": 100,
+      "ts": "2026-01-17T21:38:58.482Z",
+      "meta": {
+        "reason": "Lancement client",
+        "action": "credit"
+      }
+    },
+    {
+      "id": "faebbe73630b3f48273d26f3",
+      "orgId": "2aa53d56e1dec85d46bb22dd",
+      "type": "email",
+      "qty": 50,
+      "ts": "2026-01-17T21:38:58.482Z",
+      "meta": {
+        "reason": "Lancement client",
+        "action": "credit"
+      }
+    },
+    {
+      "id": "c07d7107bc4776f2c0c389ce",
+      "orgId": "2aa53d56e1dec85d46bb22dd",
+      "type": "sms",
+      "qty": 50,
+      "ts": "2026-01-17T21:56:32.501Z",
+      "meta": {
+        "reason": "admin_credit",
+        "action": "credit"
+      }
+    },
+    {
+      "id": "a5e49bdb7c24cbf9039d1926",
+      "orgId": "2aa53d56e1dec85d46bb22dd",
+      "type": "email",
+      "qty": 100,
+      "ts": "2026-01-17T21:56:32.501Z",
+      "meta": {
+        "reason": "admin_credit",
+        "action": "credit"
+      }
+    }
+  ],
+  "telemetry": []
 }

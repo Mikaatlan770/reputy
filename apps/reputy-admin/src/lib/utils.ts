@@ -36,13 +36,15 @@ export function truncate(str: string, length: number): string {
   return str.slice(0, length) + '...'
 }
 
-export function getInitials(name: string): string {
+export function getInitials(name?: string | null): string {
+  if (!name) return '?'
   return name
     .split(' ')
+    .filter(n => n.length > 0)
     .map((n) => n[0])
     .join('')
     .toUpperCase()
-    .slice(0, 2)
+    .slice(0, 2) || '?'
 }
 
 export function getRatingColor(rating: number): string {

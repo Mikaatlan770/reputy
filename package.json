@@ -9,10 +9,15 @@
   "scripts": {
     "dev:backend": "cd apps/backend && npm run dev",
     "start:backend": "cd apps/backend && npm start",
-    "dev:reputy": "cd apps/reputy-admin && npm run dev",
-    "build:reputy": "cd apps/reputy-admin && npm run build",
-    "lint:reputy": "cd apps/reputy-admin && npm run lint",
-    "dev:extension": "echo \"Charger l’extension Chrome depuis apps/extension (mode dév MV3).\""
+    "dev:admin": "cd apps/reputy-admin && npm run dev",
+    "build:admin": "cd apps/reputy-admin && npm run build",
+    "lint:admin": "cd apps/reputy-admin && npm run lint",
+    "dev:web": "cd apps/reputy-web && npm run dev",
+    "build:web": "cd apps/reputy-web && npm run build",
+    "start:web": "cd apps/reputy-web && npm run start",
+    "dev:extension": "echo \"Charger l'extension Chrome depuis apps/extension (mode dév MV3).\"",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:admin\" \"npm run dev:web\"",
+    "install:all": "npm install && cd apps/reputy-admin && npm install && cd ../reputy-web && npm install && cd ../backend && npm install"
   }
 }
 
