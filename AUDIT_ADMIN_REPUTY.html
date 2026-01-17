@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Complet - Admin Reputy</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #1f2937;
+      padding: 40px;
+      max-width: 1000px;
+      margin: 0 auto;
+      background: #fff;
+    }
+    @media print {
+      body { padding: 20px; }
+      .page-break { page-break-before: always; }
+    }
+    h1 {
+      font-size: 32px;
+      color: #6366f1;
+      border-bottom: 3px solid #6366f1;
+      padding-bottom: 10px;
+      margin-bottom: 30px;
+    }
+    h2 {
+      font-size: 24px;
+      color: #374151;
+      margin-top: 40px;
+      margin-bottom: 20px;
+      padding: 10px 15px;
+      background: #f3f4f6;
+      border-left: 4px solid #6366f1;
+    }
+    h3 {
+      font-size: 18px;
+      color: #4b5563;
+      margin-top: 25px;
+      margin-bottom: 10px;
+    }
+    p { margin-bottom: 15px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0 25px;
+    }
+    th, td {
+      border: 1px solid #e5e7eb;
+      padding: 12px;
+      text-align: left;
+    }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+    }
+    .status-ok { color: #059669; font-weight: 600; }
+    .status-mock { color: #dc2626; font-weight: 600; }
+    .status-partial { color: #d97706; font-weight: 600; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-ok { background: #d1fae5; color: #059669; }
+    .badge-mock { background: #fee2e2; color: #dc2626; }
+    .badge-partial { background: #fef3c7; color: #d97706; }
+    .badge-todo { background: #e0e7ff; color: #4f46e5; }
+    .info-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    .warning-box {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    .api-box {
+      background: #f3e8ff;
+      border: 1px solid #c4b5fd;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    ul { margin: 10px 0 15px 25px; }
+    li { margin-bottom: 8px; }
+    .toc {
+      background: #f9fafb;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+    }
+    .toc a {
+      color: #4f46e5;
+      text-decoration: none;
+    }
+    .toc a:hover { text-decoration: underline; }
+    .price {
+      font-size: 24px;
+      font-weight: bold;
+      color: #6366f1;
+    }
+    .header-info {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header-info">
+  <div>
+    <h1 style="border: none; padding: 0; margin: 0;">📊 Audit Admin Reputy</h1>
+    <p style="color: #6b7280; margin-top: 5px;">Document de référence technique et business</p>
+  </div>
+  <div style="text-align: right;">
+    <p><strong>Version:</strong> 1.0</p>
+    <p><strong>Date:</strong> 15 janvier 2026</p>
+  </div>
+</div>
+
+<div class="toc">
+  <h3 style="margin-top: 0;">📑 Table des matières</h3>
+  <ol>
+    <li><a href="#dashboard">Dashboard</a></li>
+    <li><a href="#avis">Avis (Reviews)</a></li>
+    <li><a href="#feedbacks">Feedbacks</a></li>
+    <li><a href="#reponses">Réponses (Inbox)</a></li>
+    <li><a href="#collecte">Collecte</a></li>
+    <li><a href="#campagnes">Campagnes</a></li>
+    <li><a href="#analytics">Analytics</a></li>
+    <li><a href="#concurrence">Concurrence</a></li>
+    <li><a href="#etablissements">Établissements</a></li>
+    <li><a href="#equipe">Équipe</a></li>
+    <li><a href="#facturation">Facturation</a></li>
+    <li><a href="#parametres">Paramètres</a></li>
+    <li><a href="#aide">Aide</a></li>
+    <li><a href="#apis">APIs Requises</a></li>
+    <li><a href="#priorites">Plan de Priorités</a></li>
+  </ol>
+</div>
+
+<!-- ==================== DASHBOARD ==================== -->
+<h2 id="dashboard">1. 📊 DASHBOARD</h2>
+
+<h3>1.1 KPIs (Indicateurs clés)</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>Source de données</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Note moyenne</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Données fictives dans mock-data.ts</td>
+    <td>Connecter API Google (SerpAPI) pour récupérer vraie note</td>
+  </tr>
+  <tr>
+    <td>Total avis</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Données fictives</td>
+    <td>Calculer depuis avis Google réels</td>
+  </tr>
+  <tr>
+    <td>Avis 30 jours</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Données fictives</td>
+    <td>Filtrer avis par date (dernier mois)</td>
+  </tr>
+  <tr>
+    <td>Non répondus</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Données fictives</td>
+    <td>Compter avis Google sans réponse</td>
+  </tr>
+  <tr>
+    <td>Taux de réponse</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Données fictives</td>
+    <td>Calcul: (avis répondus / total) × 100</td>
+  </tr>
+  <tr>
+    <td>Délai moyen</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Données fictives</td>
+    <td>Calcul: moyenne(date_réponse - date_avis)</td>
+  </tr>
+</table>
+
+<div class="info-box">
+  <strong>💡 Note:</strong> Tous les calculs sont prêts dans le code (formules mathématiques). 
+  Il manque uniquement la source de données réelles (API Google).
+</div>
+
+<h3>1.2 Courbe d'évolution</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Graphique temporel</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Requête API pour récupérer historique avis, grouper par semaine/mois</td>
+  </tr>
+  <tr>
+    <td>Filtres temporels</td>
+    <td><span class="badge badge-partial">UI existe</span></td>
+    <td>Connecter les filtres aux vraies données</td>
+  </tr>
+</table>
+
+<h3>1.3 Distribution des étoiles</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Barres 1★ à 5★</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Compter les avis par note depuis API</td>
+  </tr>
+</table>
+
+<h3>1.4 Encart "À traiter"</h3>
+<table>
+  <tr>
+    <th>Question</th>
+    <th>Réponse</th>
+  </tr>
+  <tr>
+    <td>Ce sont les avis Google ?</td>
+    <td><strong>OUI</strong> - Ce sont les avis Google NON RÉPONDUS</td>
+  </tr>
+  <tr>
+    <td>API nécessaire ?</td>
+    <td><strong>OUI</strong> - SerpAPI ou Google Business Profile API</td>
+  </tr>
+  <tr>
+    <td>Ce sont les Feedbacks Reputy ?</td>
+    <td><strong>NON</strong> - Les Feedbacks sont dans une page séparée</td>
+  </tr>
+</table>
+
+<h3>1.5 Actions rapides</h3>
+<table>
+  <tr>
+    <th>Action</th>
+    <th>Statut</th>
+    <th>Business Model</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>QR Code</td>
+    <td><span class="badge badge-partial">UI existe</span></td>
+    <td>✅ Gratuit (inclus tous packs)</td>
+    <td>Implémenter vraie génération QR (librairie qrcode)</td>
+  </tr>
+  <tr>
+    <td>Tag NFC</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>💰 Payant (15-25€/tag) ou inclus pack Pro</td>
+    <td>Créer gestion stock NFC + e-commerce</td>
+  </tr>
+  <tr>
+    <td>Campagne</td>
+    <td><span class="badge badge-partial">Lien vers page</span></td>
+    <td>Coût SMS/Email selon usage</td>
+    <td>Implémenter création campagne complète</td>
+  </tr>
+</table>
+
+<!-- ==================== AVIS ==================== -->
+<div class="page-break"></div>
+<h2 id="avis">2. ⭐ AVIS (Reviews)</h2>
+
+<table>
+  <tr>
+    <th>Question</th>
+    <th>Réponse</th>
+  </tr>
+  <tr>
+    <td>Source des données ?</td>
+    <td><span class="badge badge-mock">MOCK</span> - Données fictives dans mock-data.ts</td>
+  </tr>
+  <tr>
+    <td>Ce sont les avis Google ?</td>
+    <td><strong>OUI</strong> - Cette page doit afficher les avis publics Google</td>
+  </tr>
+  <tr>
+    <td>API Google nécessaire ?</td>
+    <td><strong>OUI</strong> - SerpAPI (~50$/mois) ou Google Business API</td>
+  </tr>
+  <tr>
+    <td>Réponses IA fonctionnelles ?</td>
+    <td><span class="badge badge-partial">PARTIEL</span> - L'UI existe, génère des suggestions mock</td>
+  </tr>
+  <tr>
+    <td>API IA nécessaire ?</td>
+    <td><strong>OUI</strong> - OpenAI API (~0.002$/suggestion)</td>
+  </tr>
+  <tr>
+    <td>Publier réponse sur Google ?</td>
+    <td><span class="badge badge-mock">NON</span> - Nécessite API Google officielle (OAuth)</td>
+  </tr>
+</table>
+
+<h3>Fonctionnalités de la page</h3>
+<ul>
+  <li>✅ Liste des avis avec étoiles, auteur, date, contenu</li>
+  <li>✅ Filtres par note (1-5★) et statut (répondu/non répondu)</li>
+  <li>✅ Recherche par auteur ou contenu</li>
+  <li>✅ Modal de réponse avec assistant IA</li>
+  <li>✅ Sélection du ton (professionnel, chaleureux, court)</li>
+  <li>✅ Mode Santé (rappel déontologique)</li>
+  <li>🔴 Suggestions IA réelles → nécessite OpenAI</li>
+  <li>🔴 Publication sur Google → nécessite API officielle</li>
+</ul>
+
+<div class="api-box">
+  <strong>🔌 APIs requises pour cette page:</strong>
+  <ul>
+    <li><strong>SerpAPI</strong> (50$/mois) - Récupérer les avis Google</li>
+    <li><strong>OpenAI API</strong> (~0.002$/suggestion) - Générer suggestions IA</li>
+    <li><strong>Google Business API</strong> (gratuit mais approbation) - Publier réponses</li>
+  </ul>
+</div>
+
+<!-- ==================== FEEDBACKS ==================== -->
+<h2 id="feedbacks">3. 👍 FEEDBACKS</h2>
+
+<table>
+  <tr>
+    <th>Question</th>
+    <th>Réponse</th>
+  </tr>
+  <tr>
+    <td>Source des données ?</td>
+    <td><span class="badge badge-ok">RÉEL</span> - Feedbacks collectés via extension Reputy</td>
+  </tr>
+  <tr>
+    <td>Calculs intégrés ?</td>
+    <td><span class="badge badge-ok">OUI</span> - Total, moyenne, positifs/négatifs calculés automatiquement</td>
+  </tr>
+  <tr>
+    <td>Ce sont toutes les réponses Reputy ?</td>
+    <td><strong>OUI</strong> - Tous les retours patients (1★ à 5★) via l'extension</td>
+  </tr>
+  <tr>
+    <td>Réponses à apporter ?</td>
+    <td><strong>NON</strong> - C'est du feedback interne, pas besoin de répondre publiquement</td>
+  </tr>
+</table>
+
+<div class="info-box">
+  <strong>✅ Cette page est FONCTIONNELLE !</strong><br>
+  Les feedbacks sont bien stockés dans le backend et affichés en temps réel.
+</div>
+
+<h3>Améliorations possibles</h3>
+<ul>
+  <li>Ajouter bouton "Contacter le patient" (pour feedbacks négatifs)</li>
+  <li>Ajouter export CSV</li>
+  <li>Ajouter alertes email pour feedbacks < 3★</li>
+</ul>
+
+<!-- ==================== REPONSES ==================== -->
+<div class="page-break"></div>
+<h2 id="reponses">4. 📥 RÉPONSES (Inbox)</h2>
+
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Compteur "À traiter"</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Compter avis Google non répondus depuis API</td>
+  </tr>
+  <tr>
+    <td>Compteur "En attente"</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Avis en cours de traitement (brouillons)</td>
+  </tr>
+  <tr>
+    <td>Compteur "Traités aujourd'hui"</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Compter réponses publiées dans les dernières 24h</td>
+  </tr>
+  <tr>
+    <td>Liste des éléments</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Fusionner avis Google + messages support</td>
+  </tr>
+</table>
+
+<h3>Pour rendre cette page "vivante"</h3>
+<ol>
+  <li>Connecter à l'API Google (SerpAPI) pour récupérer les vrais avis</li>
+  <li>Implémenter le marquage "traité" quand une réponse est publiée</li>
+  <li>Calculer automatiquement les compteurs en temps réel</li>
+  <li>Ajouter des notifications pour nouveaux avis</li>
+</ol>
+
+<!-- ==================== COLLECTE ==================== -->
+<h2 id="collecte">5. 📱 COLLECTE</h2>
+
+<h3>5.1 Onglet QR Code</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Génération QR</td>
+    <td><span class="badge badge-partial">Visuel mock</span></td>
+    <td>Utiliser librairie 'qrcode' pour vraie génération</td>
+  </tr>
+  <tr>
+    <td>Téléchargement PNG/SVG</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Implémenter export fichier</td>
+  </tr>
+  <tr>
+    <td>Stats (scans, conversions)</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Tracker les clics via URL courte + analytics</td>
+  </tr>
+</table>
+
+<h3>5.2 Onglet NFC</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Liste des tags</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Créer BDD des tags vendus/actifs</td>
+  </tr>
+  <tr>
+    <td>Ajout nouveau tag</td>
+    <td><span class="badge badge-partial">UI existe</span></td>
+    <td>Formulaire d'enregistrement tag</td>
+  </tr>
+  <tr>
+    <td>Stats par tag</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Tracker scans par tag ID unique</td>
+  </tr>
+</table>
+
+<div class="warning-box">
+  <strong>💰 Business Model NFC:</strong><br>
+  - Vente de tags physiques: 15-25€ pièce<br>
+  - Ou inclus dans pack Pro/Enterprise<br>
+  - Marge estimée: ~10€/tag
+</div>
+
+<h3>5.3 Onglet SMS</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+  </tr>
+  <tr>
+    <td>Aperçu SMS</td>
+    <td><span class="badge badge-ok">FONCTIONNEL</span></td>
+  </tr>
+  <tr>
+    <td>Calcul segments</td>
+    <td><span class="badge badge-ok">FONCTIONNEL</span></td>
+  </tr>
+  <tr>
+    <td>Coût estimé</td>
+    <td><span class="badge badge-ok">AFFICHÉ</span></td>
+  </tr>
+  <tr>
+    <td>Stats envois</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+  </tr>
+</table>
+
+<h3>5.4 Onglet Email</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Template email</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Créer éditeur de template</td>
+  </tr>
+  <tr>
+    <td>Personnalisation</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Variables {prenom}, {etablissement}, etc.</td>
+  </tr>
+  <tr>
+    <td>Stats ouvertures/clics</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Intégrer SendGrid/Mailjet pour tracking</td>
+  </tr>
+</table>
+
+<h3>5.5 Onglet Doctolib</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+  </tr>
+  <tr>
+    <td>QR post-consultation</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+  </tr>
+  <tr>
+    <td>Instructions cabinet</td>
+    <td><span class="badge badge-ok">AFFICHÉ</span></td>
+  </tr>
+  <tr>
+    <td>Stats canal</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+  </tr>
+</table>
+
+<!-- ==================== CAMPAGNES ==================== -->
+<div class="page-break"></div>
+<h2 id="campagnes">6. 📢 CAMPAGNES</h2>
+
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Liste campagnes</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Créer modèle BDD campagnes</td>
+  </tr>
+  <tr>
+    <td>Création campagne</td>
+    <td><span class="badge badge-partial">Bouton existe</span></td>
+    <td>Formulaire complet de création</td>
+  </tr>
+  <tr>
+    <td>Import Excel</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Parser XLSX avec colonnes: nom, prénom, téléphone, email</td>
+  </tr>
+  <tr>
+    <td>Calcul coût campagne</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Formule: (nb contacts × coût unitaire SMS/Email)</td>
+  </tr>
+  <tr>
+    <td>Envoi massif</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Intégrer Twilio (SMS) + SendGrid (Email)</td>
+  </tr>
+  <tr>
+    <td>Planification</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Date/heure d'envoi différé</td>
+  </tr>
+  <tr>
+    <td>Stats résultats</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Tracker: envoyés, ouverts, cliqués, convertis</td>
+  </tr>
+</table>
+
+<h3>Workflow campagne à implémenter</h3>
+<ol>
+  <li><strong>Création:</strong> Nom campagne, message, canal (SMS/Email)</li>
+  <li><strong>Import contacts:</strong> Upload Excel ou saisie manuelle</li>
+  <li><strong>Prévisualisation:</strong> Aperçu message + calcul coût total</li>
+  <li><strong>Validation:</strong> Confirmation avant envoi</li>
+  <li><strong>Envoi:</strong> Immédiat ou planifié</li>
+  <li><strong>Suivi:</strong> Dashboard résultats temps réel</li>
+</ol>
+
+<div class="info-box">
+  <strong>💡 Calcul coût campagne:</strong><br>
+  - SMS: ~0.065€/segment (160 caractères max)<br>
+  - Email: ~0.001€/email<br>
+  - Exemple: 500 contacts SMS = 500 × 0.065€ = 32.50€
+</div>
+
+<!-- ==================== ANALYTICS ==================== -->
+<h2 id="analytics">7. 📈 ANALYTICS</h2>
+
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Graphiques temporels</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Connecter aux vraies données avis + feedbacks</td>
+  </tr>
+  <tr>
+    <td>Filtres (période, établissement)</td>
+    <td><span class="badge badge-partial">UI existe</span></td>
+    <td>Connecter aux requêtes API</td>
+  </tr>
+  <tr>
+    <td>Export données</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Export CSV/PDF des statistiques</td>
+  </tr>
+  <tr>
+    <td>Insights automatiques</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>IA pour générer insights ("Vos avis ont augmenté de 15%")</td>
+  </tr>
+</table>
+
+<h3>Insights automatiques (optionnel)</h3>
+<p>Possibilité d'utiliser OpenAI pour générer des insights business automatiques basés sur les données:</p>
+<ul>
+  <li>"Votre note moyenne a augmenté de 0.3 point ce mois"</li>
+  <li>"Les avis négatifs mentionnent souvent 'attente'"</li>
+  <li>"Votre concurrent X a reçu 12 nouveaux avis cette semaine"</li>
+</ul>
+
+<!-- ==================== CONCURRENCE ==================== -->
+<div class="page-break"></div>
+<h2 id="concurrence">8. ⚔️ CONCURRENCE</h2>
+
+<table>
+  <tr>
+    <th>Question</th>
+    <th>Réponse</th>
+  </tr>
+  <tr>
+    <td>Fonctionnel actuellement ?</td>
+    <td><span class="badge badge-mock">NON</span> - Données fictives</td>
+  </tr>
+  <tr>
+    <td>API nécessaire ?</td>
+    <td><strong>OUI</strong> - SerpAPI (Google Maps Reviews)</td>
+  </tr>
+  <tr>
+    <td>Ça concerne quoi ?</td>
+    <td>Surveiller les avis des concurrents et comparer les performances</td>
+  </tr>
+</table>
+
+<h3>Fonctionnement prévu</h3>
+<ol>
+  <li>Le client entre le nom d'un concurrent</li>
+  <li>Recherche du Place ID via SerpAPI</li>
+  <li>Récupération de sa note moyenne + avis récents</li>
+  <li>Comparaison avec les propres performances du client</li>
+  <li>Alertes si concurrent reçoit beaucoup d'avis positifs</li>
+</ol>
+
+<div class="api-box">
+  <strong>🔌 API requise:</strong> SerpAPI (même API que pour les avis Google)<br>
+  Coût: ~50$/mois pour 5000 requêtes
+</div>
+
+<h3>Business Model suggéré</h3>
+<ul>
+  <li><strong>Pack Starter:</strong> 1 concurrent surveillé</li>
+  <li><strong>Pack Pro:</strong> 3 concurrents surveillés</li>
+  <li><strong>Pack Enterprise:</strong> Illimité</li>
+</ul>
+
+<!-- ==================== ETABLISSEMENTS ==================== -->
+<h2 id="etablissements">9. 🏢 ÉTABLISSEMENTS</h2>
+
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Liste établissements</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Créer modèle BDD établissements</td>
+  </tr>
+  <tr>
+    <td>Ajout établissement</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Formulaire création + recherche Google</td>
+  </tr>
+  <tr>
+    <td>Multi-établissements</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Gestion des droits par établissement</td>
+  </tr>
+</table>
+
+<h3>Architecture multi-établissements</h3>
+<pre style="background: #f3f4f6; padding: 15px; border-radius: 8px; font-family: monospace;">
+Organisation (compte client principal)
+├── Établissement 1 (Paris)
+│   ├── Admin établissement
+│   ├── Manager
+│   └── Employé
+├── Établissement 2 (Lyon)
+│   └── Admin établissement
+└── Établissement 3 (Marseille)
+    ├── Admin établissement
+    └── Employé
+</pre>
+
+<h3>Gestion des droits (votre question)</h3>
+<p><strong>Exemple:</strong> Vous avez 10 établissements en abonnement.</p>
+<ul>
+  <li><strong>Vous (Admin Org):</strong> Voyez TOUS les établissements</li>
+  <li><strong>Directrice établissement 1:</strong> Voit UNIQUEMENT établissement 1</li>
+  <li><strong>Manager établissement 5:</strong> Voit UNIQUEMENT établissement 5</li>
+</ul>
+
+<div class="info-box">
+  <strong>👉 C'est exactement ce que permet la page Équipe</strong><br>
+  Vous invitez un utilisateur et lui assignez un rôle + un établissement spécifique.
+</div>
+
+<!-- ==================== EQUIPE ==================== -->
+<h2 id="equipe">10. 👥 ÉQUIPE</h2>
+
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Liste membres</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Créer modèle BDD utilisateurs</td>
+  </tr>
+  <tr>
+    <td>Invitation par email</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Système d'invitation + lien activation</td>
+  </tr>
+  <tr>
+    <td>Rôles/Permissions</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Système RBAC (Role-Based Access Control)</td>
+  </tr>
+  <tr>
+    <td>Assignation établissement</td>
+    <td><span class="badge badge-mock">NON</span></td>
+    <td>Lier utilisateur à 1 ou plusieurs établissements</td>
+  </tr>
+</table>
+
+<h3>Rôles suggérés</h3>
+<table>
+  <tr>
+    <th>Rôle</th>
+    <th>Dashboard</th>
+    <th>Avis</th>
+    <th>Répondre</th>
+    <th>Paramètres</th>
+    <th>Facturation</th>
+    <th>Équipe</th>
+  </tr>
+  <tr>
+    <td><strong>Admin Org</strong></td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>✅</td>
+  </tr>
+  <tr>
+    <td><strong>Admin Établissement</strong></td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>❌</td>
+    <td>✅*</td>
+  </tr>
+  <tr>
+    <td><strong>Manager</strong></td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>❌</td>
+    <td>❌</td>
+    <td>❌</td>
+  </tr>
+  <tr>
+    <td><strong>Employé</strong></td>
+    <td>✅</td>
+    <td>✅</td>
+    <td>❌</td>
+    <td>❌</td>
+    <td>❌</td>
+    <td>❌</td>
+  </tr>
+</table>
+<p><small>* Admin Établissement peut inviter uniquement pour son établissement</small></p>
+
+<!-- ==================== FACTURATION ==================== -->
+<div class="page-break"></div>
+<h2 id="facturation">11. 💳 FACTURATION</h2>
+
+<h3>Plans disponibles</h3>
+<table>
+  <tr>
+    <th>Plan</th>
+    <th>Prix/mois</th>
+    <th>SMS inclus</th>
+    <th>Emails inclus</th>
+    <th>IA incluse</th>
+    <th>Établissements</th>
+  </tr>
+  <tr>
+    <td><strong>Gratuit</strong></td>
+    <td>0€</td>
+    <td>0</td>
+    <td>10</td>
+    <td>0</td>
+    <td>1</td>
+  </tr>
+  <tr>
+    <td><strong>Starter</strong></td>
+    <td class="price">29€</td>
+    <td>25</td>
+    <td>100</td>
+    <td>0</td>
+    <td>1</td>
+  </tr>
+  <tr>
+    <td><strong>Pro</strong> ⭐</td>
+    <td class="price">59€</td>
+    <td>50</td>
+    <td>500</td>
+    <td>100</td>
+    <td>3</td>
+  </tr>
+  <tr>
+    <td><strong>Enterprise</strong></td>
+    <td class="price">149€</td>
+    <td>200</td>
+    <td>Illimité</td>
+    <td>Illimité</td>
+    <td>Illimité</td>
+  </tr>
+</table>
+
+<h3>Packs additionnels</h3>
+<table>
+  <tr>
+    <th>Pack</th>
+    <th>Quantité</th>
+    <th>Prix</th>
+  </tr>
+  <tr>
+    <td>SMS</td>
+    <td>25 / 100 / 500</td>
+    <td>5€ / 15€ / 60€</td>
+  </tr>
+  <tr>
+    <td>Email</td>
+    <td>100 / 500 / 2000</td>
+    <td>2€ / 8€ / 25€</td>
+  </tr>
+  <tr>
+    <td>IA</td>
+    <td>50 / 200 / 500</td>
+    <td>5€ / 15€ / 30€</td>
+  </tr>
+</table>
+
+<h3>Fonctionnalités facturation</h3>
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Affichage plan actuel</td>
+    <td><span class="badge badge-ok">UI OK</span></td>
+    <td>Connecter à Stripe</td>
+  </tr>
+  <tr>
+    <td>Changement de plan</td>
+    <td><span class="badge badge-partial">Modal existe</span></td>
+    <td>Intégrer Stripe Checkout</td>
+  </tr>
+  <tr>
+    <td>Achat packs</td>
+    <td><span class="badge badge-partial">Modal existe</span></td>
+    <td>Intégrer Stripe Payment</td>
+  </tr>
+  <tr>
+    <td>Liste factures</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Récupérer depuis Stripe</td>
+  </tr>
+  <tr>
+    <td>Téléchargement PDF</td>
+    <td><span class="badge badge-ok">FONCTIONNEL</span></td>
+    <td>Génération PDF ok</td>
+  </tr>
+  <tr>
+    <td>Historique paiements</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Récupérer depuis Stripe</td>
+  </tr>
+  <tr>
+    <td>Paiement SEPA</td>
+    <td><span class="badge badge-partial">Page existe</span></td>
+    <td>Intégrer Stripe SEPA</td>
+  </tr>
+</table>
+
+<div class="api-box">
+  <strong>🔌 API requise:</strong> Stripe<br>
+  - Stripe Checkout pour abonnements<br>
+  - Stripe Billing pour gestion quotas<br>
+  - Stripe Invoicing pour factures<br>
+  - Coût: 1.4% + 0.25€ par transaction
+</div>
+
+<!-- ==================== PARAMETRES ==================== -->
+<h2 id="parametres">12. ⚙️ PARAMÈTRES</h2>
+
+<table>
+  <tr>
+    <th>Section</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Collecte d'avis Google</td>
+    <td><span class="badge badge-ok">FONCTIONNEL</span></td>
+    <td>✅ Lien Google Review configurable</td>
+  </tr>
+  <tr>
+    <td>Nom du cabinet</td>
+    <td><span class="badge badge-ok">FONCTIONNEL</span></td>
+    <td>✅ Sauvegardé dans backend</td>
+  </tr>
+  <tr>
+    <td>Connexion Google Business</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Implémenter OAuth Google (pour synchro avis)</td>
+  </tr>
+  <tr>
+    <td>Infos établissement</td>
+    <td><span class="badge badge-partial">UI existe</span></td>
+    <td>Connecter à la BDD</td>
+  </tr>
+  <tr>
+    <td>Mode Santé</td>
+    <td><span class="badge badge-partial">Toggle existe</span></td>
+    <td>Sauvegarder préférence</td>
+  </tr>
+  <tr>
+    <td>Assistant IA (quota)</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Récupérer quota réel depuis Stripe/BDD</td>
+  </tr>
+  <tr>
+    <td>Templates de réponse</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>CRUD templates personnalisés</td>
+  </tr>
+  <tr>
+    <td>Branding page collecte</td>
+    <td><span class="badge badge-mock">MOCK</span></td>
+    <td>Sélecteur couleur + preview</td>
+  </tr>
+</table>
+
+<!-- ==================== AIDE ==================== -->
+<h2 id="aide">13. ❓ AIDE</h2>
+
+<table>
+  <tr>
+    <th>Élément</th>
+    <th>Statut</th>
+    <th>À faire</th>
+  </tr>
+  <tr>
+    <td>Recherche FAQ</td>
+    <td><span class="badge badge-ok">FONCTIONNEL</span></td>
+    <td>✅ Recherche dans questions/réponses</td>
+  </tr>
+  <tr>
+    <td>Sections FAQ</td>
+    <td><span class="badge badge-ok">FONCTIONNEL</span></td>
+    <td>✅ Accordéons dépliables</td>
+  </tr>
+  <tr>
+    <td>Contenu FAQ</td>
+    <td><span class="badge badge-partial">PARTIEL</span></td>
+    <td>Compléter avec vraies questions</td>
+  </tr>
+  <tr>
+    <td>Quick links (guides)</td>
+    <td><span class="badge badge-partial">UI existe</span></td>
+    <td>Créer vrais guides/tutoriels</td>
+  </tr>
+  <tr>
+    <td>Contact support</td>
+    <td><span class="badge badge-partial">Modal existe</span></td>
+    <td>Envoyer vraiment l'email (SendGrid)</td>
+  </tr>
+  <tr>
+    <td>Documentation externe</td>
+    <td><span class="badge badge-mock">Lien mock</span></td>
+    <td>Créer documentation en ligne</td>
+  </tr>
+</table>
+
+<!-- ==================== APIS ==================== -->
+<div class="page-break"></div>
+<h2 id="apis">14. 🔌 APIS REQUISES</h2>
+
+<table>
+  <tr>
+    <th>API</th>
+    <th>Usage</th>
+    <th>Prix estimé</th>
+    <th>Priorité</th>
+  </tr>
+  <tr>
+    <td><strong>SerpAPI</strong></td>
+    <td>Récupérer avis Google + concurrents</td>
+    <td>~50$/mois (5000 req)</td>
+    <td><span class="badge badge-todo">P1 - Critique</span></td>
+  </tr>
+  <tr>
+    <td><strong>OpenAI API</strong></td>
+    <td>Suggestions IA pour réponses</td>
+    <td>~0.002$/suggestion</td>
+    <td><span class="badge badge-todo">P1 - Critique</span></td>
+  </tr>
+  <tr>
+    <td><strong>Stripe</strong></td>
+    <td>Paiements, abonnements, factures</td>
+    <td>1.4% + 0.25€/transaction</td>
+    <td><span class="badge badge-todo">P1 - Critique</span></td>
+  </tr>
+  <tr>
+    <td><strong>Twilio</strong></td>
+    <td>Envoi SMS</td>
+    <td>~0.065€/SMS</td>
+    <td><span class="badge badge-todo">P2 - Important</span></td>
+  </tr>
+  <tr>
+    <td><strong>SendGrid</strong></td>
+    <td>Envoi emails + tracking</td>
+    <td>~15$/mois (50k emails)</td>
+    <td><span class="badge badge-todo">P2 - Important</span></td>
+  </tr>
+  <tr>
+    <td><strong>Google Business API</strong></td>
+    <td>Publier réponses sur Google</td>
+    <td>Gratuit (approbation requise)</td>
+    <td><span class="badge badge-todo">P3 - Nice to have</span></td>
+  </tr>
+</table>
+
+<!-- ==================== PRIORITES ==================== -->
+<h2 id="priorites">15. 📋 PLAN DE PRIORITÉS</h2>
+
+<h3>✅ Phase 0 - Déjà fonctionnel</h3>
+<ul>
+  <li>Extension Chrome Doctolib (envoi SMS/Email)</li>
+  <li>Page de notation patient</li>
+  <li>Collecte feedbacks</li>
+  <li>Configuration lien Google Review</li>
+  <li>Téléchargement factures PDF</li>
+</ul>
+
+<h3>🔴 Phase 1 - Core Business (1-2 semaines)</h3>
+<ol>
+  <li><strong>SerpAPI</strong> → Récupérer vrais avis Google</li>
+  <li><strong>OpenAI API</strong> → Suggestions IA réelles</li>
+  <li><strong>Calculs dynamiques</strong> → Dashboard, KPIs, Distribution</li>
+  <li><strong>Stripe</strong> → Paiements fonctionnels</li>
+</ol>
+
+<h3>🟡 Phase 2 - Croissance (2-4 semaines)</h3>
+<ol>
+  <li><strong>Campagnes</strong> → Import Excel + envoi massif</li>
+  <li><strong>Multi-établissements</strong> → Gestion des droits</li>
+  <li><strong>Concurrence</strong> → Comparaison via SerpAPI</li>
+  <li><strong>QR Code</strong> → Vraie génération + export</li>
+</ol>
+
+<h3>🔵 Phase 3 - Optimisation (4+ semaines)</h3>
+<ol>
+  <li>Tags NFC (e-commerce)</li>
+  <li>API Google officielle (répondre depuis Reputy)</li>
+  <li>Analytics avancés + insights IA</li>
+  <li>Documentation complète</li>
+</ol>
+
+<hr style="margin: 40px 0;">
+
+<div style="text-align: center; color: #6b7280; font-size: 14px;">
+  <p><strong>Document généré le 15 janvier 2026</strong></p>
+  <p>Reputy - Plateforme de gestion de e-réputation</p>
+</div>
+
+</body>
+</html>

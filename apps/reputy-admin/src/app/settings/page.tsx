@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,10 +19,74 @@ import {
   Zap,
   Crown,
   Info,
+  Star,
+  ExternalLink,
+  Save,
+  Loader2,
+  Globe,
+  Code,
+  Copy,
 } from 'lucide-react'
+import { WebsiteWidgetManager } from '@/components/embed'
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || 'dev-token'
 
 export default function SettingsPage() {
   const { currentLocation, orgSettings } = useAppStore()
+  
+  // État pour les settings Reputy
+  const [googleReviewUrl, setGoogleReviewUrl] = useState('')
+  const [cabinetName, setCabinetName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [loadingSettings, setLoadingSettings] = useState(true)
+  const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
+
+  // Charger les settings au montage
+  useEffect(() => {
+    fetchSettings()
+  }, [])
+
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/settings`, {
+        headers: { Authorization: `Bearer ${API_TOKEN}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setGoogleReviewUrl(data.googleReviewUrl || '')
+        setCabinetName(data.cabinetName || '')
+      }
+    } catch (err) {
+      console.error('Failed to load settings:', err)
+    } finally {
+      setLoadingSettings(false)
+    }
+  }
+
+  const saveSettings = async () => {
+    setSaving(true)
+    setSaveSuccess(false)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${API_TOKEN}`,
+        },
+        body: JSON.stringify({ googleReviewUrl, cabinetName }),
+      })
+      if (response.ok) {
+        setSaveSuccess(true)
+        setTimeout(() => setSaveSuccess(false), 3000)
+      }
+    } catch (err) {
+      console.error('Failed to save settings:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // Calcul du pourcentage de quota IA utilisé
   const aiQuotaPercent = orgSettings?.aiQuota
@@ -39,6 +104,96 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
+        {/* Lien Google Review - NOUVEAU */}
+        <Card className="lg:col-span-2 border-amber-200 bg-gradient-to-br from-amber-50/50 to-yellow-50/30">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Star className="h-5 w-5 text-amber-500" />
+              Collecte d'avis Google
+            </CardTitle>
+            <CardDescription>
+              Configurez le lien vers lequel vos patients satisfaits seront redirigés
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Nom du cabinet</label>
+                <Input
+                  value={cabinetName}
+                  onChange={(e) => setCabinetName(e.target.value)}
+                  placeholder="Ex: Cabinet Dr. Atlan"
+                  className="mt-1"
+                  disabled={loadingSettings}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Affiché sur la page de notation patient
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Lien Google Review</label>
+                <Input
+                  value={googleReviewUrl}
+                  onChange={(e) => setGoogleReviewUrl(e.target.value)}
+                  placeholder="https://g.page/r/VOTRE_ID/review"
+                  className="mt-1"
+                  disabled={loadingSettings}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Les patients 4-5★ seront redirigés vers ce lien
+                </p>
+              </div>
+            </div>
+
+            {/* Info box */}
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-blue-800">
+                  <p className="font-medium mb-1">Comment trouver votre lien Google Review ?</p>
+                  <ol className="list-decimal list-inside space-y-1 text-xs">
+                    <li>Allez sur <a href="https://business.google.com" target="_blank" rel="noopener" className="underline">Google Business Profile</a></li>
+                    <li>Cliquez sur &quot;Demander des avis&quot;</li>
+                    <li>Copiez le lien qui apparaît</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button 
+                onClick={saveSettings} 
+                disabled={saving || loadingSettings}
+                className="gap-2"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Enregistrer
+              </Button>
+              {saveSuccess && (
+                <span className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" />
+                  Enregistré !
+                </span>
+              )}
+              {googleReviewUrl && (
+                <a
+                  href={googleReviewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:underline flex items-center gap-1 ml-auto"
+                >
+                  Tester le lien
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Google Connection */}
         <Card>
           <CardHeader>
@@ -305,6 +460,78 @@ export default function SettingsPage() {
         </Card>
       </div>
 
+      {/* Widget & Badge */}
+      <Card className="border-primary/20">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Globe className="h-5 w-5 text-primary" />
+            Widget & Badge site web
+          </CardTitle>
+          <CardDescription>
+            Affichez vos avis directement sur votre site web
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Code className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium">Widget Liste d'avis</p>
+                  <p className="text-xs text-muted-foreground">
+                    Carrousel ou liste complète
+                  </p>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Affichez vos meilleurs avis avec les étoiles et commentaires anonymisés.
+              </p>
+              <Button 
+                variant="outline" 
+                className="w-full gap-1"
+                onClick={() => setWidgetManagerOpen(true)}
+              >
+                <Copy className="h-4 w-4" />
+                Obtenir le code
+              </Button>
+            </div>
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-amber-100 rounded-lg">
+                  <Star className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="font-medium">Badge Score</p>
+                  <p className="text-xs text-muted-foreground">
+                    Note moyenne compacte
+                  </p>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Badge compact avec note moyenne et nombre d'avis.
+              </p>
+              <Button 
+                variant="outline" 
+                className="w-full gap-1"
+                onClick={() => setWidgetManagerOpen(true)}
+              >
+                <Copy className="h-4 w-4" />
+                Obtenir le code
+              </Button>
+            </div>
+          </div>
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-start gap-2">
+            <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <span>
+              <strong>SEO-friendly:</strong> Les avis sont intégrés en HTML pur (pas d'iframe), 
+              lisibles par les moteurs de recherche. Une page publique est aussi générée automatiquement.
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Response Templates */}
       <Card>
         <CardHeader>
@@ -336,6 +563,16 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Widget Manager Modal */}
+      {currentLocation && (
+        <WebsiteWidgetManager
+          locationId={currentLocation.id}
+          locationName={currentLocation.name}
+          open={widgetManagerOpen}
+          onOpenChange={setWidgetManagerOpen}
+        />
+      )}
     </div>
   )
 }

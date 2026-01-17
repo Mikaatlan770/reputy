@@ -126,9 +126,13 @@ export interface ThreadMessage {
   createdAt: string
 }
 
+export type UserCivility = 'Dr' | 'M' | 'Mme'
+
 export interface User {
   id: string
-  name: string
+  civility: UserCivility
+  firstName: string
+  lastName: string
   email: string
   role: 'admin' | 'manager' | 'staff'
   avatar?: string

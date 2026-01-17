@@ -23,15 +23,21 @@ import {
   Star,
   Info,
   CheckCircle,
+  Globe,
+  MousePointer,
+  Settings,
 } from 'lucide-react'
 import { formatNumber, formatPercent } from '@/lib/utils'
 import { SmsPreview } from '@/components/sms/SmsPreview'
 import { SMS_DEFAULT_MESSAGE, SMS_COST_PER_SEGMENT } from '@/lib/sms'
+import { WebsiteWidgetManager } from '@/components/embed'
 
 export default function CollectPage() {
   const { currentLocation } = useAppStore()
   const [qrGenerated, setQrGenerated] = useState(false)
   const [smsValid, setSmsValid] = useState(true)
+  const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
+  const [embedStats, setEmbedStats] = useState({ impressions: 0, clicks: 0 })
 
   const channels = collectChannels.filter(
     (c) => !currentLocation || c.locationId === currentLocation.id
@@ -90,6 +96,43 @@ export default function CollectPage() {
           )
         })}
       </div>
+
+      {/* Widget & Badge Section */}
+      <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-purple-500/5">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-xl">
+                <Globe className="h-8 w-8 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Widget & Badge pour votre site</h3>
+                <p className="text-sm text-muted-foreground">
+                  Affichez vos avis directement sur votre site web
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="flex items-center gap-1">
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                    <strong>{embedStats.impressions}</strong> vues (7j)
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <MousePointer className="h-4 w-4 text-muted-foreground" />
+                    <strong>{embedStats.clicks}</strong> clics (7j)
+                  </span>
+                </div>
+              </div>
+              <Button onClick={() => setWidgetManagerOpen(true)} className="gap-2">
+                <Settings className="h-4 w-4" />
+                Configurer
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Tabs */}
       <Tabs defaultValue="qr" className="space-y-6">
@@ -420,6 +463,16 @@ export default function CollectPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Widget Manager Modal */}
+      {currentLocation && (
+        <WebsiteWidgetManager
+          locationId={currentLocation.id}
+          locationName={currentLocation.name}
+          open={widgetManagerOpen}
+          onOpenChange={setWidgetManagerOpen}
+        />
+      )}
     </div>
   )
 }

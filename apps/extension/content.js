@@ -42,6 +42,119 @@ let lastRightClickAppointmentEl = null;
 let currentRootEl = null;
 let lastHoverPhone = '';
 let lastHoverTs = 0;
+let currentMode = null; // Cache du mode actuel
+
+// ===== MODE HELPERS (health | food | business) =====
+const VALID_MODES = ['health', 'food', 'business'];
+const DEFAULT_MODE = 'business';
+
+const MODE_CONFIG = {
+  health: {
+    label: 'R Health',
+    tooltip: 'Reputy – Health',
+    color: '#10b981' // vert santé
+  },
+  food: {
+    label: 'R Food',
+    tooltip: 'Reputy – Food',
+    color: '#f59e0b' // orange food
+  },
+  business: {
+    label: 'R Business',
+    tooltip: 'Reputy – Business',
+    color: '#6366f1' // indigo business
+  }
+};
+
+/**
+ * Infère le mode par défaut depuis l'URL/hostname
+ */
+function inferDefaultModeFromHost() {
+  const hostname = window.location.hostname || '';
+  const pathname = window.location.pathname || '';
+  
+  // Doctolib Pro => health
+  if (hostname.includes('pro.doctolib') || hostname.includes('doctolib')) {
+    return 'health';
+  }
+  
+  // Ajouter d'autres règles ici si besoin
+  // Ex: if (hostname.includes('ubereats') || hostname.includes('deliveroo')) return 'food';
+  
+  return DEFAULT_MODE;
+}
+
+/**
+ * Récupère le mode actuel (cache ou storage)
+ */
+async function getMode() {
+  // Utiliser le cache si disponible
+  if (currentMode && VALID_MODES.includes(currentMode)) {
+    return currentMode;
+  }
+  
+  try {
+    // Essayer chrome.storage.sync
+    if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
+      const result = await new Promise((resolve) => {
+        chrome.storage.sync.get({ reputyMode: null }, resolve);
+      });
+      
+      if (result.reputyMode && VALID_MODES.includes(result.reputyMode)) {
+        currentMode = result.reputyMode;
+        return currentMode;
+      }
+    }
+  } catch (e) {
+    console.warn('[REPUTY] Storage access error:', e);
+  }
+  
+  // Fallback: inférer depuis l'URL
+  currentMode = inferDefaultModeFromHost();
+  return currentMode;
+}
+
+/**
+ * Définit le mode et le sauvegarde
+ */
+async function setMode(mode) {
+  if (!VALID_MODES.includes(mode)) {
+    console.warn(`[REPUTY] Invalid mode: ${mode}, using default`);
+    mode = DEFAULT_MODE;
+  }
+  
+  currentMode = mode;
+  
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
+      await new Promise((resolve) => {
+        chrome.storage.sync.set({ reputyMode: mode }, resolve);
+      });
+      console.log(`[REPUTY] Mode saved: ${mode}`);
+    }
+  } catch (e) {
+    console.warn('[REPUTY] Failed to save mode:', e);
+  }
+  
+  // Mettre à jour les boutons existants
+  updateAllReputyButtons(mode);
+  return mode;
+}
+
+/**
+ * Met à jour tous les boutons Reputy existants
+ */
+function updateAllReputyButtons(mode) {
+  const config = MODE_CONFIG[mode] || MODE_CONFIG[DEFAULT_MODE];
+  document.querySelectorAll('.reputy-vu-btn').forEach(btn => {
+    const logoSpan = btn.querySelector('.reputy-btn-logo');
+    if (logoSpan) {
+      btn.innerHTML = `<span class="reputy-btn-logo">${ICONS.logo}</span> ${config.label.replace('R ', '')}`;
+    }
+    btn.title = config.tooltip;
+    btn.setAttribute('data-reputy-mode', mode);
+  });
+}
 
 // ===== UTILITAIRES =====
 function escapeHtml(str) {
@@ -127,6 +240,23 @@ function sendMessageToBackground(msg) {
       reject(e);
     }
   });
+}
+
+/**
+ * Détecte si on est sur la page principale de l'agenda Doctolib.
+ * Sur cette page, l'email n'est pas récupérable de manière fiable.
+ * Retourne true pour: /calendar/today/day, /calendar/..., etc.
+ */
+function isMainCalendarPage() {
+  const path = window.location.pathname;
+  // Page agenda principale: contient /calendar/ mais PAS /appointments/
+  const isCalendar = path.includes('/calendar/');
+  const isAppointment = path.includes('/appointments/');
+  const result = isCalendar && !isAppointment;
+  if (REPUTY_DEBUG) {
+    console.log('[REPUTY][DEBUG] isMainCalendarPage:', { path, isCalendar, isAppointment, result });
+  }
+  return result;
 }
 
 // ===== HELPERS DOM =====
@@ -591,6 +721,13 @@ function createModal(patientInfo, rootEl) {
   currentRootEl = rootEl || currentRootEl;
   // Réinitialiser le canal à SMS par défaut à chaque ouverture du modal
   selectedChannel = 'sms';
+  
+  // Contexte: page agenda principale vs page RDV
+  const calendarOnly = isMainCalendarPage();
+  if (REPUTY_DEBUG) {
+    console.log('[REPUTY][DEBUG] createModal context:', { calendarOnly, patientInfo });
+  }
+  
   // Overlay
   currentOverlay = document.createElement('div');
   currentOverlay.className = 'reputy-overlay';
@@ -615,7 +752,60 @@ function createModal(patientInfo, rootEl) {
   const bannerName = `${lastCaps} ${firstNorm}`.trim(); // NOM en caps, prénom en casse normale
   const formName = `${lastCaps} ${firstNorm}`.trim() || (patientInfo.name || "");
   const displayName = formName; // compat: éviter ReferenceError
-  const contactValue = patientInfo.phone || patientInfo.email || "Coordonnées à compléter";
+  
+  // Récap contact: sur agenda = téléphone uniquement, sur RDV = tel ou email
+  const contactValue = calendarOnly 
+    ? (patientInfo.phone || "Téléphone à compléter")
+    : (patientInfo.phone || patientInfo.email || "Coordonnées à compléter");
+
+  // Channel selector: sur agenda principal = SMS uniquement
+  const channelSelectorHtml = calendarOnly
+    ? `<div class="reputy-channel-selector">
+        <button class="reputy-channel-btn active" data-channel="sms">
+          ${ICONS.sms}
+          <span>SMS</span>
+        </button>
+      </div>`
+    : `<div class="reputy-channel-selector">
+        <button class="reputy-channel-btn active" data-channel="sms">
+          ${ICONS.sms}
+          <span>SMS</span>
+        </button>
+        <button class="reputy-channel-btn${!patientInfo.email ? ' disabled' : ''}" data-channel="email"${!patientInfo.email ? ' title="Email introuvable"' : ''}>
+          ${ICONS.email}
+          <span>Email</span>
+        </button>
+      </div>`;
+
+  // Hint selon contexte
+  let hintHtml = '';
+  if (calendarOnly) {
+    // Page agenda: si téléphone manquant, afficher hint
+    if (!patientInfo.phone) {
+      hintHtml = `<div class="reputy-hint reputy-hint-warning">Téléphone introuvable sur cette vue.</div>`;
+    }
+  } else {
+    // Page RDV: hint pour récupérer email si absent
+    if (!patientInfo.email) {
+      hintHtml = `<div class="reputy-hint">
+        Email introuvable.
+        <button class="reputy-link-btn" id="reputy-fetch-email" type="button">Récupérer depuis la fiche</button>
+      </div>`;
+    }
+  }
+
+  // Groupe email: masqué sur agenda principal
+  const emailGroupHtml = calendarOnly
+    ? '' // Pas de champ email sur page agenda
+    : `<div class="reputy-form-group" id="reputy-email-group" style="display: none;">
+        <label class="reputy-label">Email</label>
+        <input type="email" class="reputy-input" id="reputy-email" 
+               value="${escapeHtml(patientInfo.email)}" 
+               placeholder="patient@email.com">
+      </div>`;
+
+  // Bouton envoyer: désactivé si téléphone manquant sur page agenda
+  const sendDisabled = calendarOnly && !patientInfo.phone;
 
   currentModal.innerHTML = `
     <div class="reputy-modal-header">
@@ -629,16 +819,7 @@ function createModal(patientInfo, rootEl) {
       <p class="reputy-modal-title">Envoyer une demande d'avis</p>
       
       <!-- Choix du canal -->
-      <div class="reputy-channel-selector">
-        <button class="reputy-channel-btn active" data-channel="sms">
-          ${ICONS.sms}
-          <span>SMS</span>
-        </button>
-        <button class="reputy-channel-btn" data-channel="email">
-          ${ICONS.email}
-          <span>Email</span>
-        </button>
-      </div>
+      ${channelSelectorHtml}
       
       <!-- Info patient -->
       ${bannerName ? `
@@ -670,12 +851,6 @@ function createModal(patientInfo, rootEl) {
                placeholder="patient@email.com">
       </div>
 
-      ${(!patientInfo.email) ? `
-        <div class="reputy-hint">
-          Email non visible depuis l'agenda Doctolib.
-          <button class="reputy-link-btn" id="reputy-fetch-email" type="button">Récupérer l’email depuis la fiche RDV</button>
-        </div>
-      ` : ''}
 
       <button class="reputy-btn-primary" id="reputy-send">
         ${ICONS.send}
@@ -713,49 +888,6 @@ function createModal(patientInfo, rootEl) {
   // Send button
   currentModal.querySelector('#reputy-send').addEventListener('click', handleSend);
 
-  // Bouton récupération email depuis fiche RDV (si présent)
-  const fetchEmailBtn = currentModal.querySelector('#reputy-fetch-email');
-  if (fetchEmailBtn) {
-    fetchEmailBtn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const original = fetchEmailBtn.textContent;
-      fetchEmailBtn.disabled = true;
-      fetchEmailBtn.textContent = 'Récupération...';
-      try {
-        // Ouvrir la fiche RDV si possible
-        if (lastRightClickAppointmentEl?.click) lastRightClickAppointmentEl.click();
-
-        // petit délai rendu
-        await new Promise((r) => setTimeout(r, 350));
-
-        // MOD: extraction ciblée "Infos administratives"
-        let email = extractEmailFromInfosAdministratives();
-        if (!email) {
-          // fallback : observer quelques ms
-          email = await waitForEmail(2500);
-        }
-
-        if (email) {
-          const input = currentModal.querySelector("#reputy-email");
-          if (input) input.value = email;
-          showToast("success", "Email récupéré", email);
-        } else {
-          showToast(
-            "warning",
-            "Email non trouvé",
-            "Aucun email sur la fiche (ou patient non renseigné)."
-          );
-        }
-      } catch (err) {
-        console.error("[REPUTY] fetch email error", err);
-        showToast("error", "Erreur", "Récupération email impossible.");
-      } finally {
-        fetchEmailBtn.disabled = false;
-        fetchEmailBtn.textContent = original;
-      }
-    });
-  }
   
   // Focus first empty field
   setTimeout(() => {
@@ -1082,11 +1214,15 @@ function injectReputyButtons() {
     if (btn.dataset.reputyInjected) return;
     btn.dataset.reputyInjected = 'true';
     
-    // Créer le bouton Reputy
+    // Créer le bouton Reputy avec le mode approprié
+    const mode = currentMode || inferDefaultModeFromHost();
+    const modeConfig = MODE_CONFIG[mode] || MODE_CONFIG[DEFAULT_MODE];
+    
     const reputyBtn = document.createElement('button');
     reputyBtn.className = 'reputy-vu-btn';
-    reputyBtn.innerHTML = `<span class="reputy-btn-logo">${ICONS.logo}</span> Avis`;
-    reputyBtn.title = 'Demander un avis avec Reputy';
+    reputyBtn.innerHTML = `<span class="reputy-btn-logo">${ICONS.logo}</span> ${modeConfig.label.replace('R ', '')}`;
+    reputyBtn.title = modeConfig.tooltip;
+    reputyBtn.setAttribute('data-reputy-mode', mode);
     
     reputyBtn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1149,8 +1285,13 @@ function openReputyModal() {
 
 
 // ===== INIT =====
-function init() {
+async function init() {
   console.log('[REPUTY] Initializing...');
+  
+  // Initialiser le mode (health/food/business)
+  const mode = await getMode();
+  console.log(`[REPUTY] Mode: ${mode}`);
+  
   // Mémoriser la carte/popup au clic droit (agenda)
   document.addEventListener(
     "contextmenu",
