@@ -7,11 +7,24 @@
 //  - GET  /api/feedbacks               -> liste des feedbacks (admin)
 //  - GET  /api/settings                -> récupérer les settings
 //  - POST /api/settings                -> sauvegarder les settings
+//  - GET  /api/requests                -> liste des demandes (traçabilité)
+//
+// Internal Backoffice API (Super Admin):
+//  - GET    /internal/orgs             -> liste des clients
+//  - POST   /internal/orgs             -> créer un client
+//  - GET    /internal/orgs/:orgId      -> détail client
+//  - PUT    /internal/orgs/:orgId      -> modifier client
+//  - POST   /internal/orgs/:orgId/credits  -> ajouter crédits
+//  - POST   /internal/orgs/:orgId/status   -> changer statut
+//  - GET    /internal/orgs/:orgId/usage    -> usage
+//  - GET    /internal/orgs/:orgId/telemetry -> telemetry
+//  - POST   /telemetry/extension       -> log depuis extension
 //
 // Configuration via variables d'environnement :
 //  - PORT                (défaut : 8787)
 //  - CABINET_API_TOKEN   (token attendu par l'extension)
 //  - REVIEWS_BASE_URL    (défaut : http://localhost:PORT)
+//  - INTERNAL_ADMIN_TOKEN (token backoffice super admin)
 
 const http = require('http');
 const fs = require('fs');
@@ -20,8 +33,9 @@ const { randomBytes, createHash } = require('crypto');
 
 const PORT = process.env.PORT || 8787;
 const CABINET_API_TOKEN = process.env.CABINET_API_TOKEN || 'dev-token';
+const INTERNAL_ADMIN_TOKEN = process.env.INTERNAL_ADMIN_TOKEN || 'super-admin-token-change-me';
 const REVIEWS_BASE_URL = process.env.REVIEWS_BASE_URL || `http://127.0.0.1:${PORT}`;
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 // ============ ANTI-DOUBLON CONFIG ============
 const DUPLICATE_WINDOW_HOURS = 24;        // Fenêtre anti-doublon (heures)
@@ -31,10 +45,139 @@ const MAX_SEND_COUNT = 3;                 // Nombre max de renvois autorisés
 // Default settings (overridden by data.json)
 const DEFAULT_SETTINGS = {
   googleReviewUrl: 'https://g.page/r/YOUR_GOOGLE_ID/review',
-  cabinetName: 'Cabinet Médical'
+  cabinetName: 'Cabinet Médical',
+  // Review routing config: détermine si les avis positifs sont redirigés vers avis public
+  reviewRouting: {
+    enabled: true,           // Si false, tout va en feedback interne
+    threshold: 4,            // Note minimum pour rediriger vers avis public (1-5)
+    publicTarget: 'DOCTOLIB' // Cible: 'DOCTOLIB', 'GOOGLE', etc.
+  }
 };
 
 const DATA_FILE = path.join(__dirname, 'data.json');
+
+// ============ MULTI-TENANT: DEFAULT QUOTAS PER PLAN ============
+const PLAN_DEFAULTS = {
+  health_basic: { smsIncluded: 50, emailIncluded: 50 },
+  health_pro: { smsIncluded: 200, emailIncluded: 200 },
+  food_basic: { smsIncluded: 100, emailIncluded: 100 },
+  food_pro: { smsIncluded: 300, emailIncluded: 300 },
+  business_basic: { smsIncluded: 30, emailIncluded: 200 },
+  business_pro: { smsIncluded: 100, emailIncluded: 500 },
+};
+
+// ============ UTILITY FUNCTIONS ============
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function generateId() {
+  return randomBytes(12).toString('hex');
+}
+
+/**
+ * Ensures data.json has all required schema sections
+ * Performs "soft migration" by adding missing keys with defaults
+ */
+function ensureSchema(data) {
+  // Ensure base collections exist
+  if (!data.requests) data.requests = {};
+  if (!data.feedbacks) data.feedbacks = {};
+  if (!data.settings) data.settings = { ...DEFAULT_SETTINGS };
+  
+  // Multi-tenant collections
+  if (!data.orgs) data.orgs = [];
+  if (!data.usageLedger) data.usageLedger = [];
+  if (!data.telemetry) data.telemetry = [];
+  
+  // Ensure settings has reviewRouting
+  if (!data.settings.reviewRouting) {
+    data.settings.reviewRouting = DEFAULT_SETTINGS.reviewRouting;
+  }
+  
+  // Migrate existing orgs to full schema
+  data.orgs = data.orgs.map(org => ({
+    id: org.id || generateId(),
+    name: org.name || 'Unknown',
+    vertical: org.vertical || 'health',
+    status: org.status || 'active',
+    createdAt: org.createdAt || nowISO(),
+    updatedAt: org.updatedAt || nowISO(),
+    billing: {
+      provider: org.billing?.provider || 'none',
+      stripeCustomerId: org.billing?.stripeCustomerId || null,
+      gocardlessMandateId: org.billing?.gocardlessMandateId || null,
+      ...org.billing
+    },
+    plan: {
+      code: org.plan?.code || `${org.vertical || 'health'}_basic`,
+      basePriceCents: org.plan?.basePriceCents || 4900,
+      currency: org.plan?.currency || 'EUR',
+      billingCycle: org.plan?.billingCycle || 'monthly',
+      ...org.plan
+    },
+    negotiated: {
+      enabled: org.negotiated?.enabled || false,
+      customPriceCents: org.negotiated?.customPriceCents || null,
+      discountPercent: org.negotiated?.discountPercent || null,
+      notes: org.negotiated?.notes || '',
+      contractRef: org.negotiated?.contractRef || null,
+      ...org.negotiated
+    },
+    options: {
+      reviewRouting: org.options?.reviewRouting ?? true,
+      widgetsSeo: org.options?.widgetsSeo ?? false,
+      multiLocations: org.options?.multiLocations ?? false,
+      prioritySupport: org.options?.prioritySupport ?? false,
+      custom: org.options?.custom || {},
+      ...org.options
+    },
+    quotas: {
+      smsIncluded: org.quotas?.smsIncluded ?? PLAN_DEFAULTS[org.plan?.code]?.smsIncluded ?? 50,
+      emailIncluded: org.quotas?.emailIncluded ?? PLAN_DEFAULTS[org.plan?.code]?.emailIncluded ?? 50,
+      ...org.quotas
+    },
+    balances: {
+      smsExtra: org.balances?.smsExtra ?? 0,
+      emailExtra: org.balances?.emailExtra ?? 0,
+      ...org.balances
+    }
+  }));
+  
+  return data;
+}
+
+/**
+ * Get org by ID or throw 404
+ */
+function getOrgOrThrow(data, orgId) {
+  const org = data.orgs.find(o => o.id === orgId);
+  if (!org) {
+    const error = new Error('Org not found');
+    error.status = 404;
+    throw error;
+  }
+  return org;
+}
+
+/**
+ * Calculate usage for an org over a period
+ */
+function calculateOrgUsage(data, orgId, days = 30) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceISO = since.toISOString();
+  
+  const entries = (data.usageLedger || []).filter(
+    e => e.orgId === orgId && e.ts >= sinceISO
+  );
+  
+  return {
+    sms: entries.filter(e => e.type === 'sms').reduce((sum, e) => sum + (e.qty || 0), 0),
+    email: entries.filter(e => e.type === 'email').reduce((sum, e) => sum + (e.qty || 0), 0),
+    total: entries.length
+  };
+}
 
 // ============ IDEMPOTENCY HELPERS ============
 // NOTE: Pour migration future vers DB, créer un UNIQUE INDEX sur idempotencyKey
@@ -89,25 +232,85 @@ function isRequestExpired(request) {
 function loadData() {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      // Ensure settings exist with defaults
-      if (!data.settings) {
-        data.settings = { ...DEFAULT_SETTINGS };
-      }
-      return data;
+      const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      // Apply schema migration
+      return ensureSchema(raw);
     }
   } catch (err) {
     console.error('[REPUTY] Error loading data:', err);
   }
-  return { requests: {}, feedbacks: {}, users: {}, sessions: {}, settings: { ...DEFAULT_SETTINGS } };
+  // Return empty structure with all required collections
+  return ensureSchema({});
+}
+
+// ============ AUTH MIDDLEWARES ============
+
+function validateAuth(req) {
+  const header = req.headers['authorization'] || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) {
+    return { ok: false, error: 'Token manquant' };
+  }
+  if (token !== CABINET_API_TOKEN) {
+    return { ok: false, error: 'Token invalide' };
+  }
+  return { ok: true };
+}
+
+function requireAdmin(req) {
+  const token = req.headers['x-admin-token'] || '';
+  if (!token) {
+    return { ok: false, error: 'Admin token manquant', status: 401 };
+  }
+  if (token !== INTERNAL_ADMIN_TOKEN) {
+    return { ok: false, error: 'Admin token invalide', status: 401 };
+  }
+  return { ok: true };
 }
 
 function getSettings() {
   const data = loadData();
   return {
     googleReviewUrl: data.settings?.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl,
-    cabinetName: data.settings?.cabinetName || DEFAULT_SETTINGS.cabinetName
+    cabinetName: data.settings?.cabinetName || DEFAULT_SETTINGS.cabinetName,
+    reviewRouting: {
+      enabled: data.settings?.reviewRouting?.enabled ?? DEFAULT_SETTINGS.reviewRouting.enabled,
+      threshold: data.settings?.reviewRouting?.threshold ?? DEFAULT_SETTINGS.reviewRouting.threshold,
+      publicTarget: data.settings?.reviewRouting?.publicTarget || DEFAULT_SETTINGS.reviewRouting.publicTarget
+    }
   };
+}
+
+// ============ REVIEW ROUTING HELPERS ============
+
+/**
+ * Détermine le mode de routing basé sur la note et la config
+ * @param {number} rating - Note 1-5
+ * @returns {{ mode: 'PUBLIC_REVIEW' | 'INTERNAL_FEEDBACK', target?: string, redirectUrl?: string }}
+ */
+function determineReviewRouting(rating) {
+  const settings = getSettings();
+  const { reviewRouting, googleReviewUrl } = settings;
+  
+  // Si routing désactivé => tout en interne
+  if (!reviewRouting.enabled) {
+    console.log('[REPUTY][ROUTING] Routing disabled, internal feedback');
+    return { mode: 'INTERNAL_FEEDBACK' };
+  }
+  
+  // Si note >= seuil => redirection vers avis public
+  if (rating >= reviewRouting.threshold) {
+    console.log(`[REPUTY][ROUTING] Rating ${rating} >= threshold ${reviewRouting.threshold}, public review`);
+    return {
+      mode: 'PUBLIC_REVIEW',
+      target: reviewRouting.publicTarget,
+      redirectUrl: googleReviewUrl // Pour l'instant, tous les targets utilisent Google
+    };
+  }
+  
+  // Sinon => feedback interne
+  console.log(`[REPUTY][ROUTING] Rating ${rating} < threshold ${reviewRouting.threshold}, internal feedback`);
+  return { mode: 'INTERNAL_FEEDBACK' };
 }
 
 function saveData(data) {
@@ -125,7 +328,7 @@ function sendJson(res, status, data) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
   });
   res.end(JSON.stringify(data));
 }
@@ -174,18 +377,6 @@ async function parseBody(req) {
     });
     req.on('error', reject);
   });
-}
-
-function validateAuth(req) {
-  const header = req.headers['authorization'] || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (!token) {
-    return { ok: false, error: 'Token manquant' };
-  }
-  if (token !== CABINET_API_TOKEN) {
-    return { ok: false, error: 'Token invalide' };
-  }
-  return { ok: true };
 }
 
 function validatePayload(body) {
@@ -536,6 +727,9 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
   <script>
     const requestId = '${requestId}';
     const STORAGE_KEY = 'reputy_submitted_' + requestId;
+    const ROUTING_THRESHOLD = ${settings?.reviewRouting?.threshold ?? 4};
+    const ROUTING_ENABLED = ${settings?.reviewRouting?.enabled !== false};
+    const GOOGLE_URL = '${GOOGLE_REVIEW_URL}';
     let selectedRating = 0;
     let isSubmitting = false;
     
@@ -559,11 +753,12 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
         // Show comment section
         commentSection.classList.add('visible');
         
-        // Show appropriate button
-        if (selectedRating >= 4) {
+        // Check routing: si note >= seuil ET routing activé => Google direct
+        if (ROUTING_ENABLED && selectedRating >= ROUTING_THRESHOLD) {
           submitBtn.classList.remove('visible');
+          googleBtn.href = GOOGLE_URL;
           googleBtn.style.display = 'flex';
-          // Auto-submit for positive ratings
+          // Auto-submit en arrière-plan (la note est enregistrée même si le client ne va pas sur Google)
           submitFeedbackSilent();
         } else {
           submitBtn.classList.add('visible');
@@ -665,8 +860,21 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
           submitBtn.style.display = 'none';
           document.querySelector('.question').style.display = 'none';
           
-          // Show success
-          document.getElementById('successMessage').classList.add('visible');
+          // Check routing decision from backend
+          const routing = result.routing || {};
+          
+          if (routing.mode === 'PUBLIC_REVIEW' && routing.redirectUrl) {
+            // Show Google button for public review
+            googleBtn.href = routing.redirectUrl;
+            googleBtn.style.display = 'flex';
+            document.getElementById('successMessage').innerHTML = '✓ Merci ! Partagez votre expérience sur Google ?';
+            document.getElementById('successMessage').classList.add('visible');
+          } else {
+            // Internal feedback only
+            document.getElementById('successMessage').innerHTML = '✓ Merci pour votre retour !';
+            document.getElementById('successMessage').classList.add('visible');
+          }
+          
           document.querySelector('.greeting').textContent = 'Merci ${firstName} !';
         } else {
           alert(result.error || 'Une erreur est survenue');
@@ -971,12 +1179,24 @@ async function handleSubmitFeedback(requestId, req, res) {
     hasComment: !!body.comment
   });
   
+  // ============ APPLY REVIEW ROUTING LOGIC ============
+  const routing = determineReviewRouting(rating);
+  
+  // Store routing decision in feedback for analytics
+  data.feedbacks[requestId].routing = routing;
+  saveData(data);
+  
   const settings = getSettings();
+  
+  // Response with routing decision
   return sendJson(res, 200, { 
     ok: true,
     success: true,  // Backward compat
-    redirectToGoogle: rating >= 4,
-    googleUrl: settings.googleReviewUrl
+    // New routing response
+    routing: routing,
+    // Backward compat fields
+    redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
+    googleUrl: routing.redirectUrl || settings.googleReviewUrl
   });
 }
 
@@ -992,6 +1212,56 @@ function handleGetFeedbacks(req, res) {
   );
   
   return sendJson(res, 200, { feedbacks });
+}
+
+// ============ REQUESTS API (Traçabilité) ============
+
+function handleGetRequests(req, res) {
+  const auth = validateAuth(req);
+  if (!auth.ok) {
+    return sendJson(res, 401, { error: auth.error });
+  }
+  
+  const data = loadData();
+  
+  // Enrichir chaque request avec son statut de feedback
+  const requests = Object.values(data.requests || {}).map(request => {
+    const feedback = data.feedbacks?.[request.id];
+    const isExpired = isRequestExpired(request);
+    
+    // Déterminer le statut
+    let status = 'pending'; // En attente de réponse
+    if (feedback) {
+      status = 'completed'; // Feedback reçu
+    } else if (isExpired) {
+      status = 'expired'; // Expiré sans réponse
+    }
+    
+    return {
+      ...request,
+      status,
+      feedback: feedback ? {
+        rating: feedback.rating,
+        comment: feedback.comment,
+        submittedAt: feedback.submittedAt || feedback.createdAt,
+        routing: feedback.routing
+      } : null,
+      isExpired
+    };
+  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  
+  // Stats globales
+  const stats = {
+    total: requests.length,
+    pending: requests.filter(r => r.status === 'pending').length,
+    completed: requests.filter(r => r.status === 'completed').length,
+    expired: requests.filter(r => r.status === 'expired').length,
+    conversionRate: requests.length > 0 
+      ? Math.round((requests.filter(r => r.status === 'completed').length / requests.length) * 100) 
+      : 0
+  };
+  
+  return sendJson(res, 200, { requests, stats });
 }
 
 function handleGetSettings(req, res) {
@@ -1018,11 +1288,13 @@ async function handleSaveSettings(req, res) {
   }
   
   const data = loadData();
+  const currentSettings = data.settings || {};
   
-  // Update settings
+  // Update settings (merge with existing, especially reviewRouting)
   data.settings = {
-    googleReviewUrl: (body.googleReviewUrl || '').trim() || DEFAULT_SETTINGS.googleReviewUrl,
-    cabinetName: (body.cabinetName || '').trim() || DEFAULT_SETTINGS.cabinetName
+    googleReviewUrl: (body.googleReviewUrl || '').trim() || currentSettings.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl,
+    cabinetName: (body.cabinetName || '').trim() || currentSettings.cabinetName || DEFAULT_SETTINGS.cabinetName,
+    reviewRouting: currentSettings.reviewRouting || DEFAULT_SETTINGS.reviewRouting
   };
   
   saveData(data);
@@ -1030,6 +1302,513 @@ async function handleSaveSettings(req, res) {
   console.log('[REPUTY][SETTINGS] Settings updated:', data.settings);
   
   return sendJson(res, 200, { success: true, settings: data.settings });
+}
+
+// ============ REVIEW ROUTING API ============
+
+function handleGetReviewRouting(req, res) {
+  const auth = validateAuth(req);
+  if (!auth.ok) {
+    return sendJson(res, 401, { error: auth.error });
+  }
+  
+  const settings = getSettings();
+  return sendJson(res, 200, settings.reviewRouting);
+}
+
+async function handleSaveReviewRouting(req, res) {
+  const auth = validateAuth(req);
+  if (!auth.ok) {
+    return sendJson(res, 401, { error: auth.error });
+  }
+  
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: 'Corps JSON invalide' });
+  }
+  
+  // Validation
+  const { enabled, threshold, publicTarget } = body;
+  
+  // Valider threshold (clamp 1-5)
+  let validThreshold = parseInt(threshold);
+  if (isNaN(validThreshold) || validThreshold < 1) validThreshold = 1;
+  if (validThreshold > 5) validThreshold = 5;
+  
+  // Valider publicTarget
+  const validTargets = ['DOCTOLIB', 'GOOGLE'];
+  const validPublicTarget = validTargets.includes(publicTarget) ? publicTarget : 'DOCTOLIB';
+  
+  const data = loadData();
+  
+  // Ensure settings exists
+  if (!data.settings) {
+    data.settings = { ...DEFAULT_SETTINGS };
+  }
+  
+  // Update reviewRouting
+  data.settings.reviewRouting = {
+    enabled: enabled === true || enabled === 'true',
+    threshold: validThreshold,
+    publicTarget: validPublicTarget
+  };
+  
+  saveData(data);
+  
+  console.log('[REPUTY][SETTINGS] Review routing updated:', data.settings.reviewRouting);
+  
+  // Tests de validation rapides (logs)
+  console.log('[REPUTY][ROUTING TEST] stars=5, threshold=4 =>', determineReviewRouting(5));
+  console.log('[REPUTY][ROUTING TEST] stars=3, threshold=4 =>', determineReviewRouting(3));
+  
+  return sendJson(res, 200, { 
+    success: true, 
+    reviewRouting: data.settings.reviewRouting 
+  });
+}
+
+// ============ INTERNAL BACKOFFICE API (Super Admin) ============
+
+/**
+ * GET /internal/orgs - Liste tous les clients
+ */
+function handleListOrgs(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const data = loadData();
+  
+  // Enrichir chaque org avec l'usage 30 jours
+  const orgsWithUsage = data.orgs.map(org => {
+    const usage = calculateOrgUsage(data, org.id, 30);
+    const effectivePrice = org.negotiated?.enabled 
+      ? (org.negotiated.customPriceCents || org.plan.basePriceCents)
+      : org.plan.basePriceCents;
+    
+    return {
+      ...org,
+      usage30d: usage,
+      effectivePriceCents: effectivePrice
+    };
+  });
+  
+  return sendJson(res, 200, { 
+    orgs: orgsWithUsage,
+    total: orgsWithUsage.length 
+  });
+}
+
+/**
+ * POST /internal/orgs - Crée un nouveau client
+ */
+async function handleCreateOrg(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: 'Corps JSON invalide' });
+  }
+  
+  const { name, vertical = 'health' } = body;
+  
+  if (!name || name.trim().length < 2) {
+    return sendJson(res, 400, { error: 'Nom requis (min 2 caractères)' });
+  }
+  
+  const validVerticals = ['health', 'food', 'business'];
+  if (!validVerticals.includes(vertical)) {
+    return sendJson(res, 400, { error: `Vertical invalide. Valeurs: ${validVerticals.join(', ')}` });
+  }
+  
+  const data = loadData();
+  const now = nowISO();
+  const planCode = `${vertical}_basic`;
+  const quotas = PLAN_DEFAULTS[planCode] || { smsIncluded: 50, emailIncluded: 50 };
+  
+  const newOrg = {
+    id: generateId(),
+    name: name.trim(),
+    vertical,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+    billing: {
+      provider: 'none',
+      stripeCustomerId: null,
+      gocardlessMandateId: null
+    },
+    plan: {
+      code: planCode,
+      basePriceCents: 4900,
+      currency: 'EUR',
+      billingCycle: 'monthly'
+    },
+    negotiated: {
+      enabled: false,
+      customPriceCents: null,
+      discountPercent: null,
+      notes: '',
+      contractRef: null
+    },
+    options: {
+      reviewRouting: true,
+      widgetsSeo: false,
+      multiLocations: false,
+      prioritySupport: false,
+      custom: {}
+    },
+    quotas,
+    balances: {
+      smsExtra: 0,
+      emailExtra: 0
+    }
+  };
+  
+  data.orgs.push(newOrg);
+  saveData(data);
+  
+  console.log('[REPUTY][INTERNAL] Org created:', newOrg.id, newOrg.name);
+  
+  return sendJson(res, 201, { org: newOrg });
+}
+
+/**
+ * GET /internal/orgs/:orgId - Détail d'un client
+ */
+function handleGetOrg(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const data = loadData();
+  
+  try {
+    const org = getOrgOrThrow(data, orgId);
+    const usage30d = calculateOrgUsage(data, orgId, 30);
+    const usage7d = calculateOrgUsage(data, orgId, 7);
+    
+    // Derniers events usage
+    const recentUsage = (data.usageLedger || [])
+      .filter(e => e.orgId === orgId)
+      .sort((a, b) => b.ts?.localeCompare(a.ts))
+      .slice(0, 50);
+    
+    // Derniers telemetry
+    const recentTelemetry = (data.telemetry || [])
+      .filter(e => e.orgId === orgId)
+      .sort((a, b) => b.ts?.localeCompare(a.ts))
+      .slice(0, 50);
+    
+    return sendJson(res, 200, {
+      org,
+      usage: { days7: usage7d, days30: usage30d },
+      recentUsage,
+      recentTelemetry
+    });
+  } catch (err) {
+    return sendJson(res, err.status || 500, { error: err.message });
+  }
+}
+
+/**
+ * PUT /internal/orgs/:orgId - Modifier un client
+ */
+async function handleUpdateOrg(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: 'Corps JSON invalide' });
+  }
+  
+  const data = loadData();
+  
+  try {
+    const org = getOrgOrThrow(data, orgId);
+    
+    // Mise à jour partielle (patch)
+    if (body.name) org.name = body.name.trim();
+    if (body.vertical) org.vertical = body.vertical;
+    
+    // Plan
+    if (body.plan) {
+      if (body.plan.code) org.plan.code = body.plan.code;
+      if (body.plan.basePriceCents !== undefined) org.plan.basePriceCents = body.plan.basePriceCents;
+      if (body.plan.billingCycle) org.plan.billingCycle = body.plan.billingCycle;
+    }
+    
+    // Négociation commerciale
+    if (body.negotiated) {
+      if (body.negotiated.enabled !== undefined) org.negotiated.enabled = body.negotiated.enabled;
+      if (body.negotiated.customPriceCents !== undefined) org.negotiated.customPriceCents = body.negotiated.customPriceCents;
+      if (body.negotiated.discountPercent !== undefined) org.negotiated.discountPercent = body.negotiated.discountPercent;
+      if (body.negotiated.notes !== undefined) org.negotiated.notes = body.negotiated.notes;
+      if (body.negotiated.contractRef !== undefined) org.negotiated.contractRef = body.negotiated.contractRef;
+    }
+    
+    // Options
+    if (body.options) {
+      Object.keys(body.options).forEach(key => {
+        org.options[key] = body.options[key];
+      });
+    }
+    
+    // Quotas
+    if (body.quotas) {
+      if (body.quotas.smsIncluded !== undefined) org.quotas.smsIncluded = body.quotas.smsIncluded;
+      if (body.quotas.emailIncluded !== undefined) org.quotas.emailIncluded = body.quotas.emailIncluded;
+    }
+    
+    org.updatedAt = nowISO();
+    saveData(data);
+    
+    console.log('[REPUTY][INTERNAL] Org updated:', orgId);
+    
+    return sendJson(res, 200, { org });
+  } catch (err) {
+    return sendJson(res, err.status || 500, { error: err.message });
+  }
+}
+
+/**
+ * POST /internal/orgs/:orgId/credits - Ajouter des crédits
+ */
+async function handleAddCredits(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: 'Corps JSON invalide' });
+  }
+  
+  const { sms = 0, email = 0, reason = '' } = body;
+  
+  if (sms === 0 && email === 0) {
+    return sendJson(res, 400, { error: 'Spécifier au moins sms ou email > 0' });
+  }
+  
+  const data = loadData();
+  
+  try {
+    const org = getOrgOrThrow(data, orgId);
+    const now = nowISO();
+    
+    // Ajouter les crédits
+    if (sms > 0) {
+      org.balances.smsExtra = (org.balances.smsExtra || 0) + sms;
+      data.usageLedger.push({
+        id: generateId(),
+        orgId,
+        type: 'sms',
+        qty: sms,
+        ts: now,
+        meta: { reason: reason || 'admin_credit', action: 'credit' }
+      });
+    }
+    
+    if (email > 0) {
+      org.balances.emailExtra = (org.balances.emailExtra || 0) + email;
+      data.usageLedger.push({
+        id: generateId(),
+        orgId,
+        type: 'email',
+        qty: email,
+        ts: now,
+        meta: { reason: reason || 'admin_credit', action: 'credit' }
+      });
+    }
+    
+    org.updatedAt = now;
+    saveData(data);
+    
+    console.log('[REPUTY][INTERNAL] Credits added to', orgId, '- SMS:', sms, 'Email:', email);
+    
+    return sendJson(res, 200, { 
+      org,
+      creditsAdded: { sms, email },
+      newBalances: org.balances
+    });
+  } catch (err) {
+    return sendJson(res, err.status || 500, { error: err.message });
+  }
+}
+
+/**
+ * POST /internal/orgs/:orgId/status - Changer le statut
+ */
+async function handleChangeStatus(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: 'Corps JSON invalide' });
+  }
+  
+  const { status } = body;
+  const validStatuses = ['active', 'suspended', 'cancelled'];
+  
+  if (!validStatuses.includes(status)) {
+    return sendJson(res, 400, { error: `Statut invalide. Valeurs: ${validStatuses.join(', ')}` });
+  }
+  
+  const data = loadData();
+  
+  try {
+    const org = getOrgOrThrow(data, orgId);
+    const oldStatus = org.status;
+    
+    org.status = status;
+    org.updatedAt = nowISO();
+    saveData(data);
+    
+    console.log('[REPUTY][INTERNAL] Org status changed:', orgId, oldStatus, '->', status);
+    
+    return sendJson(res, 200, { org, previousStatus: oldStatus });
+  } catch (err) {
+    return sendJson(res, err.status || 500, { error: err.message });
+  }
+}
+
+/**
+ * GET /internal/orgs/:orgId/usage - Historique d'usage
+ */
+function handleGetOrgUsage(req, res, orgId, urlParams) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const data = loadData();
+  
+  try {
+    getOrgOrThrow(data, orgId); // Verify org exists
+    
+    // Parse range param (default 30d)
+    const range = urlParams.get('range') || '30d';
+    const days = parseInt(range) || 30;
+    
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const sinceISO = since.toISOString();
+    
+    const entries = (data.usageLedger || [])
+      .filter(e => e.orgId === orgId && e.ts >= sinceISO)
+      .sort((a, b) => b.ts?.localeCompare(a.ts));
+    
+    const summary = {
+      sms: entries.filter(e => e.type === 'sms').reduce((sum, e) => sum + (e.qty || 0), 0),
+      email: entries.filter(e => e.type === 'email').reduce((sum, e) => sum + (e.qty || 0), 0)
+    };
+    
+    return sendJson(res, 200, { entries, summary, range: `${days}d` });
+  } catch (err) {
+    return sendJson(res, err.status || 500, { error: err.message });
+  }
+}
+
+/**
+ * GET /internal/orgs/:orgId/telemetry - Logs telemetry
+ */
+function handleGetOrgTelemetry(req, res, orgId, urlParams) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const data = loadData();
+  
+  try {
+    getOrgOrThrow(data, orgId); // Verify org exists
+    
+    const limit = parseInt(urlParams.get('limit')) || 200;
+    
+    const entries = (data.telemetry || [])
+      .filter(e => e.orgId === orgId)
+      .sort((a, b) => b.ts?.localeCompare(a.ts))
+      .slice(0, limit);
+    
+    return sendJson(res, 200, { entries, total: entries.length });
+  } catch (err) {
+    return sendJson(res, err.status || 500, { error: err.message });
+  }
+}
+
+/**
+ * POST /telemetry/extension - Log depuis l'extension (public, mais vérifie orgId)
+ */
+async function handleExtensionTelemetry(req, res) {
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: 'Corps JSON invalide' });
+  }
+  
+  const { orgId, level = 'info', message, stack, version, code } = body;
+  
+  if (!message) {
+    return sendJson(res, 400, { error: 'Message requis' });
+  }
+  
+  const data = loadData();
+  
+  // Pour MVP, on accepte sans orgId strict (mode dev)
+  // En prod, on vérifierait que l'org existe
+  if (orgId) {
+    const orgExists = data.orgs.some(o => o.id === orgId);
+    if (!orgExists && data.orgs.length > 0) {
+      // Log anyway but flag it
+      console.warn('[REPUTY][TELEMETRY] Unknown orgId:', orgId);
+    }
+  }
+  
+  const entry = {
+    id: generateId(),
+    orgId: orgId || 'unknown',
+    source: 'extension',
+    level,
+    code: code || null,
+    message,
+    stack: stack || null,
+    version: version || null,
+    ts: nowISO()
+  };
+  
+  data.telemetry.push(entry);
+  
+  // Limiter la taille du telemetry (garder les 10000 derniers)
+  if (data.telemetry.length > 10000) {
+    data.telemetry = data.telemetry.slice(-10000);
+  }
+  
+  saveData(data);
+  
+  return sendJson(res, 200, { ok: true, id: entry.id });
 }
 
 // ============ SERVER ============
@@ -1055,6 +1834,11 @@ const server = http.createServer(async (req, res) => {
   if (method === 'GET' && url === '/api/feedbacks') {
     return handleGetFeedbacks(req, res);
   }
+  
+  // Get requests list with status (admin) - Traçabilité
+  if (method === 'GET' && url === '/api/requests') {
+    return handleGetRequests(req, res);
+  }
 
   // Settings (admin)
   if (method === 'GET' && url === '/api/settings') {
@@ -1063,9 +1847,71 @@ const server = http.createServer(async (req, res) => {
   if (method === 'POST' && url === '/api/settings') {
     return handleSaveSettings(req, res);
   }
+  
+  // Review Routing Settings (admin)
+  if (method === 'GET' && url === '/api/settings/review-routing') {
+    return handleGetReviewRouting(req, res);
+  }
+  if (method === 'PUT' && url === '/api/settings/review-routing') {
+    return handleSaveReviewRouting(req, res);
+  }
+
+  // ============ INTERNAL BACKOFFICE ROUTES (Super Admin) ============
+  
+  // Parse URL for query params
+  const urlParts = url.split('?');
+  const pathname = urlParts[0];
+  const urlParams = new URLSearchParams(urlParts[1] || '');
+  
+  // Extension telemetry (public endpoint, no admin token)
+  if (method === 'POST' && pathname === '/telemetry/extension') {
+    return handleExtensionTelemetry(req, res);
+  }
+  
+  // List all orgs
+  if (method === 'GET' && pathname === '/internal/orgs') {
+    return handleListOrgs(req, res);
+  }
+  
+  // Create org
+  if (method === 'POST' && pathname === '/internal/orgs') {
+    return handleCreateOrg(req, res);
+  }
+  
+  // Org-specific routes
+  const orgMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)$/);
+  if (orgMatch) {
+    const orgId = orgMatch[1];
+    if (method === 'GET') return handleGetOrg(req, res, orgId);
+    if (method === 'PUT') return handleUpdateOrg(req, res, orgId);
+  }
+  
+  // Org credits
+  const creditsMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/credits$/);
+  if (creditsMatch && method === 'POST') {
+    return handleAddCredits(req, res, creditsMatch[1]);
+  }
+  
+  // Org status
+  const statusMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/status$/);
+  if (statusMatch && method === 'POST') {
+    return handleChangeStatus(req, res, statusMatch[1]);
+  }
+  
+  // Org usage
+  const usageMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/usage$/);
+  if (usageMatch && method === 'GET') {
+    return handleGetOrgUsage(req, res, usageMatch[1], urlParams);
+  }
+  
+  // Org telemetry
+  const telemetryMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/telemetry$/);
+  if (telemetryMatch && method === 'GET') {
+    return handleGetOrgTelemetry(req, res, telemetryMatch[1], urlParams);
+  }
 
   // Rating page
-  const ratingMatch = url.match(/^\/r\/([a-f0-9]+)$/);
+  const ratingMatch = pathname.match(/^\/r\/([a-f0-9]+)$/);
   if (ratingMatch) {
     const requestId = ratingMatch[1];
     if (method === 'GET') {

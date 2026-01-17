@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
@@ -11,11 +12,17 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const pathname = usePathname()
   const { sidebarOpen, initialize } = useAppStore()
 
   useEffect(() => {
     initialize()
   }, [initialize])
+
+  // Routes /internal/* utilisent leur propre layout (backoffice)
+  if (pathname?.startsWith('/internal')) {
+    return <>{children}</>
+  }
 
   return (
     <div className="min-h-screen bg-background">

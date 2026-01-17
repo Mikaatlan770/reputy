@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Normaliser l'URL
     backendUrl = normalizeUrl(backendUrl);
-    backendUrlInput.value = backendUrl;
+      backendUrlInput.value = backendUrl;
     
     // Validation
     if (!backendUrl) {
