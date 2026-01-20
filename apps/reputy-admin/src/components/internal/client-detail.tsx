@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Org, UsageEntry, TelemetryEntry } from '@/lib/internal/fetch-internal'
-import { updateOrg, addCredits, changeStatus, refreshClient } from '@/lib/internal/actions'
+import { updateOrg, addCredits, changeStatus, refreshClient, resetPublicKey, getApiToken, rotateApiToken } from '@/lib/internal/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -33,17 +33,23 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle,
+  Clock,
+  Copy,
   CreditCard,
   Edit2,
+  Key,
   Loader2,
   Mail,
   MessageSquare,
   Pause,
   Play,
+  Plug,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Settings,
+  Sparkles,
   Stethoscope,
   Store,
   Utensils,
@@ -101,6 +107,24 @@ function formatDate(dateStr: string): string {
   })
 }
 
+function formatPeriod(startStr: string, endStr: string): string {
+  const start = new Date(startStr)
+  const end = new Date(endStr)
+  const startDay = start.getDate()
+  const endDay = end.getDate()
+  const month = start.toLocaleDateString('fr-FR', { month: 'long' })
+  const year = start.getFullYear()
+  
+  // Same month
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return `${startDay}–${endDay} ${month} ${year}`
+  }
+  
+  // Different months
+  const endMonth = end.toLocaleDateString('fr-FR', { month: 'long' })
+  return `${startDay} ${month} – ${endDay} ${endMonth} ${year}`
+}
+
 export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: ClientDetailProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -128,11 +152,14 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
   // Quotas
   const [editSmsIncluded, setEditSmsIncluded] = useState(org.quotas.smsIncluded)
   const [editEmailIncluded, setEditEmailIncluded] = useState(org.quotas.emailIncluded)
+  const [editAiIncluded, setEditAiIncluded] = useState(org.quotas.aiIncluded || 0)
   
   // Credits modal
   const [creditsOpen, setCreditsOpen] = useState(false)
   const [creditsSms, setCreditsSms] = useState(0)
   const [creditsEmail, setCreditsEmail] = useState(0)
+  const [creditsAi, setCreditsAi] = useState(0)
+  const [creditsSource, setCreditsSource] = useState<'gift' | 'pack'>('gift')
   const [creditsReason, setCreditsReason] = useState('')
   const [creditsLoading, setCreditsLoading] = useState(false)
   
@@ -141,9 +168,33 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
   const [newStatus, setNewStatus] = useState<'active' | 'suspended' | 'cancelled'>(org.status)
   const [statusLoading, setStatusLoading] = useState(false)
   
+  // PublicKey modal
+  const [resetKeyOpen, setResetKeyOpen] = useState(false)
+  const [resetKeyLoading, setResetKeyLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+  
+  // P1.3: API Token states
+  const [apiTokenInfo, setApiTokenInfo] = useState<{
+    apiTokenMasked: string
+    apiTokenCreatedAt: string | null
+    apiTokenLastRotatedAt: string | null
+    previousTokenActive: boolean
+    previousTokenMasked: string | null
+    previousTokenExpiresAt: string | null
+  } | null>(null)
+  const [rotateTokenOpen, setRotateTokenOpen] = useState(false)
+  const [rotateTokenLoading, setRotateTokenLoading] = useState(false)
+  const [newApiToken, setNewApiToken] = useState<string | null>(null)
+  const [tokenCopied, setTokenCopied] = useState(false)
+  
   // Feedback states
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  // P1.3: Load API Token info on mount
+  useEffect(() => {
+    loadApiTokenInfo()
+  }, [org.id])
 
   function handleRefresh() {
     startTransition(() => {
@@ -174,6 +225,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
       quotas: {
         smsIncluded: editSmsIncluded,
         emailIncluded: editEmailIncluded,
+        aiIncluded: editAiIncluded,
       },
     })
 
@@ -195,15 +247,24 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
       orgId: org.id,
       sms: creditsSms,
       email: creditsEmail,
-      reason: creditsReason,
+      ai: creditsAi,
+      source: creditsSource,
+      label: creditsReason || undefined,
     })
 
     if (result.ok) {
       setCreditsOpen(false)
       setCreditsSms(0)
       setCreditsEmail(0)
+      setCreditsAi(0)
+      setCreditsSource('gift')
       setCreditsReason('')
-      setSuccess(`Crédits ajoutés: ${creditsSms} SMS, ${creditsEmail} emails`)
+      const sourceLabel = creditsSource === 'gift' ? 'offerts' : 'vendus'
+      const parts = []
+      if (creditsSms > 0) parts.push(`${creditsSms} SMS`)
+      if (creditsEmail > 0) parts.push(`${creditsEmail} emails`)
+      if (creditsAi > 0) parts.push(`${creditsAi} IA`)
+      setSuccess(`Crédits ${sourceLabel} ajoutés: ${parts.join(', ')} (expire fin de période)`)
       router.refresh()
     } else {
       setError(result.error || 'Erreur lors de l\'ajout des crédits')
@@ -230,6 +291,79 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
     }
 
     setStatusLoading(false)
+  }
+
+  async function handleCopyPublicKey() {
+    try {
+      await navigator.clipboard.writeText(org.publicKey)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      setError('Impossible de copier la clé')
+    }
+  }
+
+  async function handleResetPublicKey() {
+    setResetKeyLoading(true)
+    setError('')
+
+    const result = await resetPublicKey({ orgId: org.id })
+
+    if (result.ok) {
+      setResetKeyOpen(false)
+      setSuccess(`Clé régénérée: ${result.newPublicKey}`)
+      router.refresh()
+    } else {
+      setError(result.error || 'Erreur lors de la régénération')
+    }
+
+    setResetKeyLoading(false)
+  }
+
+  // P1.3: Load API Token info
+  async function loadApiTokenInfo() {
+    const result = await getApiToken(org.id)
+    if (result.ok && result.tokenInfo) {
+      setApiTokenInfo(result.tokenInfo)
+    }
+  }
+
+  // P1.3: Rotate API Token
+  async function handleRotateApiToken() {
+    setRotateTokenLoading(true)
+    setError('')
+    setNewApiToken(null)
+
+    const result = await rotateApiToken(org.id)
+
+    if (result.ok && result.newApiToken) {
+      setNewApiToken(result.newApiToken)
+      setSuccess(result.message || 'Token régénéré avec succès')
+      loadApiTokenInfo() // Refresh token info
+    } else {
+      setError(result.error || 'Erreur lors de la rotation du token')
+      setRotateTokenOpen(false)
+    }
+
+    setRotateTokenLoading(false)
+  }
+
+  // P1.3: Copy new token
+  async function handleCopyNewToken() {
+    if (!newApiToken) return
+    try {
+      await navigator.clipboard.writeText(newApiToken)
+      setTokenCopied(true)
+      setTimeout(() => setTokenCopied(false), 2000)
+    } catch (err) {
+      setError('Impossible de copier le token')
+    }
+  }
+
+  // P1.3: Close rotate dialog and clear new token
+  function closeRotateDialog() {
+    setRotateTokenOpen(false)
+    setNewApiToken(null)
   }
 
   const effectivePrice = org.negotiated?.enabled 
@@ -299,6 +433,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="bg-slate-800 border border-slate-700">
           <TabsTrigger value="overview">Vue d&apos;ensemble</TabsTrigger>
+          <TabsTrigger value="integration">Intégration</TabsTrigger>
           <TabsTrigger value="commercial">Commercial</TabsTrigger>
           <TabsTrigger value="quotas">Quotas & Crédits</TabsTrigger>
           <TabsTrigger value="options">Options</TabsTrigger>
@@ -309,10 +444,199 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Billing Period Header */}
+          {org.billingComputed && (
+            <Card className="bg-gradient-to-r from-slate-800/80 to-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-wider">Période de facturation</p>
+                    <p className="text-lg font-semibold text-white">
+                      {formatPeriod(org.billingComputed.periodStart, org.billingComputed.periodEnd)}
+                    </p>
+                  </div>
+                  {org.billingComputed.isProrata && (
+                    <Badge className="bg-purple-500/20 text-purple-400">
+                      Prorata {Math.round(org.billingComputed.ratio * 100)}%
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* NEW: Subscription vs Pack Credits */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Subscription Credits (monthly, expiring) */}
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-400">Usage 7 jours</CardTitle>
+                <CardTitle className="text-sm text-slate-300 font-medium flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-blue-400" />
+                  Abonnement (mensuel)
+                  <Badge className="bg-blue-500/20 text-blue-400 text-xs">Expire fin de mois</Badge>
+                  {org.creditsComputed?.isProrata && (
+                    <Badge className="bg-purple-500/20 text-purple-400 text-xs">
+                      Prorata {org.creditsComputed.ratioPercent}%
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-blue-400" />
+                      <span className="text-xs text-slate-500">SMS</span>
+                    </div>
+                    <p className="text-xl font-bold text-white">
+                      {org.creditsComputed?.subscription.smsUsed || 0} <span className="text-slate-500 text-sm">/ {org.creditsComputed?.subscription.smsTotal || 0}</span>
+                    </p>
+                    <p className="text-xs text-green-400">
+                      {org.creditsComputed?.subscription.smsRemaining || 0} restants
+                    </p>
+                    {org.creditsComputed?.isProrata && org.creditsComputed?.subscription.smsMonthlyBase !== org.creditsComputed?.subscription.smsIncludedMonthly && (
+                      <p className="text-xs text-purple-400">
+                        {org.creditsComputed.subscription.smsIncludedMonthly} inclus (base: {org.creditsComputed.subscription.smsMonthlyBase})
+                      </p>
+                    )}
+                    {(org.creditsComputed?.subscription.smsGiftMonthly || 0) > 0 && (
+                      <p className="text-xs text-amber-400">
+                        + {org.creditsComputed?.subscription.smsGiftMonthly} offerts
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-orange-400" />
+                      <span className="text-xs text-slate-500">Email</span>
+                    </div>
+                    <p className="text-xl font-bold text-white">
+                      {org.creditsComputed?.subscription.emailUsed || 0} <span className="text-slate-500 text-sm">/ {org.creditsComputed?.subscription.emailTotal || 0}</span>
+                    </p>
+                    <p className="text-xs text-green-400">
+                      {org.creditsComputed?.subscription.emailRemaining || 0} restants
+                    </p>
+                    {org.creditsComputed?.isProrata && org.creditsComputed?.subscription.emailMonthlyBase !== org.creditsComputed?.subscription.emailIncludedMonthly && (
+                      <p className="text-xs text-purple-400">
+                        {org.creditsComputed.subscription.emailIncludedMonthly} inclus (base: {org.creditsComputed.subscription.emailMonthlyBase})
+                      </p>
+                    )}
+                    {(org.creditsComputed?.subscription.emailGiftMonthly || 0) > 0 && (
+                      <p className="text-xs text-amber-400">
+                        + {org.creditsComputed?.subscription.emailGiftMonthly} offerts
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-purple-400" />
+                      <span className="text-xs text-slate-500">IA</span>
+                    </div>
+                    <p className="text-xl font-bold text-white">
+                      {org.creditsComputed?.subscription.aiUsed || 0} <span className="text-slate-500 text-sm">/ {org.creditsComputed?.subscription.aiTotal || 0}</span>
+                    </p>
+                    <p className="text-xs text-green-400">
+                      {org.creditsComputed?.subscription.aiRemaining || 0} restants
+                    </p>
+                    {org.creditsComputed?.isProrata && org.creditsComputed?.subscription.aiMonthlyBase !== org.creditsComputed?.subscription.aiIncludedMonthly && (
+                      <p className="text-xs text-purple-400">
+                        {org.creditsComputed.subscription.aiIncludedMonthly} inclus (base: {org.creditsComputed.subscription.aiMonthlyBase})
+                      </p>
+                    )}
+                    {(org.creditsComputed?.subscription.aiGiftMonthly || 0) > 0 && (
+                      <p className="text-xs text-amber-400">
+                        + {org.creditsComputed?.subscription.aiGiftMonthly} offerts
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Pack Credits (persistent) */}
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-300 font-medium flex items-center gap-2">
+                  <Plus className="h-4 w-4 text-emerald-400" />
+                  Packs achetés
+                  <Badge className="bg-emerald-500/20 text-emerald-400 text-xs">Persistants</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-blue-400" />
+                      <span className="text-xs text-slate-500">SMS</span>
+                    </div>
+                    <p className="text-xl font-bold text-emerald-400">
+                      {org.creditsComputed?.pack.smsRemaining || 0}
+                    </p>
+                    <p className="text-xs text-slate-500">restants</p>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-orange-400" />
+                      <span className="text-xs text-slate-500">Email</span>
+                    </div>
+                    <p className="text-xl font-bold text-emerald-400">
+                      {org.creditsComputed?.pack.emailRemaining || 0}
+                    </p>
+                    <p className="text-xs text-slate-500">restants</p>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-purple-400" />
+                      <span className="text-xs text-slate-500">IA</span>
+                    </div>
+                    <p className="text-xl font-bold text-emerald-400">
+                      {org.creditsComputed?.pack.aiRemaining || 0}
+                    </p>
+                    <p className="text-xs text-slate-500">restants</p>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 mt-2 border-t border-slate-700 pt-2">
+                  ℹ️ Les packs restent jusqu&apos;à consommation mais nécessitent un abonnement actif.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Total & Usage Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Total Remaining */}
+            <Card className="bg-gradient-to-br from-slate-800/80 to-slate-700/50 border-slate-600">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-300 font-medium">Total disponible</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <div>
+                    <p className="text-2xl font-bold text-white">{org.creditsComputed?.total.smsRemaining || 0}</p>
+                    <p className="text-xs text-slate-400">SMS</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-white">{org.creditsComputed?.total.emailRemaining || 0}</p>
+                    <p className="text-xs text-slate-400">Emails</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-white">{org.creditsComputed?.total.aiRemaining || 0}</p>
+                    <p className="text-xs text-slate-400">IA</p>
+                  </div>
+                </div>
+                {!org.creditsComputed?.canSend && (
+                  <div className="mt-2 flex items-center gap-2 text-amber-400 text-xs">
+                    <AlertTriangle className="h-3 w-3" />
+                    {org.creditsComputed?.subscriptionActive === false ? 'Abonnement inactif' : 'Crédits épuisés'}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 7 days usage */}
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-300 font-medium">Usage 7 jours</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4">
@@ -328,46 +652,62 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
               </CardContent>
             </Card>
 
+            {/* Pricing Card - Period based */}
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-400">Usage 30 jours</CardTitle>
+                <CardTitle className="text-sm text-slate-300 font-medium">Facturation période</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-4">
-                  <div>
-                    <p className="text-2xl font-bold text-white">{usage.days30.sms}</p>
-                    <p className="text-xs text-slate-500">SMS</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-white">{usage.days30.email}</p>
-                    <p className="text-xs text-slate-500">Emails</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-slate-400">Facturation</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className={cn(
-                  'text-2xl font-bold',
-                  org.negotiated?.enabled ? 'text-amber-400' : 'text-white'
-                )}>
-                  {formatPrice(effectivePrice)}
-                </p>
-                <p className="text-xs text-slate-500">
-                  /{org.plan.billingCycle === 'monthly' ? 'mois' : 'an'}
-                  {org.negotiated?.enabled && ' (négocié)'}
-                </p>
+                {org.billingComputed ? (
+                  <>
+                    {org.billingComputed.isNegotiated && org.billingComputed.priceMonthlyFinalCents !== org.billingComputed.priceBaseCents ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500 line-through text-sm">
+                          {formatPrice(org.billingComputed.isProrata ? Math.round(org.billingComputed.priceBaseCents * org.billingComputed.ratio) : org.billingComputed.priceBaseCents)}
+                        </span>
+                        <span className="text-2xl font-bold text-amber-400">
+                          {formatPrice(org.billingComputed.priceThisPeriodCents)}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-2xl font-bold text-white">
+                        {formatPrice(org.billingComputed.priceThisPeriodCents)}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                      {org.billingComputed.discountPercent && (
+                        <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+                          -{org.billingComputed.discountPercent}%
+                        </Badge>
+                      )}
+                      {org.billingComputed.isProrata && (
+                        <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
+                          prorata
+                        </Badge>
+                      )}
+                      <span className="text-xs text-slate-500">
+                        {!org.billingComputed.isProrata && '/mois'}
+                        {org.billingComputed.isNegotiated && !org.billingComputed.isProrata && ' (négocié)'}
+                      </span>
+                    </div>
+                    {org.billingComputed.isProrata && (
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Base mensuelle: {formatPrice(org.billingComputed.priceMonthlyFinalCents)}/mois
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-2xl font-bold text-white">
+                    {formatPrice(org.plan.basePriceCents)}
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-sm text-slate-400">Informations générales</CardTitle>
+              <CardTitle className="text-sm text-slate-300 font-medium">Informations générales</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -406,11 +746,277 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
           </Card>
         </TabsContent>
 
+        {/* Integration Tab */}
+        <TabsContent value="integration" className="space-y-4">
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <Key className="h-5 w-5 text-amber-400" />
+                Clé publique (Public Key)
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Cette clé permet de relier l&apos;extension Reputy à ce client.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3">
+                <code className="flex-1 px-4 py-3 bg-slate-900 rounded-lg font-mono text-amber-400 text-lg">
+                  {org.publicKey}
+                </code>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleCopyPublicKey}
+                  className="border-slate-600 hover:bg-slate-700"
+                >
+                  {copied ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              
+              <div className="flex items-center justify-between pt-4 border-t border-slate-700">
+                <div>
+                  <p className="text-sm text-slate-300">Régénérer la clé</p>
+                  <p className="text-xs text-slate-500">
+                    L&apos;extension Chrome devra être mise à jour avec la nouvelle clé.
+                  </p>
+                </div>
+                <Dialog open={resetKeyOpen} onOpenChange={setResetKeyOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Régénérer
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-amber-400" />
+                        Régénérer la clé publique ?
+                      </DialogTitle>
+                      <DialogDescription className="text-slate-400">
+                        Cette action est irréversible. La clé actuelle sera invalidée et l&apos;extension Chrome devra être reconfigurée.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <p className="text-sm text-amber-300">
+                        <strong>Important :</strong> Après la régénération, le client devra :
+                      </p>
+                      <ol className="mt-2 text-sm text-slate-300 list-decimal list-inside space-y-1">
+                        <li>Ouvrir les options de l&apos;extension Chrome</li>
+                        <li>Coller la nouvelle Public Key</li>
+                        <li>Sauvegarder les paramètres</li>
+                      </ol>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setResetKeyOpen(false)} className="border-slate-600">
+                        Annuler
+                      </Button>
+                      <Button
+                        onClick={handleResetPublicKey}
+                        disabled={resetKeyLoading}
+                        className="bg-amber-500 hover:bg-amber-600"
+                      >
+                        {resetKeyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmer'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* P1.3: API Token Card */}
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <Key className="h-5 w-5 text-emerald-400" />
+                Token API (Extension)
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Ce token secret permet à l&apos;extension d&apos;authentifier les requêtes pour ce client.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {apiTokenInfo ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <code className="flex-1 px-4 py-3 bg-slate-900 rounded-lg font-mono text-emerald-400 text-lg">
+                      {apiTokenInfo.apiTokenMasked}
+                    </code>
+                    <Badge variant="outline" className="border-emerald-500/30 text-emerald-400">
+                      Actif
+                    </Badge>
+                  </div>
+                  
+                  {apiTokenInfo.previousTokenActive && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <p className="text-sm text-amber-300 flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        Ancien token encore valide jusqu&apos;au{' '}
+                        {apiTokenInfo.previousTokenExpiresAt && formatDate(apiTokenInfo.previousTokenExpiresAt)}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Token: {apiTokenInfo.previousTokenMasked}
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div className="text-xs text-slate-500 space-y-1">
+                    {apiTokenInfo.apiTokenCreatedAt && (
+                      <p>Créé le: {formatDate(apiTokenInfo.apiTokenCreatedAt)}</p>
+                    )}
+                    {apiTokenInfo.apiTokenLastRotatedAt && (
+                      <p>Dernière rotation: {formatDate(apiTokenInfo.apiTokenLastRotatedAt)}</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between pt-4 border-t border-slate-700">
+                <div>
+                  <p className="text-sm text-slate-300">Rotation du token</p>
+                  <p className="text-xs text-slate-500">
+                    L&apos;ancien token reste valide 24h après rotation.
+                  </p>
+                </div>
+                <Dialog open={rotateTokenOpen} onOpenChange={(open) => open ? setRotateTokenOpen(true) : closeRotateDialog()}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Rotation
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        {newApiToken ? (
+                          <><CheckCircle className="h-5 w-5 text-emerald-400" /> Nouveau token généré</>
+                        ) : (
+                          <><Key className="h-5 w-5 text-emerald-400" /> Rotation du token API</>
+                        )}
+                      </DialogTitle>
+                      <DialogDescription className="text-slate-400">
+                        {newApiToken 
+                          ? "Copiez ce token maintenant, il ne sera plus affiché en clair."
+                          : "Un nouveau token sera généré. L'ancien reste valide 24h."
+                        }
+                      </DialogDescription>
+                    </DialogHeader>
+                    
+                    {newApiToken ? (
+                      <div className="space-y-4">
+                        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                          <p className="text-xs text-emerald-300 mb-2 font-medium">Nouveau token (à copier maintenant) :</p>
+                          <code className="block px-3 py-2 bg-slate-900 rounded font-mono text-emerald-400 text-sm break-all">
+                            {newApiToken}
+                          </code>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button onClick={handleCopyNewToken} className="flex-1 bg-emerald-500 hover:bg-emerald-600">
+                            {tokenCopied ? (
+                              <><CheckCircle className="h-4 w-4 mr-2" /> Copié !</>
+                            ) : (
+                              <><Copy className="h-4 w-4 mr-2" /> Copier le token</>
+                            )}
+                          </Button>
+                          <Button variant="outline" onClick={closeRotateDialog} className="border-slate-600">
+                            Fermer
+                          </Button>
+                        </div>
+                        <p className="text-xs text-amber-300 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Ce token ne sera plus visible après fermeture de cette fenêtre.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="p-4 bg-slate-700/30 border border-slate-600 rounded-lg">
+                          <p className="text-sm text-slate-300">
+                            <strong>Important :</strong> Après la rotation, le client devra mettre à jour le token dans l&apos;extension Chrome.
+                          </p>
+                        </div>
+                        <DialogFooter>
+                          <Button type="button" variant="outline" onClick={closeRotateDialog} className="border-slate-600">
+                            Annuler
+                          </Button>
+                          <Button
+                            onClick={handleRotateApiToken}
+                            disabled={rotateTokenLoading}
+                            className="bg-emerald-500 hover:bg-emerald-600"
+                          >
+                            {rotateTokenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Générer nouveau token'}
+                          </Button>
+                        </DialogFooter>
+                      </>
+                    )}
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <Plug className="h-5 w-5 text-blue-400" />
+                Instructions d&apos;intégration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">1</div>
+                  <div>
+                    <p className="text-white font-medium">Installer l&apos;extension Chrome</p>
+                    <p className="text-sm text-slate-400">
+                      Téléchargez et installez l&apos;extension Reputy depuis le Chrome Web Store.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">2</div>
+                  <div>
+                    <p className="text-white font-medium">Configurer la Public Key</p>
+                    <p className="text-sm text-slate-400">
+                      Ouvrez les options de l&apos;extension et collez la clé publique.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">3</div>
+                  <div>
+                    <p className="text-white font-medium">Configurer le Token API</p>
+                    <p className="text-sm text-slate-400">
+                      Générez un token API (section ci-dessus) et collez-le dans les options de l&apos;extension.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">4</div>
+                  <div>
+                    <p className="text-white font-medium">Commencer à collecter des avis</p>
+                    <p className="text-sm text-slate-400">
+                      L&apos;extension est prête ! Les demandes d&apos;avis seront automatiquement rattachées à ce compte.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Commercial Tab */}
         <TabsContent value="commercial" className="space-y-4">
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-base">Plan & Tarification</CardTitle>
+              <CardTitle className="text-base text-white">Plan & Tarification</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -453,7 +1059,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
+              <CardTitle className="text-base text-white flex items-center gap-2">
                 Conditions négociées
                 {org.negotiated.enabled && <Badge className="bg-amber-500/20 text-amber-400">Actif</Badge>}
               </CardTitle>
@@ -532,17 +1138,186 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
         {/* Quotas Tab */}
         <TabsContent value="quotas" className="space-y-4">
+          {/* Info: Credit Rules */}
+          <Card className="bg-blue-900/20 border-blue-800/50">
+            <CardContent className="p-4 flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-blue-400 font-medium">Règles des crédits</p>
+                <ul className="text-sm text-slate-400 space-y-1 mt-1">
+                  <li>• <strong className="text-slate-300">Abonnement (inclus + offerts)</strong>: expire à la fin de chaque mois</li>
+                  <li>• <strong className="text-emerald-400">Packs achetés</strong>: persistent jusqu&apos;à consommation (mais nécessitent un abonnement actif)</li>
+                  <li>• Débit: d&apos;abord les crédits abonnement, puis les packs</li>
+                </ul>
+                {org.billing?.periodEnd && (
+                  <p className="text-sm text-slate-300 mt-2">
+                    📅 Prochaine expiration abonnement: <strong>{new Date(org.billing.periodEnd).toLocaleDateString('fr-FR')}</strong>
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Warning if subscription inactive */}
+          {org.status !== 'active' && (
+            <Card className="bg-red-900/30 border-red-800/50">
+              <CardContent className="p-4 flex items-start gap-3">
+                <Ban className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-red-400 font-medium">⚠️ Abonnement inactif - Tous les crédits sont perdus</p>
+                  <p className="text-sm text-slate-400">
+                    Lorsque l&apos;abonnement est suspendu ou annulé, tous les crédits (abonnement + packs) deviennent inutilisables et sont perdus.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Subscription Credits Card */}
+          <Card className="bg-slate-800/50 border-blue-500/30">
+            <CardHeader>
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-blue-400" />
+                Crédits Abonnement
+                <Badge className="bg-blue-500/20 text-blue-400 text-xs">Mensuels</Badge>
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Expirent à la fin de chaque mois calendaire
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* SMS Subscription */}
+                <div className="p-3 bg-slate-700/30 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MessageSquare className="h-4 w-4 text-blue-400" />
+                    <span className="text-sm text-slate-300">SMS</span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Inclus (mensuel)</span>
+                      {editMode ? (
+                        <Input
+                          type="number"
+                          value={editSmsIncluded}
+                          onChange={(e) => setEditSmsIncluded(parseInt(e.target.value) || 0)}
+                          className="w-20 h-6 bg-slate-700 border-slate-600 text-right text-sm"
+                        />
+                      ) : (
+                        <span className="text-white">{org.creditsComputed?.subscription.smsIncludedMonthly || 0}</span>
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-amber-400">+ Offerts</span>
+                      <span className="text-amber-400">{org.creditsComputed?.subscription.smsGiftMonthly || 0}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-slate-600">
+                      <span className="text-slate-300 font-medium">Total</span>
+                      <span className="text-white font-bold">{org.creditsComputed?.subscription.smsTotal || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-300">Utilisé</span>
+                      <span className="text-blue-400">{org.creditsComputed?.subscription.smsUsed || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-400 font-medium">Restant</span>
+                      <span className="text-green-400 font-bold">{org.creditsComputed?.subscription.smsRemaining || 0}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Email Subscription */}
+                <div className="p-3 bg-slate-700/30 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mail className="h-4 w-4 text-orange-400" />
+                    <span className="text-sm text-slate-300">Emails</span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Inclus (mensuel)</span>
+                      {editMode ? (
+                        <Input
+                          type="number"
+                          value={editEmailIncluded}
+                          onChange={(e) => setEditEmailIncluded(parseInt(e.target.value) || 0)}
+                          className="w-20 h-6 bg-slate-700 border-slate-600 text-right text-sm"
+                        />
+                      ) : (
+                        <span className="text-white">{org.creditsComputed?.subscription.emailIncludedMonthly || 0}</span>
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-amber-400">+ Offerts</span>
+                      <span className="text-amber-400">{org.creditsComputed?.subscription.emailGiftMonthly || 0}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-slate-600">
+                      <span className="text-slate-300 font-medium">Total</span>
+                      <span className="text-white font-bold">{org.creditsComputed?.subscription.emailTotal || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-300">Utilisé</span>
+                      <span className="text-orange-400">{org.creditsComputed?.subscription.emailUsed || 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-green-400 font-medium">Restant</span>
+                      <span className="text-green-400 font-bold">{org.creditsComputed?.subscription.emailRemaining || 0}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Pack Wallet Card */}
+          <Card className="bg-slate-800/50 border-emerald-500/30">
+            <CardHeader>
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <Plus className="h-5 w-5 text-emerald-400" />
+                Packs Achetés
+                <Badge className="bg-emerald-500/20 text-emerald-400 text-xs">Persistants</Badge>
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Crédits qui restent jusqu&apos;à consommation (si abonnement actif)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-emerald-500/10 rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <MessageSquare className="h-4 w-4 text-blue-400" />
+                    <span className="text-sm text-slate-300">SMS</span>
+                  </div>
+                  <p className="text-3xl font-bold text-emerald-400">{org.creditsComputed?.pack.smsRemaining || 0}</p>
+                  <p className="text-xs text-slate-500">disponibles</p>
+                </div>
+                <div className="p-3 bg-emerald-500/10 rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <Mail className="h-4 w-4 text-orange-400" />
+                    <span className="text-sm text-slate-300">Emails</span>
+                  </div>
+                  <p className="text-3xl font-bold text-emerald-400">{org.creditsComputed?.pack.emailRemaining || 0}</p>
+                  <p className="text-xs text-slate-500">disponibles</p>
+                </div>
+              </div>
+              <div className="mt-4 p-2 bg-slate-700/30 rounded text-xs text-slate-400 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-slate-500" />
+                Les packs ne sont utilisables que si l&apos;abonnement est actif. En cas de résiliation, ils sont perdus.
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Summary by Type */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <MessageSquare className="h-5 w-5" />
-                  SMS
+                <CardTitle className="text-base text-white flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-blue-400" />
+                  SMS - Résumé
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Quota mensuel</span>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">Quota mensuel (base)</span>
                   {editMode ? (
                     <Input
                       type="number"
@@ -551,30 +1326,54 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                       className="w-24 bg-slate-700 border-slate-600"
                     />
                   ) : (
-                    <span className="text-white font-bold">{org.quotas.smsIncluded}</span>
+                    <span className="text-white">{org.quotas.smsIncluded}</span>
                   )}
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Crédits extra</span>
-                  <span className="text-amber-400 font-bold">{org.balances.smsExtra}</span>
-                </div>
+                {org.billingComputed?.breakdown && (
+                  <>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-400">Inclus (période)</span>
+                      <span className="text-white">{org.billingComputed.breakdown.included.sms}</span>
+                    </div>
+                    {org.billingComputed.breakdown.gift.sms > 0 && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-amber-400">+ Offerts</span>
+                        <span className="text-amber-400">{org.billingComputed.breakdown.gift.sms}</span>
+                      </div>
+                    )}
+                    {org.billingComputed.breakdown.pack.sms > 0 && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-emerald-400">+ Packs</span>
+                        <span className="text-emerald-400">{org.billingComputed.breakdown.pack.sms}</span>
+                      </div>
+                    )}
+                  </>
+                )}
                 <div className="flex justify-between items-center pt-2 border-t border-slate-700">
-                  <span className="text-slate-300">Total disponible</span>
-                  <span className="text-white font-bold text-lg">{org.quotas.smsIncluded + org.balances.smsExtra}</span>
+                  <span className="text-slate-300">Total alloué</span>
+                  <span className="text-white font-bold">{org.billingComputed?.smsAllocated || 0}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-300">Utilisé / Restant</span>
+                  <span className="text-white">
+                    <span className="text-blue-400">{org.billingComputed?.smsUsed || 0}</span>
+                    {' / '}
+                    <span className="font-bold">{org.billingComputed?.smsRemaining || 0}</span>
+                  </span>
                 </div>
               </CardContent>
             </Card>
 
             <Card className="bg-slate-800/50 border-slate-700">
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Mail className="h-5 w-5" />
-                  Emails
+                <CardTitle className="text-base text-white flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-orange-400" />
+                  Emails - Résumé
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Quota mensuel</span>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">Quota mensuel (base)</span>
                   {editMode ? (
                     <Input
                       type="number"
@@ -583,16 +1382,40 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                       className="w-24 bg-slate-700 border-slate-600"
                     />
                   ) : (
-                    <span className="text-white font-bold">{org.quotas.emailIncluded}</span>
+                    <span className="text-white">{org.quotas.emailIncluded}</span>
                   )}
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Crédits extra</span>
-                  <span className="text-amber-400 font-bold">{org.balances.emailExtra}</span>
-                </div>
+                {org.billingComputed?.breakdown && (
+                  <>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-400">Inclus (période)</span>
+                      <span className="text-white">{org.billingComputed.breakdown.included.email}</span>
+                    </div>
+                    {org.billingComputed.breakdown.gift.email > 0 && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-amber-400">+ Offerts</span>
+                        <span className="text-amber-400">{org.billingComputed.breakdown.gift.email}</span>
+                      </div>
+                    )}
+                    {org.billingComputed.breakdown.pack.email > 0 && (
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-emerald-400">+ Packs</span>
+                        <span className="text-emerald-400">{org.billingComputed.breakdown.pack.email}</span>
+                      </div>
+                    )}
+                  </>
+                )}
                 <div className="flex justify-between items-center pt-2 border-t border-slate-700">
-                  <span className="text-slate-300">Total disponible</span>
-                  <span className="text-white font-bold text-lg">{org.quotas.emailIncluded + org.balances.emailExtra}</span>
+                  <span className="text-slate-300">Total alloué</span>
+                  <span className="text-white font-bold">{org.billingComputed?.emailAllocated || 0}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-300">Utilisé / Restant</span>
+                  <span className="text-white">
+                    <span className="text-orange-400">{org.billingComputed?.emailUsed || 0}</span>
+                    {' / '}
+                    <span className="font-bold">{org.billingComputed?.emailRemaining || 0}</span>
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -609,11 +1432,26 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
               <DialogHeader>
                 <DialogTitle>Ajouter des crédits</DialogTitle>
                 <DialogDescription className="text-slate-400">
-                  Ces crédits s&apos;ajoutent aux quotas mensuels et sont conservés (rollover).
+                  ⚠️ Ces crédits expirent à la fin de la période de facturation en cours.
+                  {org.billingComputed?.periodEnd && (
+                    <span className="text-red-400"> (Expiration: {new Date(org.billingComputed.periodEnd).toLocaleDateString('fr-FR')})</span>
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddCredits} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-400">Type de crédit</label>
+                  <Select value={creditsSource} onValueChange={(v: 'gift' | 'pack') => setCreditsSource(v)}>
+                    <SelectTrigger className="bg-slate-700 border-slate-600">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-700 border-slate-600">
+                      <SelectItem value="gift">🎁 Offert (geste commercial)</SelectItem>
+                      <SelectItem value="pack">💰 Pack vendu</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-sm text-slate-400">SMS</label>
                     <Input
@@ -634,13 +1472,23 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                       className="bg-slate-700 border-slate-600"
                     />
                   </div>
+                  <div>
+                    <label className="text-sm text-slate-400">IA</label>
+                    <Input
+                      type="number"
+                      value={creditsAi}
+                      onChange={(e) => setCreditsAi(parseInt(e.target.value) || 0)}
+                      min={0}
+                      className="bg-slate-700 border-slate-600"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="text-sm text-slate-400">Raison (optionnel)</label>
+                  <label className="text-sm text-slate-400">Label (optionnel)</label>
                   <Input
                     value={creditsReason}
                     onChange={(e) => setCreditsReason(e.target.value)}
-                    placeholder="Ex: Geste commercial"
+                    placeholder={creditsSource === 'gift' ? "Ex: Geste commercial janvier" : "Ex: Pack 100 SMS"}
                     className="bg-slate-700 border-slate-600"
                   />
                 </div>
@@ -650,10 +1498,18 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                   </Button>
                   <Button
                     type="submit"
-                    disabled={creditsLoading || (creditsSms === 0 && creditsEmail === 0)}
-                    className="bg-amber-500 hover:bg-amber-600"
+                    disabled={creditsLoading || (creditsSms === 0 && creditsEmail === 0 && creditsAi === 0)}
+                    className={cn(
+                      "gap-2",
+                      creditsSource === 'gift' ? "bg-amber-500 hover:bg-amber-600" : "bg-emerald-500 hover:bg-emerald-600"
+                    )}
                   >
-                    {creditsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ajouter'}
+                    {creditsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                      <>
+                        <Plus className="h-4 w-4" />
+                        {creditsSource === 'gift' ? 'Offrir' : 'Ajouter pack'}
+                      </>
+                    )}
                   </Button>
                 </DialogFooter>
               </form>
@@ -665,7 +1521,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
         <TabsContent value="options" className="space-y-4">
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-base">Options activées</CardTitle>
+              <CardTitle className="text-base text-white">Options activées</CardTitle>
               <CardDescription className="text-slate-400">
                 Fonctionnalités supplémentaires pour ce client
               </CardDescription>
@@ -700,29 +1556,92 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
         {/* Usage Tab */}
         <TabsContent value="usage" className="space-y-4">
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-400">SMS 7j</p>
+                <p className="text-2xl font-bold text-blue-400">{usage.days7.sms}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-400">Email 7j</p>
+                <p className="text-2xl font-bold text-orange-400">{usage.days7.email}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-400">SMS 30j</p>
+                <p className="text-2xl font-bold text-blue-400">{usage.days30.sms}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-400">Email 30j</p>
+                <p className="text-2xl font-bold text-orange-400">{usage.days30.email}</p>
+              </CardContent>
+            </Card>
+          </div>
+          
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-base">Historique d&apos;usage</CardTitle>
+              <CardTitle className="text-base text-white">Derniers envois</CardTitle>
+              <CardDescription className="text-slate-400">
+                Historique détaillé des SMS et emails envoyés
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {recentUsage.length === 0 ? (
-                <p className="text-slate-500 text-center py-8">Aucun usage enregistré</p>
+                <p className="text-slate-500 text-center py-8">Aucun envoi enregistré</p>
               ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {recentUsage.map((entry) => (
-                    <div key={entry.id} className="flex items-center gap-3 p-2 rounded bg-slate-700/30">
-                      {entry.type === 'sms' ? (
-                        <MessageSquare className="h-4 w-4 text-blue-400" />
-                      ) : (
-                        <Mail className="h-4 w-4 text-orange-400" />
-                      )}
-                      <span className="text-white">{entry.qty} {entry.type.toUpperCase()}</span>
-                      <span className="text-slate-500 text-xs ml-auto">{formatDate(entry.ts)}</span>
-                      {entry.meta?.reason && (
-                        <Badge variant="outline" className="text-xs">{entry.meta.reason as string}</Badge>
-                      )}
-                    </div>
-                  ))}
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {recentUsage.map((entry) => {
+                    const meta = entry.meta || {}
+                    const patientName = meta.patientName as string || 'Patient inconnu'
+                    const patientContact = meta.patientContact as string || ''
+                    const status = meta.status as string || 'success'
+                    const simulated = meta.simulated as boolean
+                    const resend = meta.resend as boolean
+                    
+                    return (
+                      <div key={entry.id} className={cn(
+                        'flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded border',
+                        status === 'success' 
+                          ? 'bg-slate-700/30 border-slate-600' 
+                          : 'bg-red-500/10 border-red-500/20'
+                      )}>
+                        <div className="flex items-center gap-3 flex-1">
+                          {entry.type === 'sms' ? (
+                            <MessageSquare className="h-5 w-5 text-blue-400 flex-shrink-0" />
+                          ) : (
+                            <Mail className="h-5 w-5 text-orange-400 flex-shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-white font-medium truncate">{patientName}</p>
+                            {patientContact && (
+                              <p className="text-xs text-slate-500 truncate">{patientContact}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {simulated && (
+                            <Badge variant="outline" className="text-xs text-slate-500">Simulé</Badge>
+                          )}
+                          {resend && (
+                            <Badge variant="outline" className="text-xs text-amber-400">Renvoi</Badge>
+                          )}
+                          <Badge variant="outline" className={cn(
+                            'text-xs',
+                            status === 'success' ? 'text-green-400' : 'text-red-400'
+                          )}>
+                            {status === 'success' ? 'Envoyé' : 'Échec'}
+                          </Badge>
+                          <span className="text-slate-500 text-xs whitespace-nowrap">{formatDate(entry.ts)}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
@@ -731,32 +1650,73 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
         {/* Telemetry Tab */}
         <TabsContent value="telemetry" className="space-y-4">
+          {/* Level counts */}
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-400">Infos</p>
+                <p className="text-2xl font-bold text-blue-400">
+                  {recentTelemetry.filter(e => e.level === 'info').length}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-400">Warnings</p>
+                <p className="text-2xl font-bold text-amber-400">
+                  {recentTelemetry.filter(e => e.level === 'warn').length}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-400">Erreurs</p>
+                <p className="text-2xl font-bold text-red-400">
+                  {recentTelemetry.filter(e => e.level === 'error').length}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+          
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-base">Logs & Erreurs</CardTitle>
+              <CardTitle className="text-base text-white">Logs & Événements</CardTitle>
+              <CardDescription className="text-slate-400">
+                Télémétrie détaillée depuis l&apos;extension et le backend
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {recentTelemetry.length === 0 ? (
                 <p className="text-slate-500 text-center py-8">Aucun log enregistré</p>
               ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
                   {recentTelemetry.map((entry) => (
                     <div key={entry.id} className={cn(
-                      'p-2 rounded text-sm',
-                      entry.level === 'error' ? 'bg-red-500/10 border border-red-500/20' :
-                      entry.level === 'warn' ? 'bg-amber-500/10 border border-amber-500/20' :
-                      'bg-slate-700/30'
+                      'p-3 rounded text-sm border',
+                      entry.level === 'error' ? 'bg-red-500/10 border-red-500/20' :
+                      entry.level === 'warn' ? 'bg-amber-500/10 border-amber-500/20' :
+                      'bg-slate-700/30 border-slate-600'
                     )}>
-                      <div className="flex items-center gap-2">
-                        {entry.level === 'error' && <AlertCircle className="h-4 w-4 text-red-400" />}
-                        {entry.level === 'warn' && <AlertTriangle className="h-4 w-4 text-amber-400" />}
-                        <span className="text-xs text-slate-500">{entry.source}</span>
-                        {entry.code && <Badge variant="outline" className="text-xs">{entry.code}</Badge>}
-                        <span className="text-xs text-slate-500 ml-auto">{formatDate(entry.ts)}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {entry.level === 'error' && <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />}
+                        {entry.level === 'warn' && <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />}
+                        {entry.level === 'info' && <CheckCircle className="h-4 w-4 text-blue-400 flex-shrink-0" />}
+                        <Badge variant="outline" className={cn(
+                          'text-xs',
+                          entry.source === 'extension' ? 'text-purple-400' : 'text-slate-400'
+                        )}>
+                          {entry.source}
+                        </Badge>
+                        {entry.code && (
+                          <Badge variant="outline" className="text-xs text-white font-mono">
+                            {entry.code}
+                          </Badge>
+                        )}
+                        <span className="text-xs text-slate-500 ml-auto whitespace-nowrap">{formatDate(entry.ts)}</span>
                       </div>
-                      <p className="text-white mt-1">{entry.message}</p>
+                      <p className="text-white mt-2">{entry.message}</p>
                       {entry.stack && (
-                        <pre className="text-xs text-slate-400 mt-2 overflow-x-auto">{entry.stack}</pre>
+                        <pre className="text-xs text-slate-400 mt-2 overflow-x-auto bg-slate-800 p-2 rounded">{entry.stack}</pre>
                       )}
                     </div>
                   ))}
@@ -770,7 +1730,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
         <TabsContent value="actions" className="space-y-4">
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-base">Actions sur le compte</CardTitle>
+              <CardTitle className="text-base text-white">Actions sur le compte</CardTitle>
               <CardDescription className="text-slate-400">
                 Suspendre, réactiver ou annuler ce client
               </CardDescription>

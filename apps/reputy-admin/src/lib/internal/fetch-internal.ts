@@ -87,7 +87,9 @@ export async function fetchInternal<T = unknown>(
 
 export interface Org {
   id: string
+  publicKey: string  // Clé publique pour l'extension (format: pub_xxx)
   name: string
+  email?: string | null  // Email principal du client
   vertical: 'health' | 'food' | 'business'
   status: 'active' | 'suspended' | 'cancelled'
   createdAt: string
@@ -96,6 +98,12 @@ export interface Org {
     provider: 'none' | 'stripe' | 'gocardless'
     stripeCustomerId?: string | null
     gocardlessMandateId?: string | null
+    // Calendar billing fields
+    startedAt?: string
+    status?: 'pending' | 'active' | 'suspended' | 'cancelled'
+    periodStart?: string
+    periodEnd?: string
+    anchor?: 'calendar_month'
   }
   plan: {
     code: string
@@ -120,18 +128,166 @@ export interface Org {
   quotas: {
     smsIncluded: number
     emailIncluded: number
+    aiIncluded: number
   }
   balances: {
     smsExtra: number
     emailExtra: number
+    aiExtra?: number
   }
-  // Computed in list
+  // NEW SYSTEM: subscription credits + pack wallet
+  subscriptionCredits?: {
+    smsIncludedMonthly: number
+    emailIncludedMonthly: number
+    aiIncludedMonthly: number
+    smsGiftMonthly: number
+    emailGiftMonthly: number
+    aiGiftMonthly: number
+    smsUsedThisPeriod: number
+    emailUsedThisPeriod: number
+    aiUsedThisPeriod: number
+    periodStart: string
+    periodEnd: string
+  }
+  packWallet?: {
+    smsRemaining: number
+    emailRemaining: number
+    aiRemaining: number
+  }
+  // NEW: Credits computed with subscription vs pack separation
+  creditsComputed?: {
+    periodStart: string
+    periodEnd: string
+    // Prorata info
+    isProrata: boolean
+    ratio: number
+    ratioPercent: number
+    subscription: {
+      // Base monthly values (before prorata)
+      smsMonthlyBase: number
+      emailMonthlyBase: number
+      aiMonthlyBase: number
+      // Prorated included values for this period
+      smsIncludedMonthly: number
+      emailIncludedMonthly: number
+      aiIncludedMonthly: number
+      smsGiftMonthly: number
+      emailGiftMonthly: number
+      aiGiftMonthly: number
+      smsTotal: number
+      emailTotal: number
+      aiTotal: number
+      smsUsed: number
+      emailUsed: number
+      aiUsed: number
+      smsRemaining: number
+      emailRemaining: number
+      aiRemaining: number
+      isProrata: boolean
+      ratio: number
+      expiresAt: string
+    }
+    pack: {
+      smsRemaining: number
+      emailRemaining: number
+      aiRemaining: number
+      persistent: boolean
+      requiresActiveSubscription: boolean
+    }
+    total: {
+      smsRemaining: number
+      emailRemaining: number
+      aiRemaining: number
+    }
+    canSend: boolean
+    subscriptionActive: boolean
+  }
+  // Legacy computed fields (for backward compat)
   usage30d?: {
-    sms: number
-    email: number
+    smsUsed: number
+    emailUsed: number
     total: number
   }
-  effectivePriceCents?: number
+  allocation?: {
+    smsAllocated: number
+    emailAllocated: number
+  }
+  remaining?: {
+    sms: number
+    email: number
+  }
+  pricing?: {
+    basePriceCents: number
+    finalPriceCents: number
+    currency: string
+    billingCycle: 'monthly' | 'yearly'
+    discountPercent: number | null
+    isNegotiated: boolean
+  }
+  // Calendar billing computed (with credit allocations)
+  billingComputed?: {
+    periodStart: string
+    periodEnd: string
+    ratio: number
+    isProrata: boolean
+    
+    // Totals from all allocations
+    smsUsed: number
+    smsAllocated: number
+    smsRemaining: number
+    emailUsed: number
+    emailAllocated: number
+    emailRemaining: number
+    
+    // Monthly base values
+    smsIncludedMonthly: number
+    emailIncludedMonthly: number
+    
+    // Breakdown by source type
+    breakdown: {
+      included: { sms: number; email: number; ai?: number }
+      gift: { sms: number; email: number; ai?: number }
+      pack: { sms: number; email: number; ai?: number }
+    }
+    
+    // Detailed allocations list
+    allocations: Array<{
+      id: string
+      source: 'included' | 'gift' | 'pack'
+      label: string
+      smsAllocated: number
+      smsUsed: number
+      smsRemaining: number
+      emailAllocated: number
+      emailUsed: number
+      emailRemaining: number
+      createdAt: string
+      periodEnd?: string
+      // Pack meta (for prorated packs)
+      meta?: {
+        packCode?: string
+        packName?: string
+        ratioRemaining?: number
+        smsMonthly?: number
+        emailMonthly?: number
+        priceMonthlyCents?: number
+        priceThisPeriodCents?: number
+        currency?: string
+        prorated?: boolean
+      }
+    }>
+    
+    // Pricing
+    priceBaseCents: number
+    priceMonthlyFinalCents: number
+    priceThisPeriodCents: number
+    discountPercent: number | null
+    isNegotiated: boolean
+    currency: string
+    
+    // Business rule
+    noRollover: boolean
+  }
 }
 
 export interface UsageEntry {

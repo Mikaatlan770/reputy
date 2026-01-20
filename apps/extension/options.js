@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('settings-form');
   const backendUrlInput = document.getElementById('backend-url');
   const apiTokenInput = document.getElementById('api-token');
+  const publicKeyInput = document.getElementById('public-key');
   const toggleTokenBtn = document.getElementById('toggle-token');
   const alertSuccess = document.getElementById('alert-success');
   const alertError = document.getElementById('alert-error');
@@ -17,7 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSettings().then((items) => {
     backendUrlInput.value = items.backendUrl;
     apiTokenInput.value = items.apiToken;
-    checkConnection(items.backendUrl);
+    publicKeyInput.value = items.publicKey || '';
+    checkConnection(items.backendUrl, items.publicKey);
   });
   
   // Toggle password visibility
@@ -35,10 +37,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let backendUrl = backendUrlInput.value.trim();
     const apiToken = apiTokenInput.value.trim();
+    let publicKey = publicKeyInput.value.trim();
     
     // Normaliser l'URL
     backendUrl = normalizeUrl(backendUrl);
-      backendUrlInput.value = backendUrl;
+    backendUrlInput.value = backendUrl;
     
     // Validation
     if (!backendUrl) {
@@ -47,12 +50,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     if (!apiToken) {
-      showError('Veuillez entrer le token API.');
+      showError('Veuillez entrer le token API de votre organisation.');
+      return;
+    }
+    
+    // Validation publicKey (OBLIGATOIRE pour l'auth per-org)
+    if (!publicKey) {
+      showError('La Public Key est requise pour identifier votre organisation.');
+      return;
+    }
+    
+    if (!publicKey.startsWith('pub_')) {
+      showError('La Public Key doit commencer par "pub_".');
       return;
     }
     
     // Sauvegarder (sync + local pour éviter les divergences)
-    const payload = { backendUrl, apiToken };
+    const payload = { backendUrl, apiToken, publicKey };
     Promise.all([
       chrome.storage.sync.set(payload),
       chrome.storage.local.set(payload)
@@ -61,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alertSuccess.classList.remove('hidden');
       
       // Vérifier la connexion
-      checkConnection(backendUrl);
+      checkConnection(backendUrl, publicKey);
       
       // Masquer après 3s
       setTimeout(() => {
@@ -70,8 +84,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
   
-  // Vérifier la connexion au backend
-  async function checkConnection(url) {
+  // Vérifier la connexion au backend et valider la publicKey
+  async function checkConnection(url, publicKey) {
     if (!url) {
       updateConnectionStatus('unknown', 'Non configuré');
       return;
@@ -80,21 +94,47 @@ document.addEventListener('DOMContentLoaded', () => {
     updateConnectionStatus('unknown', 'Vérification...');
     
     try {
-      const response = await fetch(`${url}/health`, {
+      // Vérifier d'abord la connexion au serveur
+      const healthResponse = await fetch(`${url}/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000)
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        if (data.ok) {
-          updateConnectionStatus('connected', 'Connecté au serveur');
-        } else {
-          updateConnectionStatus('disconnected', 'Réponse inattendue');
+      if (!healthResponse.ok) {
+        updateConnectionStatus('disconnected', `Erreur HTTP ${healthResponse.status}`);
+        return;
+      }
+      
+      const healthData = await healthResponse.json();
+      if (!healthData.ok) {
+        updateConnectionStatus('disconnected', 'Réponse inattendue');
+        return;
+      }
+      
+      // Si publicKey fournie, vérifier qu'elle est valide
+      if (publicKey && publicKey.startsWith('pub_')) {
+        try {
+          const orgResponse = await fetch(`${url}/public/org/by-key/${publicKey}`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(5000)
+          });
+          
+          if (orgResponse.ok) {
+            const orgData = await orgResponse.json();
+            updateConnectionStatus('connected', `Connecté • ${orgData.name}`);
+          } else if (orgResponse.status === 404) {
+            updateConnectionStatus('disconnected', 'Public Key invalide');
+          } else {
+            updateConnectionStatus('connected', 'Connecté (clé non vérifiée)');
+          }
+        } catch (keyError) {
+          console.warn('PublicKey check failed:', keyError);
+          updateConnectionStatus('connected', 'Connecté (clé non vérifiée)');
         }
       } else {
-        updateConnectionStatus('disconnected', `Erreur HTTP ${response.status}`);
+        updateConnectionStatus('connected', 'Connecté au serveur');
       }
+      
     } catch (error) {
       console.error('Connection check failed:', error);
       updateConnectionStatus('disconnected', 'Impossible de joindre le serveur');
@@ -138,6 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const keys = {
       backendUrl: null,
       apiToken: null,
+      publicKey: null,
       apiBaseUrl: null,
       token: null
     };
@@ -165,12 +206,19 @@ document.addEventListener('DOMContentLoaded', () => {
           ''
         )?.trim() || '';
 
+      const publicKey =
+        firstNonEmpty(
+          syncData.publicKey,
+          localData.publicKey,
+          ''
+        )?.trim() || '';
+
       // Resynchroniser les clés normalisées pour éviter les écarts
-      const payload = { backendUrl, apiToken };
+      const payload = { backendUrl, apiToken, publicKey };
       chrome.storage.sync.set(payload);
       chrome.storage.local.set(payload);
 
-      return { backendUrl, apiToken };
+      return { backendUrl, apiToken, publicKey };
     });
   }
 });

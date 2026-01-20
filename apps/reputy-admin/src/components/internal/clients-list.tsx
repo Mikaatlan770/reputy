@@ -89,7 +89,8 @@ function formatDate(dateStr: string): string {
 export function ClientsList({ initialOrgs, error }: ClientsListProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [orgs] = useState(initialOrgs)
+  // Use initialOrgs directly - it updates on router.refresh()
+  const orgs = initialOrgs
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterVertical, setFilterVertical] = useState<string>('all')
@@ -259,13 +260,13 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card className="bg-slate-800/50 border-slate-700">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500">Total clients</p>
+            <p className="text-xs text-slate-400 font-medium">Total clients</p>
             <p className="text-2xl font-bold text-white">{orgs.length}</p>
           </CardContent>
         </Card>
         <Card className="bg-slate-800/50 border-slate-700">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500">Actifs</p>
+            <p className="text-xs text-slate-400 font-medium">Actifs</p>
             <p className="text-2xl font-bold text-green-400">
               {orgs.filter(o => o.status === 'active').length}
             </p>
@@ -273,7 +274,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         </Card>
         <Card className="bg-slate-800/50 border-slate-700">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500">Suspendus</p>
+            <p className="text-xs text-slate-400 font-medium">Suspendus</p>
             <p className="text-2xl font-bold text-amber-400">
               {orgs.filter(o => o.status === 'suspended').length}
             </p>
@@ -281,7 +282,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         </Card>
         <Card className="bg-slate-800/50 border-slate-700">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500">Annulés</p>
+            <p className="text-xs text-slate-400 font-medium">Annulés</p>
             <p className="text-2xl font-bold text-red-400">
               {orgs.filter(o => o.status === 'cancelled').length}
             </p>
@@ -301,9 +302,11 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         ) : (
           filteredOrgs.map((org) => {
             const VerticalIcon = verticalIcons[org.vertical]
-            const effectivePrice = org.negotiated?.enabled 
-              ? (org.negotiated.customPriceCents || org.plan.basePriceCents)
-              : org.plan.basePriceCents
+            // Use billingComputed for period-based pricing
+            const bc = org.billingComputed
+            const periodPrice = bc?.priceThisPeriodCents || org.pricing?.finalPriceCents || org.plan.basePriceCents
+            const hasDiscount = bc?.isNegotiated && bc.priceMonthlyFinalCents !== bc.priceBaseCents
+            const isProrata = bc?.isProrata || false
             
             return (
               <Link key={org.id} href={`/internal/clients/${org.id}`}>
@@ -322,6 +325,11 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                           <Badge variant="outline" className={statusColors[org.status]}>
                             {statusLabels[org.status]}
                           </Badge>
+                          {isProrata && (
+                            <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
+                              prorata
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                           <span>{verticalLabels[org.vertical]}</span>
@@ -332,35 +340,82 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                         </div>
                       </div>
 
-                      {/* Usage */}
-                      <div className="hidden sm:flex items-center gap-4 text-sm">
-                        <div className="text-right">
-                          <div className="flex items-center gap-1 text-slate-400">
-                            <MessageSquare className="h-3 w-3" />
-                            <span>{org.usage30d?.sms || 0}</span>
+                      {/* Usage / Allocated - Period based */}
+                      <div className="hidden xl:flex items-center gap-3 text-sm">
+                        {/* SMS */}
+                        <div className="text-center min-w-[90px] px-2 py-1 rounded bg-blue-500/10 border border-blue-500/20">
+                          <div className="flex items-center justify-center gap-1">
+                            <MessageSquare className="h-3 w-3 text-blue-400" />
+                            <span className="font-semibold text-blue-400">
+                              {bc?.smsUsed || 0}
+                            </span>
+                            <span className="text-slate-500">/</span>
+                            <span className="text-slate-400">{bc?.smsAllocated || 0}</span>
                           </div>
-                          <p className="text-xs text-slate-600">SMS/30j</p>
+                          <p className="text-[10px] text-slate-500">SMS période</p>
                         </div>
-                        <div className="text-right">
-                          <div className="flex items-center gap-1 text-slate-400">
-                            <Mail className="h-3 w-3" />
-                            <span>{org.usage30d?.email || 0}</span>
+                        {/* Email */}
+                        <div className="text-center min-w-[90px] px-2 py-1 rounded bg-orange-500/10 border border-orange-500/20">
+                          <div className="flex items-center justify-center gap-1">
+                            <Mail className="h-3 w-3 text-orange-400" />
+                            <span className="font-semibold text-orange-400">
+                              {bc?.emailUsed || 0}
+                            </span>
+                            <span className="text-slate-500">/</span>
+                            <span className="text-slate-400">{bc?.emailAllocated || 0}</span>
                           </div>
-                          <p className="text-xs text-slate-600">Email/30j</p>
+                          <p className="text-[10px] text-slate-500">Email période</p>
+                        </div>
+                      </div>
+                      
+                      {/* Compact view for medium screens */}
+                      <div className="hidden sm:flex xl:hidden items-center gap-2 text-xs">
+                        <div className="flex items-center gap-1 text-blue-400">
+                          <MessageSquare className="h-3 w-3" />
+                          <span className="font-medium">{bc?.smsUsed || 0}/{bc?.smsAllocated || 0}</span>
+                        </div>
+                        <span className="text-slate-600">|</span>
+                        <div className="flex items-center gap-1 text-orange-400">
+                          <Mail className="h-3 w-3" />
+                          <span className="font-medium">{bc?.emailUsed || 0}/{bc?.emailAllocated || 0}</span>
                         </div>
                       </div>
 
-                      {/* Price */}
-                      <div className="hidden md:block text-right">
-                        <p className={cn(
-                          'font-medium',
-                          org.negotiated?.enabled ? 'text-amber-400' : 'text-white'
-                        )}>
-                          {formatPrice(effectivePrice)}
-                        </p>
-                        <p className="text-xs text-slate-600">
-                          /{org.plan.billingCycle === 'monthly' ? 'mois' : 'an'}
-                        </p>
+                      {/* Price with discount & prorata */}
+                      <div className="hidden md:block text-right min-w-[110px]">
+                        {hasDiscount || isProrata ? (
+                          <>
+                            <div className="flex items-center justify-end gap-1">
+                              {hasDiscount && (
+                                <span className="text-slate-500 line-through text-xs">
+                                  {formatPrice(isProrata ? Math.round((bc?.priceBaseCents || 0) * (bc?.ratio || 1)) : (bc?.priceBaseCents || 0))}
+                                </span>
+                              )}
+                              <span className={`font-medium ${hasDiscount ? 'text-amber-400' : 'text-white'}`}>
+                                {formatPrice(periodPrice)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-end gap-1 flex-wrap">
+                              {bc?.discountPercent && (
+                                <Badge className="bg-amber-500/20 text-amber-400 text-[10px] px-1">
+                                  -{bc.discountPercent}%
+                                </Badge>
+                              )}
+                              {isProrata && (
+                                <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1">
+                                  {Math.round((bc?.ratio || 1) * 100)}%
+                                </Badge>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-medium text-white">
+                              {formatPrice(periodPrice)}
+                            </p>
+                            <p className="text-xs text-slate-600">/mois</p>
+                          </>
+                        )}
                       </div>
 
                       <ChevronRight className="h-5 w-5 text-slate-600" />

@@ -5,13 +5,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Header } from '@/components/Header'
 import { Footer } from '@/components/Footer'
-import { ADMIN_URL } from '@/lib/utils'
-import { Mail, Lock, ArrowRight, Loader2 } from 'lucide-react'
+import { login, DASHBOARD_URL } from '@/lib/auth'
+import { Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -20,20 +21,33 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    // TODO: Implement real authentication
-    // For now, redirect to admin dashboard
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      const response = await login(email, password)
       
-      // Redirect to admin dashboard
-      if (ADMIN_URL) {
-        window.location.href = ADMIN_URL
+      if (response.ok && response.token) {
+        // Redirect to reputy-admin with token for seamless auth
+        window.location.href = `${DASHBOARD_URL}/auth/callback?token=${encodeURIComponent(response.token)}`
+      } else if (response.ok) {
+        // Fallback: redirect to login (shouldn't happen)
+        window.location.href = `${DASHBOARD_URL}/login`
       } else {
-        setError('URL du dashboard non configurée')
+        setError(response.message || 'Erreur de connexion')
       }
-    } catch (err) {
-      setError('Une erreur est survenue. Veuillez réessayer.')
+    } catch (err: any) {
+      const errorMessages: Record<string, string> = {
+        'INVALID_CREDENTIALS': 'Email ou mot de passe incorrect',
+        'EMAIL_NOT_VERIFIED': 'Veuillez d\'abord vérifier votre email',
+        'ORG_CANCELLED': 'Votre compte a été annulé. Contactez le support.',
+        'RATE_LIMITED': err.message || 'Trop de tentatives. Veuillez patienter.',
+      }
+      
+      if (err.error === 'EMAIL_NOT_VERIFIED') {
+        // Redirect to verify page
+        router.push(`/verify?email=${encodeURIComponent(err.email || email)}`)
+        return
+      }
+      
+      setError(errorMessages[err.error] || err.message || 'Une erreur est survenue')
     } finally {
       setLoading(false)
     }
@@ -93,13 +107,20 @@ export default function LoginPage() {
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                   <input
                     id="password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+                    className="w-full pl-10 pr-12 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
                 </div>
               </div>
 
@@ -130,13 +151,6 @@ export default function LoginPage() {
                 </Link>
               </p>
             </div>
-          </div>
-
-          {/* Demo access */}
-          <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-center">
-            <p className="text-sm text-amber-800">
-              <strong>Mode démo :</strong> Cliquez sur "Se connecter" pour accéder au dashboard de démonstration.
-            </p>
           </div>
         </div>
       </main>

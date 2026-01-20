@@ -109,9 +109,9 @@ export function BackofficeLayout({ children }: BackofficeLayoutProps) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <div className="flex items-center gap-2 text-slate-400">
-            <Building2 className="h-5 w-5" />
-            <span className="text-sm font-medium">Super Admin</span>
+          <div className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-amber-500" />
+            <span className="text-sm font-semibold text-white">Super Admin</span>
           </div>
         </header>
 

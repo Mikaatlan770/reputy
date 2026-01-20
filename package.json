@@ -17,7 +17,9 @@
     "start:web": "cd apps/reputy-web && npm run start",
     "dev:extension": "echo \"Charger l'extension Chrome depuis apps/extension (mode dév MV3).\"",
     "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:admin\" \"npm run dev:web\"",
-    "install:all": "npm install && cd apps/reputy-admin && npm install && cd ../reputy-web && npm install && cd ../backend && npm install"
+    "install:all": "npm install && cd apps/reputy-admin && npm install && cd ../reputy-web && npm install && cd ../backend && npm install",
+    "clean": "rm -rf node_modules .turbo && rm -rf apps/*/node_modules apps/*/.next apps/*/out apps/*/dist apps/*/.turbo",
+    "pack:safe": "zip -r reputy-clean.zip . -x \"*/node_modules/*\" \"*/.next/*\" \"*/out/*\" \"*/dist/*\" \"*/.turbo/*\" \".git/*\" \".env*\" \"*.log\""
   }
 }
 

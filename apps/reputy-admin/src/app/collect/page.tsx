@@ -29,7 +29,6 @@ import {
 } from 'lucide-react'
 import { formatNumber, formatPercent } from '@/lib/utils'
 import { SmsPreview } from '@/components/sms/SmsPreview'
-import { SMS_DEFAULT_MESSAGE, SMS_COST_PER_SEGMENT } from '@/lib/sms'
 import { WebsiteWidgetManager } from '@/components/embed'
 
 export default function CollectPage() {
@@ -285,41 +284,43 @@ export default function CollectPage() {
         {/* SMS Tab - NOUVEAU CONTENU */}
         <TabsContent value="sms">
           <div className="grid lg:grid-cols-2 gap-6">
-            {/* Aperçu SMS avec validation */}
+            {/* Aperçu SMS avec validation - ÉDITABLE */}
             <SmsPreview
               shortUrl="rpt.ly/abc123"
               phoneNumber={currentLocation?.name ? `Client de ${currentLocation.name}` : undefined}
               onValidationChange={setSmsValid}
-              readOnly={true}
+              readOnly={false}
               showDefault={true}
             />
 
             {/* Configuration et stats */}
             <div className="space-y-6">
-              {/* Info coût garanti */}
-              <Card className="border-green-200 bg-green-50/30">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <CheckCircle className="h-5 w-5 text-green-600" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-green-900">
-                        1 SMS = 1 segment garanti
-                      </h4>
-                      <p className="text-sm text-green-800 mt-1">
-                        Coût maîtrisé : <strong>{SMS_COST_PER_SEGMENT.toFixed(3)}€ HT</strong> par SMS.
-                        Aucune facturation de segments supplémentaires.
-                      </p>
-                    </div>
-                  </div>
+              {/* Explication du lien de collecte */}
+              <Card className="border-primary/20 bg-primary/5">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Info className="h-5 w-5 text-primary" />
+                    Qu&apos;est-ce que le lien de collecte ?
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Le <strong>lien de collecte</strong> est une URL courte unique générée pour votre établissement. 
+                    Quand un patient clique dessus, il accède à une page lui permettant de laisser un avis sur Google, 
+                    Doctolib ou d&apos;autres plateformes selon votre configuration.
+                  </p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li>✓ <strong>Unique à votre établissement</strong> - les avis sont automatiquement rattachés à vous</li>
+                    <li>✓ <strong>Court et simple</strong> - facile à retenir et à partager</li>
+                    <li>✓ <strong>Tracking intégré</strong> - suivez les clics et conversions</li>
+                  </ul>
                 </CardContent>
               </Card>
 
               {/* Lien court */}
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Lien de collecte</CardTitle>
+                  <CardTitle className="text-base">Votre lien de collecte</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex gap-2">
@@ -329,7 +330,7 @@ export default function CollectPage() {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Lien court obligatoire pour garantir 1 SMS (max 20 caractères)
+                    Ce lien court est automatiquement inclus dans vos SMS. Il est limité à 20 caractères pour optimiser l&apos;espace.
                   </p>
                 </CardContent>
               </Card>
@@ -356,17 +357,29 @@ export default function CollectPage() {
                 </CardContent>
               </Card>
 
-              {/* Info encodage */}
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-start gap-2">
-                  <Info className="h-4 w-4 text-blue-600 mt-0.5" />
-                  <div className="text-sm text-blue-800">
-                    <strong>Encodage GSM-7 :</strong> Seuls les caractères standards sont
-                    autorisés. Les accents spéciaux (à, â, ê...), emojis et caractères
-                    Unicode sont bloqués pour garantir 1 segment.
+              {/* Info encodage et personnalisation */}
+              <Card className="border-amber-200 bg-amber-50/50">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-amber-100 rounded-lg">
+                      <Info className="h-5 w-5 text-amber-600" />
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="font-semibold text-amber-900">
+                        Personnalisation du message
+                      </h4>
+                      <p className="text-sm text-amber-800">
+                        Vous pouvez modifier le message SMS directement dans l&apos;aperçu à gauche. 
+                        Respectez la limite de <strong>160 caractères</strong> pour garantir l&apos;envoi en un seul SMS.
+                      </p>
+                      <p className="text-xs text-amber-700">
+                        <strong>Caractères autorisés :</strong> lettres standard (a-z), chiffres, 
+                        espaces et ponctuation simple. Évitez les accents spéciaux (à, â, ê...) et les emojis.
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </TabsContent>

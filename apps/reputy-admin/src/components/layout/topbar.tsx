@@ -1,6 +1,8 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
+import { useAuth, useIsClient } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -16,11 +18,16 @@ import {
   Search,
   Menu,
   AlertTriangle,
+  LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 
+// URL du site principal (reputy-web)
+const REPUTY_WEB_URL = process.env.NEXT_PUBLIC_REPUTY_WEB_URL || 'http://localhost:3001'
+
 export function Topbar() {
+  const router = useRouter()
   const { 
     currentLocation, 
     setCurrentLocation, 
@@ -29,6 +36,32 @@ export function Topbar() {
     sidebarOpen,
     toggleSidebar 
   } = useAppStore()
+  
+  const { mode, clientUser, clientOrg, logoutClient } = useAuth()
+  const isClient = useIsClient()
+
+  // Handle logout for clients - redirect to reputy-web
+  const handleLogout = async () => {
+    await logoutClient()
+    window.location.href = REPUTY_WEB_URL
+  }
+  
+  // Get display name based on auth mode
+  const displayName = isClient && clientOrg 
+    ? clientOrg.name 
+    : currentUser 
+      ? `${currentUser.civility} ${currentUser.firstName} ${currentUser.lastName}` 
+      : ''
+  
+  const displayRole = isClient && clientUser 
+    ? clientUser.role 
+    : currentUser?.role || ''
+  
+  const initials = isClient && clientOrg
+    ? clientOrg.name.substring(0, 2).toUpperCase()
+    : currentUser 
+      ? `${currentUser.lastName[0]}${currentUser.firstName[0]}`.toUpperCase()
+      : 'U'
 
   return (
     <header
@@ -117,21 +150,30 @@ export function Topbar() {
           <div className="flex items-center gap-3 pl-3 border-l border-border">
             <div className="hidden sm:block text-right">
               <p className="text-sm font-medium">
-                {currentUser ? `${currentUser.civility} ${currentUser.firstName} ${currentUser.lastName}` : ''}
+                {displayName}
               </p>
               <p className="text-xs text-muted-foreground capitalize">
-                {currentUser?.role}
+                {displayRole}
               </p>
             </div>
             <Avatar className="h-9 w-9">
               <AvatarImage src={currentUser?.avatar} />
               <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                {currentUser 
-                  ? `${currentUser.lastName[0]}${currentUser.firstName[0]}`.toUpperCase()
-                  : 'U'
-                }
+                {initials}
               </AvatarFallback>
             </Avatar>
+            
+            {/* Logout button for clients */}
+            {isClient && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLogout}
+                title="Déconnexion"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
       </div>

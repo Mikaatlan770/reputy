@@ -19,7 +19,6 @@ import {
   calculateSmsLength,
   SMS_MAX_LENGTH,
   SMS_DEFAULT_MESSAGE,
-  SMS_COST_PER_SEGMENT,
   type SmsValidationResult,
 } from '@/lib/sms'
 
@@ -256,19 +255,6 @@ export function SmsPreview({
             ))}
           </div>
         )}
-
-        {/* Info coût */}
-        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-          <Info className="h-4 w-4 text-blue-600 flex-shrink-0" />
-          <div className="flex-1">
-            <span className="text-blue-800">
-              Coût estimé : <strong>{SMS_COST_PER_SEGMENT.toFixed(3)}€ HT</strong>
-            </span>
-          </div>
-          <Badge variant="outline" className="text-blue-700 border-blue-300">
-            1 crédit SMS
-          </Badge>
-        </div>
 
         {/* Actions */}
         <div className="flex justify-end gap-2">

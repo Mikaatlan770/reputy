@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AppLayout } from '@/components/layout/app-layout'
+import { AuthProvider } from '@/lib/auth'
 
 export const metadata: Metadata = {
   title: 'Reputy - Gestion E-réputation',
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body>
-        <AppLayout>{children}</AppLayout>
+        <AuthProvider>
+          <AppLayout>{children}</AppLayout>
+        </AuthProvider>
       </body>
     </html>
   )

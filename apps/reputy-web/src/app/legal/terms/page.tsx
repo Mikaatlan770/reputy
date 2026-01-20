@@ -104,6 +104,39 @@ export default function TermsPage() {
               </ul>
             </section>
 
+            <section className="mb-8 bg-amber-50 border border-amber-200 rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">7bis. Crédits SMS et Emails</h2>
+              <p className="text-gray-600 mb-4">
+                <strong>Règle importante concernant les crédits :</strong>
+              </p>
+              <ul className="list-disc list-inside text-gray-600 space-y-2 mb-4">
+                <li>
+                  <strong>Pas de report :</strong> Les crédits SMS et Emails (inclus dans votre plan, 
+                  offerts ou achetés) sont valables jusqu'à la date de renouvellement mensuel.
+                </li>
+                <li>
+                  <strong>Expiration automatique :</strong> Tout crédit non utilisé est perdu à la fin 
+                  de la période de facturation.
+                </li>
+                <li>
+                  <strong>Packs et crédits offerts :</strong> Les packs achetés et les crédits offerts 
+                  expirent également à la fin de la période en cours.
+                </li>
+                <li>
+                  <strong>Achat en cours de mois :</strong> En cas d'achat ou d'ajout de crédits en cours 
+                  de période, la validité s'étend jusqu'à la fin de la période en cours uniquement.
+                </li>
+                <li>
+                  <strong>Premier mois proraté :</strong> Si vous vous inscrivez en cours de mois, vos 
+                  quotas inclus sont calculés au prorata des jours restants.
+                </li>
+              </ul>
+              <p className="text-gray-600">
+                Nous vous recommandons de consulter régulièrement votre consommation dans votre tableau de 
+                bord pour optimiser l'utilisation de vos crédits avant leur expiration.
+              </p>
+            </section>
+
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">8. Disponibilité du service</h2>
               <p className="text-gray-600 mb-4">

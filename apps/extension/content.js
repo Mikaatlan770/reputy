@@ -969,8 +969,30 @@ async function handleSend() {
       const fullForToast = `${(parsed.lastName || '').toUpperCase()} ${parsed.firstName || ''}`.trim();
       const successTitle = `${fullForToast} • ${selectedChannel.toUpperCase()} envoyé`.trim();
       const successMsg = `Contact: ${selectedChannel === 'sms' ? phone : email}`;
-    showToast('success', successTitle.trim(), successMsg /* pas de bouton copier */);
+      showToast('success', successTitle.trim(), successMsg /* pas de bouton copier */);
       markAsSeen(resolveRootFromEvent(lastClickEvent));
+    } else if (response?.subscriptionInactive || response?.error === 'SUBSCRIPTION_INACTIVE') {
+      // SUBSCRIPTION_INACTIVE: Abonnement inactif
+      closeModal();
+      const title = '🚫 Abonnement inactif';
+      const message = 'Votre abonnement est inactif. Les envois sont désactivés. Contactez votre administrateur.';
+      showToast('error', title, message, null, false);
+      console.warn('[REPUTY] SUBSCRIPTION_INACTIVE');
+    } else if (response?.quotaExceeded || response?.error === 'QUOTA_EXCEEDED') {
+      // QUOTA_EXCEEDED: Afficher toast spécifique avec info de renouvellement
+      closeModal();
+      const details = response.details || {};
+      const periodEnd = details.periodEndFormatted || 'fin de mois';
+      const subRemaining = details.subscriptionRemaining || { sms: 0, email: 0 };
+      const packRemaining = details.packRemaining || { sms: 0, email: 0 };
+      
+      const title = '⚠️ Crédits épuisés';
+      const message = `Crédits ${selectedChannel.toUpperCase()} épuisés. ` +
+        `Renouvellement abonnement le ${periodEnd}. ` +
+        `Achetez un pack pour des crédits supplémentaires.`;
+      
+      showToast('warning', title, message, null, false);
+      console.warn('[REPUTY] QUOTA_EXCEEDED:', { subRemaining, packRemaining, periodEnd });
     } else {
       throw new Error(response?.error || 'Erreur inconnue');
     }
@@ -982,6 +1004,16 @@ async function handleSend() {
       showToast('warning', 'Extension rechargée', 
         'Veuillez recharger la page pour continuer.',
         null, true
+      );
+    } else if (error.message.includes('SUBSCRIPTION_INACTIVE')) {
+      showToast('error', '🚫 Abonnement inactif', 
+        'Abonnement inactif. Les envois sont désactivés.',
+        null, false
+      );
+    } else if (error.message.includes('QUOTA_EXCEEDED')) {
+      showToast('warning', '⚠️ Crédits épuisés', 
+        'Crédits épuisés. Contactez votre administrateur.',
+        null, false
       );
     } else {
       showToast('error', 'Erreur', error.message || 'Impossible d\'envoyer la demande.');

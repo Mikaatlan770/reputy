@@ -55,12 +55,20 @@ src/
 Créez un fichier `.env.local` à la racine du projet :
 
 ```env
-# URL du dashboard admin (redirect après login)
-NEXT_PUBLIC_ADMIN_URL=http://localhost:3000
-
 # URL du backend API
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8787
+
+# URL du dashboard client (reputy-admin) - P1.2
+# Après login/verify, l'utilisateur est redirigé vers cette URL
+NEXT_PUBLIC_DASHBOARD_URL=http://localhost:3002
 ```
+
+### Variables d'environnement
+
+| Variable | Description | Défaut |
+|----------|-------------|--------|
+| `NEXT_PUBLIC_BACKEND_URL` | URL de l'API backend | `http://localhost:8787` |
+| `NEXT_PUBLIC_DASHBOARD_URL` | URL du dashboard client (reputy-admin) | `http://localhost:3002` |
 
 ## 🔗 Liens avec le monorepo
 

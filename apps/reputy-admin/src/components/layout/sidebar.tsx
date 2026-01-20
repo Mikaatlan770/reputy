@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/lib/store'
+import { useAuth, useIsClient } from '@/lib/auth'
 import {
   LayoutDashboard,
   Star,
@@ -21,11 +22,21 @@ import {
   HelpCircle,
   ThumbsUp,
   History,
+  Download,
+  type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-const navigation = [
+interface NavItem {
+  name: string
+  href: string
+  icon: LucideIcon
+  clientOnly?: boolean  // Visible uniquement pour les clients
+}
+
+const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Installation', href: '/installation', icon: Download, clientOnly: true }, // CLIENT ONLY
   { name: 'Avis', href: '/reviews', icon: Star },
   { name: 'Feedbacks', href: '/feedbacks', icon: ThumbsUp },
   { name: 'Historique', href: '/history', icon: History },
@@ -44,16 +55,27 @@ const navigation = [
 export function Sidebar() {
   const pathname = usePathname()
   const { sidebarOpen, toggleSidebar } = useAppStore()
+  const { mode, clientOrg } = useAuth()
+  const isClient = useIsClient()
+
+  // Filtrer la navigation selon le mode
+  const filteredNavigation = navigation.filter(item => {
+    // Si l'item est clientOnly, ne l'afficher que pour les clients
+    if (item.clientOnly && !isClient) {
+      return false
+    }
+    return true
+  })
 
   return (
     <aside
       className={cn(
-        'fixed left-0 top-0 z-40 h-screen bg-card border-r border-border transition-all duration-300',
+        'fixed left-0 top-0 z-40 h-screen bg-card border-r border-border transition-all duration-300 flex flex-col',
         sidebarOpen ? 'w-64' : 'w-16'
       )}
     >
       {/* Logo */}
-      <div className="flex h-16 items-center justify-between px-4 border-b border-border">
+      <div className="flex h-16 items-center justify-between px-4 border-b border-border flex-shrink-0">
         {sidebarOpen && (
           <Link href="/" className="flex items-center">
             <svg viewBox="80 160 240 65" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-9 w-auto">
@@ -75,9 +97,9 @@ export function Sidebar() {
         </Button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex flex-col gap-1 p-3">
-        {navigation.map((item) => {
+      {/* Navigation - flex-1 pour prendre l'espace disponible */}
+      <nav className="flex-1 flex flex-col gap-1 p-3 overflow-y-auto">
+        {filteredNavigation.map((item) => {
           const isActive = pathname === item.href || 
             (item.href !== '/' && pathname.startsWith(item.href))
           
@@ -90,7 +112,9 @@ export function Sidebar() {
                 isActive
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                !sidebarOpen && 'justify-center px-2'
+                !sidebarOpen && 'justify-center px-2',
+                // Highlight Installation for clients
+                item.clientOnly && !isActive && 'text-amber-600 hover:text-amber-700'
               )}
               title={!sidebarOpen ? item.name : undefined}
             >
@@ -100,23 +124,6 @@ export function Sidebar() {
           )
         })}
       </nav>
-
-      {/* Footer */}
-      {sidebarOpen && (
-        <div className="absolute bottom-4 left-4 right-4">
-          <div className="rounded-lg bg-primary/5 p-4">
-            <p className="text-xs text-muted-foreground">
-              Plan Pro • 2000 avis/mois
-            </p>
-            <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div className="h-full w-3/4 bg-primary rounded-full" />
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              1,523 / 2,000 utilisés
-            </p>
-          </div>
-        </div>
-      )}
     </aside>
   )
 }

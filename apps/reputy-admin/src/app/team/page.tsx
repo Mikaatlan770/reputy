@@ -90,27 +90,29 @@ export default function TeamPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {users.map((user) => {
-              const RoleIcon = roleIcons[user.role]
-              return (
-                <div
-                  key={user.id}
-                  className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
-                >
-                  <div className="flex items-center gap-4">
-                    <Avatar className="h-11 w-11">
-                      <AvatarFallback className="bg-primary text-primary-foreground">
-                        {getInitials(user.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">{user.name}</p>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Mail className="h-3 w-3" />
-                        {user.email}
+                {users.map((user) => {
+                  const RoleIcon = roleIcons[user.role]
+                  const fullName = `${user.civility} ${user.firstName} ${user.lastName}`
+                  const initials = `${user.lastName[0]}${user.firstName[0]}`
+                  return (
+                    <div
+                      key={user.id}
+                      className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-4">
+                        <Avatar className="h-11 w-11">
+                          <AvatarFallback className="bg-primary text-primary-foreground">
+                            {initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium">{fullName}</p>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Mail className="h-3 w-3" />
+                            {user.email}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
                   <div className="flex items-center gap-4">
                     <Badge className={roleColors[user.role]}>
                       <RoleIcon className="h-3 w-3 mr-1" />

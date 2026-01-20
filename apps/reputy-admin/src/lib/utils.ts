@@ -5,22 +5,25 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Mois français pour éviter les différences d'hydratation SSR/Client
+const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
+
 export function formatDate(date: string): string {
-  return new Intl.DateTimeFormat('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(date))
+  const d = new Date(date)
+  const day = d.getDate()
+  const month = MONTHS_SHORT[d.getMonth()]
+  const year = d.getFullYear()
+  return `${day} ${month} ${year}`
 }
 
 export function formatDateTime(date: string): string {
-  return new Intl.DateTimeFormat('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(date))
+  const d = new Date(date)
+  const day = d.getDate()
+  const month = MONTHS_SHORT[d.getMonth()]
+  const year = d.getFullYear()
+  const hours = d.getHours().toString().padStart(2, '0')
+  const minutes = d.getMinutes().toString().padStart(2, '0')
+  return `${day} ${month} ${year}, ${hours}:${minutes}`
 }
 
 export function formatNumber(num: number): string {

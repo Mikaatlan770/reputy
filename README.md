@@ -40,15 +40,23 @@ cd ../reputy-web && npm install
 # Backend (API) - Port 8787
 npm run dev:backend
 
-# Dashboard Admin - Port 3000
+# Dashboard Client (reputy-admin) - Port 3002
 npm run dev:admin
 
-# Site Vitrine - Port 3001
+# Site Vitrine (reputy-web) - Port 3001
 npm run dev:web
 
 # Tout lancer en parallèle (nécessite concurrently)
 npm run dev:all
 ```
+
+### Ports par défaut
+
+| Application | Port | URL |
+|-------------|------|-----|
+| Backend API | 8787 | http://localhost:8787 |
+| reputy-web (vitrine) | 3001 | http://localhost:3001 |
+| reputy-admin (dashboard) | 3002 | http://localhost:3002 |
 
 ## 📦 Applications
 
@@ -86,10 +94,16 @@ API Node.js pour la collecte et gestion des avis.
 **Variables d'environnement :**
 ```env
 PORT=8787
-CABINET_API_TOKEN=dev-token
 REVIEWS_BASE_URL=http://localhost:8787
-INTERNAL_ADMIN_TOKEN=super-admin-secret  # Token pour le backoffice
+
+# === SECRETS (voir section Sécurité ci-dessous) ===
+CABINET_API_TOKEN=dev-token              # Token extension (DEV only)
+INTERNAL_ADMIN_TOKEN=super-admin-secret  # Token backoffice (DEV only)
+JWT_SECRET=your-jwt-secret               # Secret JWT sessions
+ADMIN_COOKIE_SECRET=your-cookie-secret   # Secret cookie admin
 ```
+
+> ⚠️ **Important**: En production (`NODE_ENV=production`), les fallbacks DEV sont **interdits**. Voir la section [Sécurité - Secrets](#-secrets-production) pour les exigences de production.
 
 ### Dashboard Admin (`apps/reputy-admin`)
 
@@ -202,8 +216,136 @@ Authorization: Bearer <token>
 | `npm run dev:web` | Lance le site vitrine |
 | `npm run build:web` | Build le site vitrine |
 | `npm run install:all` | Installe toutes les dépendances |
+| `npm run clean` | Nettoie node_modules, .next, dist, .turbo |
+| `npm run pack:safe` | Génère un zip propre (sans artefacts) |
+
+## 📦 Packaging / Repo Hygiene
+
+### Pourquoi nettoyer avant de partager ?
+
+Les dossiers suivants ne doivent **jamais** être partagés ou versionnés :
+
+| Dossier | Raison |
+|---------|--------|
+| `node_modules/` | Dépendances lourdes, reconstruites via `npm install` |
+| `.next/` | Build cache Next.js, spécifique à la machine |
+| `out/` | Export statique Next.js |
+| `dist/` | Build outputs |
+| `.turbo/` | Cache Turborepo |
+| `.env*` | Secrets et configuration locale |
+
+### Nettoyer le repo
+
+```bash
+npm run clean
+```
+
+Supprime tous les artefacts de build et dépendances dans le monorepo.
+
+### Générer un zip propre
+
+```bash
+npm run pack:safe
+```
+
+Crée `reputy-clean.zip` contenant uniquement le code source :
+- ✅ Inclut : code, `package.json`, `package-lock.json`, README
+- ❌ Exclut : `node_modules/`, `.next/`, `.git/`, `.env*`, `*.log`
+
+> ⚠️ **Important** : `package-lock.json` est **versionné** (npm). Les autres lock files (`pnpm-lock.yaml`, `yarn.lock`) sont ignorés.
+
+### Reconstruire après réception d'un zip
+
+```bash
+unzip reputy-clean.zip -d reputy
+cd reputy
+npm run install:all
+npm run dev:all
+```
 
 ## 🔒 Sécurité
+
+### 🔐 Secrets (Production)
+
+En mode **production** (`NODE_ENV=production`), le serveur backend **refuse de démarrer** si les secrets ne sont pas correctement configurés.
+
+#### Variables requises
+
+| Variable | Description | Fallback DEV (interdit en prod) |
+|----------|-------------|--------------------------------|
+| `INTERNAL_ADMIN_TOKEN` | Token API super-admin | `super-admin-secret` |
+| `JWT_SECRET` | Secret signature sessions client | `reputy-mvp-secret-change-in-production` |
+| `CABINET_API_TOKEN` | Token API extension Chrome | `dev-token` |
+| `ADMIN_COOKIE_SECRET` | Secret HMAC cookie admin UI | `dev-admin-cookie-secret` |
+
+#### Règles de validation
+
+1. **En développement** : Les fallbacks sont acceptés pour faciliter le setup local
+2. **En production** :
+   - Toutes les variables doivent être définies explicitement
+   - Aucune ne peut utiliser sa valeur de fallback DEV
+   - Le serveur crashe immédiatement avec un message explicite si non respecté
+
+#### Exemple `.env.production`
+
+```env
+NODE_ENV=production
+PORT=8787
+
+# SECRETS (générer des valeurs aléatoires uniques !)
+INTERNAL_ADMIN_TOKEN=your-secure-random-token-32-chars-min
+JWT_SECRET=another-secure-random-secret-for-jwt
+CABINET_API_TOKEN=extension-api-token-unique
+ADMIN_COOKIE_SECRET=hmac-cookie-signing-secret
+
+REVIEWS_BASE_URL=https://api.reputy.fr
+```
+
+#### Génération de secrets sécurisés
+
+```bash
+# Générer un secret aléatoire (32 bytes en hex = 64 chars)
+openssl rand -hex 32
+
+# Ou avec Node.js
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### 🚦 Rate Limiting (P0.4)
+
+Protection anti brute-force sur les endpoints d'authentification.
+
+| Endpoint | Limite PROD | Limite DEV |
+|----------|-------------|------------|
+| `POST /auth/login` | 5 req/min/IP | 1000 req/min/IP |
+| `POST /auth/verify` | 5 req/min/IP | 1000 req/min/IP |
+| `POST /auth/resend-code` | 5 req/min/IP | 1000 req/min/IP |
+
+**Réponse si bloqué (429)** :
+```json
+{
+  "ok": false,
+  "error": "RATE_LIMITED",
+  "message": "Too many attempts. Try again later.",
+  "retryAfterSec": 45
+}
+```
+
+**Headers** :
+- `Retry-After: <seconds>` indique quand réessayer
+
+**Logs** (JSON) :
+```json
+{
+  "type": "RATE_LIMIT_BLOCKED",
+  "timestamp": "2026-01-19T...",
+  "ip": "192.168.1.1",
+  "route": "/auth/login",
+  "retryAfterSec": 45
+}
+```
+
+### Autres protections
 
 - **Anti-doublon** : Clé d'idempotence SHA256 pour éviter les demandes dupliquées
 - **Expiration** : Les liens de feedback expirent après 30 jours
