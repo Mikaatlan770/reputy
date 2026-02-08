@@ -479,6 +479,23 @@ function validateProductionSecrets() {
   }
 }
 
+// ============ P0.3: ALLOWED_ORIGINS production guard ============
+if (IS_PRODUCTION) {
+  const rawOrigins = process.env.ALLOWED_ORIGINS;
+
+  if (!rawOrigins || !rawOrigins.trim()) {
+    throw new Error(
+      '[CONFIG] ALLOWED_ORIGINS manquant en production — sinon CORS bloquera tout le frontend.\n' +
+      '  Exemple: ALLOWED_ORIGINS=https://app.reputy.fr,https://admin.reputy.fr'
+    );
+  }
+
+  const lowered = rawOrigins.toLowerCase();
+  if (lowered.includes('localhost') || lowered.includes('127.0.0.1')) {
+    console.warn('[CONFIG] ⚠️  ALLOWED_ORIGINS contient localhost/127.0.0.1 en production — vérifie que c\'est voulu.');
+  }
+}
+
 // ============ ANTI-DOUBLON CONFIG ============
 const DUPLICATE_WINDOW_HOURS = 24;        // Fenêtre anti-doublon (heures)
 const REQUEST_EXPIRY_DAYS = 30;           // Expiration des requests (jours)

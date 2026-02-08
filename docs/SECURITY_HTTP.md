@@ -22,6 +22,8 @@ ALLOWED_ORIGINS=https://app.reputy.fr,https://admin.reputy.fr,https://www.reputy
 ```
 
 > ⚠️ **Ne jamais mettre `*`** dans `ALLOWED_ORIGINS` en production.
+>
+> ⚠️ **En production, le serveur refusera de démarrer si `ALLOWED_ORIGINS` est absent.** Si la variable contient `localhost` ou `127.0.0.1`, un warning sera affiché au boot.
 
 ## Comportement CORS
 
