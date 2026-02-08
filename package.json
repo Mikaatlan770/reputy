@@ -20,7 +20,13 @@
     "install:all": "npm install && cd apps/reputy-admin && npm install && cd ../reputy-web && npm install && cd ../backend && npm install",
     "clean": "rm -rf node_modules .turbo && rm -rf apps/*/node_modules apps/*/.next apps/*/out apps/*/dist apps/*/.turbo",
     "guard:secrets": "node scripts/check-no-secrets.js",
-    "pack:safe": "zip -r reputy-clean.zip . -x \"*/node_modules/*\" \"*/.next/*\" \"*/out/*\" \"*/dist/*\" \"*/.turbo/*\" \".git/*\" \".env*\" \"*.log\" \"*.db\" \"*.db-wal\" \"*.db-shm\" \"*.sqlite\" \"data.json\" \"debug-org.js\" \"check-org-billing.js\""
+    "pack:safe": "zip -r reputy-clean.zip . -x \"*/node_modules/*\" \"*/.next/*\" \"*/out/*\" \"*/dist/*\" \"*/.turbo/*\" \".git/*\" \".env*\" \"*.log\" \"*.db\" \"*.db-wal\" \"*.db-shm\" \"*.sqlite\" \"data.json\" \"debug-org.js\" \"check-org-billing.js\"",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:dev": "pm2 start ecosystem.config.cjs",
+    "pm2:logs": "pm2 logs reputy-backend --lines 100",
+    "pm2:stop": "pm2 stop reputy-backend",
+    "pm2:restart": "pm2 restart reputy-backend",
+    "pm2:status": "pm2 status"
   }
 }
 

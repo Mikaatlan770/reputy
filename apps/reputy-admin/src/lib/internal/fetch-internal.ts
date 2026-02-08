@@ -7,8 +7,11 @@ import 'server-only'
  */
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:8787'
-// En mode dev, fallback sur le token par défaut
-const INTERNAL_ADMIN_TOKEN = process.env.INTERNAL_ADMIN_TOKEN || 'super-admin-secret'
+
+// P0.2: Production guard — same fail-fast pattern as admin-cookie.ts
+const IS_PRODUCTION = process.env.NODE_ENV === 'production'
+const INTERNAL_ADMIN_TOKEN = process.env.INTERNAL_ADMIN_TOKEN || 
+  (IS_PRODUCTION ? '' : 'super-admin-secret')
 
 export interface FetchInternalOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'

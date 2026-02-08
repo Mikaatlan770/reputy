@@ -184,6 +184,25 @@ function logAudit(type, message, meta = {}) {
   structuredLog('audit', type, message, meta);
 }
 
+/**
+ * P0.2: Log fatal level (process about to exit)
+ * Used by uncaughtException / unhandledRejection handlers.
+ * Writes to stderr to ensure visibility even if stdout is buffered.
+ */
+function logFatal(type, message, meta = {}) {
+  const entry = {
+    ts: nowISO(),
+    level: 'fatal',
+    type,
+    message,
+    env: NODE_ENV,
+    service: SERVICE_NAME,
+    version: BACKEND_VERSION,
+    meta: { ...meta }
+  };
+  console.error(JSON.stringify(entry));
+}
+
 // ============ SPECIALIZED LOGGERS ============
 
 /**
@@ -310,6 +329,7 @@ module.exports = {
   logInfo,
   logWarn,
   logError,
+  logFatal,
   logAudit,
   
   // Specialized

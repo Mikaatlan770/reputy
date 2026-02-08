@@ -127,7 +127,8 @@ curl -X POST http://localhost:8787/client/installations/<ID>/rotate \
 1. Démarrer le backend avec SQLite :
 ```bash
 cd apps/backend
-USE_SQLITE=1 INTERNAL_ADMIN_TOKEN=super-admin-secret node server.js
+USE_SQLITE=1 node server.js
+# Note : configurez INTERNAL_ADMIN_TOKEN dans votre fichier .env
 ```
 
 2. Se connecter via l'UI admin (http://localhost:3002)

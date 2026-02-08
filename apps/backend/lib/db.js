@@ -289,9 +289,10 @@ function checkForeignKeys() {
 // Graceful Shutdown
 // ============================================================
 
+// P0.2: Only keep 'exit' handler (synchronous cleanup on process exit).
+// SIGINT/SIGTERM are now handled centrally in server.js
+// to coordinate HTTP server close + DB close + log flush.
 process.on('exit', closeDb);
-process.on('SIGINT', () => { closeDb(); process.exit(0); });
-process.on('SIGTERM', () => { closeDb(); process.exit(0); });
 
 // ============================================================
 // Exports

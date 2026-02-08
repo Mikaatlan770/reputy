@@ -64,6 +64,119 @@ const effectiveBilling = require('./lib/billing/effective-billing');
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PRODUCTION = NODE_ENV === 'production';
 
+// ============ P0.2: GLOBAL ERROR HANDLERS & GRACEFUL SHUTDOWN ============
+
+let isShuttingDown = false;
+
+/**
+ * P0.2: Graceful shutdown — called on fatal error, SIGTERM, or SIGINT.
+ * Idempotent: only executes once even if called multiple times.
+ * 
+ * @param {string} reason - Why we're shutting down (e.g. 'uncaughtException', 'SIGTERM')
+ * @param {Error|null} err - The error that caused the shutdown, if any
+ */
+function gracefulShutdown(reason, err = null) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  const exitCode = (reason === 'SIGTERM' || reason === 'SIGINT') ? 0 : 1;
+
+  console.error(`\n[REPUTY][SHUTDOWN] Graceful shutdown initiated: ${reason}`);
+  if (err) {
+    console.error(`[REPUTY][SHUTDOWN] Error: ${err.message}`);
+  }
+
+  // 1) Try to close the HTTP server (stop accepting new connections)
+  //    `server` is declared later in this file — that's fine because
+  //    gracefulShutdown is never called before server.listen().
+  try {
+    if (typeof server !== 'undefined' && server && server.close) {
+      server.close(() => {
+        console.error('[REPUTY][SHUTDOWN] HTTP server closed');
+      });
+    }
+  } catch (e) {
+    console.error('[REPUTY][SHUTDOWN] Error closing HTTP server:', e.message);
+  }
+
+  // 2) Try to close the database (best effort)
+  try {
+    const db = require('./lib/db');
+    if (db && db.closeDb) {
+      db.closeDb();
+    }
+  } catch (e) {
+    console.error('[REPUTY][SHUTDOWN] Error closing DB:', e.message);
+  }
+
+  // 3) Force exit after timeout (in case server.close() hangs on open connections)
+  const SHUTDOWN_TIMEOUT_MS = 5000;
+  const forceExitTimer = setTimeout(() => {
+    console.error(`[REPUTY][SHUTDOWN] Forced exit after ${SHUTDOWN_TIMEOUT_MS}ms timeout`);
+    process.exit(exitCode);
+  }, SHUTDOWN_TIMEOUT_MS);
+  forceExitTimer.unref(); // Don't keep process alive just for this timer
+
+  // 4) Attempt immediate exit (the timeout above is a safety net)
+  setImmediate(() => {
+    process.exit(exitCode);
+  });
+}
+
+// --- uncaughtException: synchronous throw that wasn't caught ---
+process.on('uncaughtException', (err) => {
+  try {
+    logger.logFatal('UNCAUGHT_EXCEPTION', `Uncaught exception: ${err.message}`, {
+      error: err.message,
+      stack: err.stack,
+      type: 'uncaughtException',
+    });
+  } catch (_) {
+    // Logger itself might be broken — fall back to raw stderr
+    console.error('[FATAL] uncaughtException:', err);
+  }
+  gracefulShutdown('uncaughtException', err);
+});
+
+// --- unhandledRejection: Promise rejection without .catch() ---
+process.on('unhandledRejection', (reason, promise) => {
+  const errMessage = reason instanceof Error ? reason.message : String(reason);
+  const errStack = reason instanceof Error ? reason.stack : undefined;
+
+  try {
+    logger.logFatal('UNHANDLED_REJECTION', `Unhandled promise rejection: ${errMessage}`, {
+      error: errMessage,
+      stack: errStack,
+      type: 'unhandledRejection',
+    });
+  } catch (_) {
+    console.error('[FATAL] unhandledRejection:', reason);
+  }
+  gracefulShutdown('unhandledRejection', reason instanceof Error ? reason : new Error(errMessage));
+});
+
+// --- SIGTERM: sent by PM2 / Docker / systemd for graceful stop ---
+process.on('SIGTERM', () => {
+  try {
+    logger.logInfo('SIGTERM_RECEIVED', 'SIGTERM received, initiating graceful shutdown');
+  } catch (_) {
+    console.error('[REPUTY] SIGTERM received');
+  }
+  gracefulShutdown('SIGTERM');
+});
+
+// --- SIGINT: Ctrl+C in terminal ---
+process.on('SIGINT', () => {
+  try {
+    logger.logInfo('SIGINT_RECEIVED', 'SIGINT received, initiating graceful shutdown');
+  } catch (_) {
+    console.error('[REPUTY] SIGINT received');
+  }
+  gracefulShutdown('SIGINT');
+});
+
+// ============ END P0.2 ============
+
 // ============ KNOWN DEV FALLBACKS (forbidden in production) ============
 const DEV_FALLBACKS = {
   CABINET_API_TOKEN: 'dev-token',
