@@ -18,8 +18,8 @@ export const SMS_MAX_LENGTH = SMS_MAX_LENGTH_GSM7
 /** Nombre de segments autorisés (toujours 1) */
 export const SMS_MAX_SEGMENTS = 1
 
-/** Longueur maximale du lien court */
-export const SHORT_URL_MAX_LENGTH = 20
+/** Longueur maximale du lien court (40 pour dev avec localhost) */
+export const SHORT_URL_MAX_LENGTH = 40
 
 // ===== MESSAGE PAR DÉFAUT =====
 
@@ -87,6 +87,9 @@ export const SHORT_URL_DOMAINS = [
   'rpt.ly',
   'rpty.io',
   'reputy.link',
+  // Development domains
+  '127.0.0.1:8787',
+  'localhost:8787',
 ] as const
 
 export type ShortUrlDomain = typeof SHORT_URL_DOMAINS[number]

@@ -1,6 +1,7 @@
 'use client'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   AreaChart,
   Area,
@@ -13,16 +14,70 @@ import {
   ComposedChart,
   Bar,
 } from 'recharts'
-import { analyticsData } from '@/lib/mock-data'
+import { useReviewAnalytics, StatsPeriod } from '@/lib/reviews'
 
-export function ReviewsChart() {
-  const data = analyticsData.map((d) => ({
+interface ReviewsChartProps {
+  period?: StatsPeriod
+}
+
+// Get groupBy based on period for better visualization
+function getGroupBy(period: StatsPeriod): 'day' | 'week' | 'month' {
+  switch (period) {
+    case '7d':
+    case '30d':
+      return 'day'
+    case '90d':
+      return 'week'
+    case '365d':
+      return 'month'
+    default:
+      return 'day'
+  }
+}
+
+export function ReviewsChart({ period = '30d' }: ReviewsChartProps) {
+  const groupBy = getGroupBy(period)
+  const { series, loading, error } = useReviewAnalytics(period, groupBy)
+  
+  const data = series.map((d) => ({
     ...d,
     period: new Date(d.period).toLocaleDateString('fr-FR', {
       day: 'numeric',
       month: 'short',
     }),
   }))
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">
+            Évolution des avis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-[300px] w-full" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error || data.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">
+            Évolution des avis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+            {error ? 'Erreur de chargement' : 'Aucune donnée disponible'}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>

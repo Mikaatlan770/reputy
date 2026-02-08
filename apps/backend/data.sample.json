@@ -1,0 +1,170 @@
+{
+  "_comment": "P0.1 — Données de démonstration (100% fake, aucune PII réelle). Copier vers data.json en dev si nécessaire.",
+  "requests": {
+    "sample-req-001": {
+      "id": "sample-req-001",
+      "createdAt": "2026-01-15T10:00:00.000Z",
+      "channel": "sms",
+      "patient": {
+        "name": "Jean DUPONT",
+        "phone": "+33600000001"
+      },
+      "feedbackUrl": "http://localhost:8787/r/sample-req-001",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": "https://pro.doctolib.fr/calendar/today/day"
+      }
+    },
+    "sample-req-002": {
+      "id": "sample-req-002",
+      "createdAt": "2026-01-15T11:30:00.000Z",
+      "channel": "email",
+      "patient": {
+        "name": "Marie MARTIN",
+        "email": "marie.martin@example.com",
+        "phone": "+33600000002"
+      },
+      "feedbackUrl": "http://localhost:8787/r/sample-req-002",
+      "meta": {
+        "source": "chrome-extension",
+        "pageUrl": "https://pro.doctolib.fr/calendar/today/day"
+      }
+    },
+    "sample-req-003": {
+      "id": "sample-req-003",
+      "createdAt": "2026-01-16T09:15:00.000Z",
+      "channel": "sms",
+      "patient": {
+        "name": "Pierre DURAND",
+        "phone": "+33600000003"
+      },
+      "feedbackUrl": "http://localhost:8787/r/sample-req-003",
+      "meta": {}
+    }
+  },
+  "feedbacks": {
+    "sample-fb-001": {
+      "id": "sample-fb-001",
+      "requestId": "sample-req-001",
+      "orgId": "sample-org-001",
+      "rating": 5,
+      "comment": "Excellent médecin, très à l'écoute. Je recommande vivement !",
+      "patient": { "name": "Jean DUPONT" },
+      "status": "completed",
+      "createdAt": "2026-01-15T14:00:00.000Z"
+    },
+    "sample-fb-002": {
+      "id": "sample-fb-002",
+      "requestId": "sample-req-002",
+      "orgId": "sample-org-001",
+      "rating": 4,
+      "comment": "Bon accueil, cabinet moderne. Un peu d'attente.",
+      "patient": { "name": "Marie MARTIN" },
+      "status": "completed",
+      "createdAt": "2026-01-15T16:30:00.000Z"
+    }
+  },
+  "users": {},
+  "sessions": {},
+  "settings": {},
+  "orgs": [
+    {
+      "id": "sample-org-001",
+      "publicKey": "pub_SAMPLE_KEY_001",
+      "name": "Cabinet Médical Exemple",
+      "email": "contact@cabinet-exemple.fr",
+      "vertical": "health",
+      "status": "active",
+      "apiToken": "rpt_SAMPLE_TOKEN_DO_NOT_USE_IN_PRODUCTION",
+      "apiTokenCreatedAt": "2026-01-01T00:00:00.000Z",
+      "billing": {
+        "provider": "none",
+        "stripeCustomerId": null,
+        "gocardlessMandateId": null,
+        "startedAt": "2026-01-01T00:00:00.000Z",
+        "status": "active",
+        "periodStart": "2026-02-01T00:00:00.000Z",
+        "periodEnd": "2026-02-28T23:59:59.999Z",
+        "anchor": "calendar_month"
+      },
+      "plan": {
+        "code": "health_bronze",
+        "basePriceCents": 0,
+        "currency": "EUR",
+        "billingCycle": "monthly"
+      },
+      "negotiated": {
+        "enabled": false,
+        "customPriceCents": null,
+        "discountPercent": null,
+        "notes": "",
+        "contractRef": null
+      },
+      "options": {
+        "reviewRouting": true,
+        "widgetsSeo": false,
+        "multiLocations": false,
+        "prioritySupport": false,
+        "custom": {},
+        "googleReviewUrl": "https://g.page/r/EXAMPLE/review"
+      },
+      "quotas": {
+        "smsIncluded": 0,
+        "emailIncluded": 0,
+        "aiIncluded": 0,
+        "qrIncluded": 1,
+        "nfcIncluded": 0,
+        "qrScans": 50,
+        "nfcScans": 0
+      },
+      "balances": {
+        "smsRemaining": 0,
+        "emailRemaining": 0
+      },
+      "subscriptionCredits": {
+        "periodStart": "2026-02-01T00:00:00.000Z",
+        "periodEnd": "2026-02-28T23:59:59.999Z",
+        "smsIncludedMonthly": 0,
+        "emailIncludedMonthly": 0,
+        "aiIncludedMonthly": 0,
+        "qrIncludedMonthly": 1,
+        "nfcIncludedMonthly": 0,
+        "smsGiftMonthly": 0,
+        "emailGiftMonthly": 0,
+        "aiGiftMonthly": 0,
+        "smsTotal": 0,
+        "emailTotal": 0,
+        "aiTotal": 0,
+        "smsUsedThisPeriod": 0,
+        "emailUsedThisPeriod": 0,
+        "aiUsedThisPeriod": 0,
+        "qrUsedThisPeriod": 0,
+        "nfcUsedThisPeriod": 0
+      },
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-15T10:00:00.000Z"
+    }
+  ],
+  "usageLedger": [
+    {
+      "id": "sample-usage-001",
+      "orgId": "sample-org-001",
+      "type": "sms",
+      "qty": 1,
+      "ts": "2026-01-15T10:00:00.000Z",
+      "meta": { "requestId": "sample-req-001" }
+    },
+    {
+      "id": "sample-usage-002",
+      "orgId": "sample-org-001",
+      "type": "email",
+      "qty": 1,
+      "ts": "2026-01-15T11:30:00.000Z",
+      "meta": { "requestId": "sample-req-002" }
+    }
+  ],
+  "telemetry": [],
+  "creditAllocations": [],
+  "emailVerifications": [],
+  "emailOutbox": []
+}

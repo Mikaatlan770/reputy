@@ -1,0 +1,331 @@
+/**
+ * Reputy SQLite Database Module
+ * 
+ * Uses better-sqlite3 for synchronous, high-performance SQLite operations.
+ * Configured with WAL mode for better concurrent read/write performance.
+ */
+
+const Database = require('better-sqlite3');
+const path = require('path');
+const fs = require('fs');
+
+// ============================================================
+// Configuration
+// ============================================================
+
+const DB_PATH = process.env.REPUTY_DB_PATH || path.join(__dirname, '..', 'reputy.db');
+const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// ============================================================
+// Database Connection (Singleton)
+// ============================================================
+
+let db = null;
+
+/**
+ * Get or create the database connection
+ * @returns {Database.Database} The database instance
+ */
+function getDb() {
+  if (db) return db;
+  
+  try {
+    // Create database (or open existing)
+    db = new Database(DB_PATH, {
+      // Verbose logging in development
+      verbose: IS_PRODUCTION ? null : (msg) => {
+        if (process.env.DEBUG_SQL) {
+          console.log('[SQL]', msg);
+        }
+      }
+    });
+    
+    // Apply pragmas for performance and safety
+    db.pragma('journal_mode = WAL');           // Write-Ahead Logging for better concurrency
+    db.pragma('foreign_keys = ON');            // Enforce foreign key constraints
+    db.pragma('synchronous = NORMAL');         // Good balance of safety and speed
+    db.pragma('cache_size = -64000');          // 64MB cache
+    db.pragma('busy_timeout = 5000');          // Wait 5s if DB is locked
+    
+    console.log(`[REPUTY-DB] Connected to SQLite: ${DB_PATH}`);
+    console.log(`[REPUTY-DB] WAL mode: ${db.pragma('journal_mode', { simple: true })}`);
+    
+    return db;
+  } catch (err) {
+    console.error('[REPUTY-DB] Failed to connect:', err.message);
+    throw err;
+  }
+}
+
+/**
+ * Close the database connection
+ */
+function closeDb() {
+  if (db) {
+    db.close();
+    db = null;
+    console.log('[REPUTY-DB] Connection closed');
+  }
+}
+
+// ============================================================
+// Schema Initialization
+// ============================================================
+
+/**
+ * Initialize database schema from schema.sql
+ * @returns {boolean} true if successful
+ */
+function initSchema() {
+  const database = getDb();
+  
+  if (!fs.existsSync(SCHEMA_PATH)) {
+    throw new Error(`Schema file not found: ${SCHEMA_PATH}`);
+  }
+  
+  const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
+  
+  try {
+    database.exec(schema);
+    console.log('[REPUTY-DB] Schema initialized successfully');
+    return true;
+  } catch (err) {
+    console.error('[REPUTY-DB] Schema initialization failed:', err.message);
+    throw err;
+  }
+}
+
+/**
+ * Check if database has been initialized (has tables)
+ * @returns {boolean}
+ */
+function isInitialized() {
+  const database = getDb();
+  const result = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='orgs'"
+  ).get();
+  return !!result;
+}
+
+// ============================================================
+// Query Helpers
+// ============================================================
+
+/**
+ * Prepare a statement with caching
+ * Statements are cached per-connection for performance
+ */
+const statementCache = new Map();
+
+function prepare(sql) {
+  const database = getDb();
+  
+  if (!statementCache.has(sql)) {
+    statementCache.set(sql, database.prepare(sql));
+  }
+  return statementCache.get(sql);
+}
+
+/**
+ * Get a single row
+ * @param {string} sql - SQL query
+ * @param {any} params - Query parameters
+ * @returns {object|undefined} Single row or undefined
+ */
+function get(sql, params = {}) {
+  return prepare(sql).get(params);
+}
+
+/**
+ * Get all rows
+ * @param {string} sql - SQL query
+ * @param {any} params - Query parameters
+ * @returns {array} Array of rows
+ */
+function all(sql, params = {}) {
+  return prepare(sql).all(params);
+}
+
+/**
+ * Run a statement (INSERT/UPDATE/DELETE)
+ * @param {string} sql - SQL statement
+ * @param {any} params - Statement parameters
+ * @returns {object} { changes, lastInsertRowid }
+ */
+function run(sql, params = {}) {
+  return prepare(sql).run(params);
+}
+
+/**
+ * Execute raw SQL (for multi-statement queries)
+ * @param {string} sql - Raw SQL to execute
+ */
+function exec(sql) {
+  return getDb().exec(sql);
+}
+
+/**
+ * Run multiple operations in a transaction
+ * @param {function} fn - Function containing database operations
+ * @returns {any} Return value of fn
+ */
+function transaction(fn) {
+  const database = getDb();
+  return database.transaction(fn)();
+}
+
+// ============================================================
+// Utility Functions
+// ============================================================
+
+/**
+ * Generate a unique ID (24 char hex)
+ * @returns {string}
+ */
+function generateId() {
+  const crypto = require('crypto');
+  return crypto.randomBytes(12).toString('hex');
+}
+
+/**
+ * Get current timestamp in ISO format
+ * @returns {string}
+ */
+function nowISO() {
+  return new Date().toISOString();
+}
+
+/**
+ * Parse JSON field safely
+ * @param {string|null} jsonStr - JSON string or null
+ * @param {any} defaultValue - Default if parsing fails
+ * @returns {any}
+ */
+function parseJson(jsonStr, defaultValue = {}) {
+  if (!jsonStr) return defaultValue;
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    return defaultValue;
+  }
+}
+
+/**
+ * Stringify to JSON safely
+ * @param {any} obj - Object to stringify
+ * @returns {string}
+ */
+function toJson(obj) {
+  return JSON.stringify(obj || {});
+}
+
+/**
+ * Hash a token with SHA256
+ * @param {string} token - Token to hash
+ * @returns {string} Hex hash
+ */
+function hashToken(token) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * Timing-safe comparison for hashes
+ * @param {string} a - First hash
+ * @param {string} b - Second hash
+ * @returns {boolean}
+ */
+function timingSafeEqual(a, b) {
+  const crypto = require('crypto');
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================
+// Database Stats
+// ============================================================
+
+/**
+ * Get counts for all tables
+ * @returns {object} Table name -> count mapping
+ */
+function getTableCounts() {
+  const database = getDb();
+  const tables = [
+    'orgs', 'users', 'sessions', 'review_requests', 
+    'feedbacks', 'messages', 'usage_ledger', 
+    'telemetry_events', 'email_verifications',
+    'installations', 'shortlinks', 'migrations'
+  ];
+  
+  const counts = {};
+  for (const table of tables) {
+    try {
+      const result = database.prepare(`SELECT COUNT(*) as count FROM ${table}`).get();
+      counts[table] = result?.count || 0;
+    } catch {
+      counts[table] = 'N/A';
+    }
+  }
+  return counts;
+}
+
+/**
+ * Check foreign key integrity
+ * @returns {array} Array of FK violations (empty if OK)
+ */
+function checkForeignKeys() {
+  const database = getDb();
+  return database.pragma('foreign_key_check');
+}
+
+// ============================================================
+// Graceful Shutdown
+// ============================================================
+
+process.on('exit', closeDb);
+process.on('SIGINT', () => { closeDb(); process.exit(0); });
+process.on('SIGTERM', () => { closeDb(); process.exit(0); });
+
+// ============================================================
+// Exports
+// ============================================================
+
+module.exports = {
+  // Connection
+  getDb,
+  closeDb,
+  
+  // Schema
+  initSchema,
+  isInitialized,
+  
+  // Query helpers
+  prepare,
+  get,
+  all,
+  run,
+  exec,
+  transaction,
+  
+  // Utilities
+  generateId,
+  nowISO,
+  parseJson,
+  toJson,
+  hashToken,
+  timingSafeEqual,
+  
+  // Stats
+  getTableCounts,
+  checkForeignKeys,
+  
+  // Constants
+  DB_PATH
+};

@@ -272,6 +272,225 @@ export async function rotateApiToken(orgId: string): Promise<RotateApiTokenResul
   return { ok: false, error: result.error }
 }
 
+// ============ ASSIGN PLAN ============
+
+interface AssignPlanInput {
+  orgId: string
+  planCode: 'health_bronze' | 'health_argent' | 'health_or' | 'health_platinum'
+}
+
+export interface EffectiveBilling {
+  planCode: string
+  planName: string
+  planTier: number
+  priceCatalogCents: number
+  priceEffectiveCents: number
+  priceCatalogFormatted: string
+  priceEffectiveFormatted: string
+  stripeCouponId: string | null
+  discount: {
+    type: string | null
+    value: number | null
+    label: string | null
+  }
+  couponInfo: {
+    id: string
+    label: string
+    description: string
+    type: string
+    value: number
+  } | null
+  hasDiscount: boolean
+  quotasCatalog: {
+    smsIncluded: number
+    emailIncluded: number
+    aiIncluded: number
+    qrIncluded: number
+    nfcIncluded: number
+  }
+  quotasEffective: {
+    smsIncluded: number
+    emailIncluded: number
+    aiIncluded: number
+    qrIncluded: number
+    nfcIncluded: number
+  }
+  bonusMonthly: {
+    sms: number
+    email: number
+    ai: number
+  }
+  monthlyRemaining: {
+    sms: number
+    email: number
+    ai: number
+    qr: number
+    nfc: number
+  }
+  monthlyUsed: {
+    sms: number
+    email: number
+    ai: number
+    qr: number
+    nfc: number
+  }
+  packsBalance: {
+    sms: number
+    email: number
+    ai: number
+  }
+  totalAvailableThisMonth: {
+    sms: number
+    email: number
+    ai: number
+    qr: number
+    nfc: number
+  }
+  billingPeriod: {
+    periodStart: string | null
+    periodEnd: string | null
+  }
+  periodEndFormatted: string | null
+}
+
+interface AssignPlanResult {
+  ok: boolean
+  org?: Org
+  effectiveBilling?: EffectiveBilling
+  message?: string
+  error?: string
+}
+
+export async function assignPlan(input: AssignPlanInput): Promise<AssignPlanResult> {
+  const { orgId, planCode } = input
+  
+  const result = await fetchInternal<{
+    org: Org
+    effectiveBilling: EffectiveBilling
+    message: string
+  }>(
+    `/internal/orgs/${orgId}/assign-plan`,
+    { method: 'POST', body: { planCode } }
+  )
+
+  if (result.ok && result.data) {
+    revalidatePath('/internal/clients')
+    revalidatePath(`/internal/clients/${orgId}`)
+    return { 
+      ok: true, 
+      org: result.data.org,
+      effectiveBilling: result.data.effectiveBilling,
+      message: result.data.message
+    }
+  }
+
+  return { ok: false, error: result.error }
+}
+
+// ============ APPLY COUPON ============
+
+interface ApplyCouponInput {
+  orgId: string
+  couponKey: 'FIXED_5' | 'FIXED_10' | 'FIXED_20' | 'PCT_10' | 'PCT_20'
+}
+
+interface ApplyCouponResult {
+  ok: boolean
+  org?: Org
+  effectiveBilling?: EffectiveBilling
+  message?: string
+  error?: string
+}
+
+export async function applyCoupon(input: ApplyCouponInput): Promise<ApplyCouponResult> {
+  const { orgId, couponKey } = input
+  
+  const result = await fetchInternal<{
+    org: Org
+    effectiveBilling: EffectiveBilling
+    message: string
+  }>(
+    `/internal/orgs/${orgId}/apply-coupon`,
+    { method: 'POST', body: { couponKey } }
+  )
+
+  if (result.ok && result.data) {
+    revalidatePath('/internal/clients')
+    revalidatePath(`/internal/clients/${orgId}`)
+    return { 
+      ok: true, 
+      org: result.data.org,
+      effectiveBilling: result.data.effectiveBilling,
+      message: result.data.message
+    }
+  }
+
+  return { ok: false, error: result.error }
+}
+
+// ============ REMOVE COUPON ============
+
+interface RemoveCouponInput {
+  orgId: string
+}
+
+interface RemoveCouponResult {
+  ok: boolean
+  org?: Org
+  effectiveBilling?: EffectiveBilling
+  message?: string
+  error?: string
+}
+
+export async function removeCoupon(input: RemoveCouponInput): Promise<RemoveCouponResult> {
+  const { orgId } = input
+  
+  const result = await fetchInternal<{
+    org: Org
+    effectiveBilling: EffectiveBilling
+    message: string
+  }>(
+    `/internal/orgs/${orgId}/remove-coupon`,
+    { method: 'POST' }
+  )
+
+  if (result.ok && result.data) {
+    revalidatePath('/internal/clients')
+    revalidatePath(`/internal/clients/${orgId}`)
+    return { 
+      ok: true, 
+      org: result.data.org,
+      effectiveBilling: result.data.effectiveBilling,
+      message: result.data.message
+    }
+  }
+
+  return { ok: false, error: result.error }
+}
+
+// ============ GET EFFECTIVE BILLING ============
+
+interface GetEffectiveBillingResult {
+  ok: boolean
+  effectiveBilling?: EffectiveBilling
+  error?: string
+}
+
+export async function getEffectiveBilling(orgId: string): Promise<GetEffectiveBillingResult> {
+  const result = await fetchInternal<{
+    effectiveBilling: EffectiveBilling
+  }>(
+    `/internal/orgs/${orgId}/effective-billing`,
+    { method: 'GET' }
+  )
+
+  if (result.ok && result.data) {
+    return { ok: true, effectiveBilling: result.data.effectiveBilling }
+  }
+
+  return { ok: false, error: result.error }
+}
+
 // ============ REFRESH DATA ============
 
 export async function refreshClients() {

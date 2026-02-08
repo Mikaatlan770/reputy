@@ -15,7 +15,8 @@ import { reviews as mockGoogleReviews, locations } from '@/lib/mock-data'
 
 // URL du backend Reputy (feedbacks internes)
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || 'dev-token'
+// P0.1: No fallback — must be configured explicitly via environment variable
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN
 
 interface RouteContext {
   params: Promise<{ publicKey: string }>
@@ -45,7 +46,11 @@ export async function GET(
     
     // Récupérer les feedbacks Reputy (depuis le backend)
     let reputyItems: EmbedReviewItem[] = []
+    if (!API_TOKEN) {
+      console.warn('[P0.1] NEXT_PUBLIC_API_TOKEN not configured, skipping Reputy feedbacks')
+    }
     try {
+      if (!API_TOKEN) throw new Error('API_TOKEN not configured')
       const feedbackRes = await fetch(`${BACKEND_URL}/api/feedbacks`, {
         headers: { Authorization: `Bearer ${API_TOKEN}` },
         cache: 'no-store',

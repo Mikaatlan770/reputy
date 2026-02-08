@@ -71,7 +71,12 @@ interface Stats {
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || 'dev-token'
+
+// P0.1: No fallback — must be configured explicitly via environment variable
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN
+if (!API_TOKEN && typeof window !== 'undefined') {
+  console.error('[P0.1] NEXT_PUBLIC_API_TOKEN is not configured. Set it in your .env.local file.')
+}
 
 function getInitials(name: string): string {
   return name

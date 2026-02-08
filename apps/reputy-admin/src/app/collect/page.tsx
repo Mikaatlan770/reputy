@@ -1,13 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAppStore } from '@/lib/store'
-import { collectChannels, nfcTags } from '@/lib/mock-data'
+import { useAuth, useIsClient } from '@/lib/auth'
+import { parseBackendError, isErrorResponse } from '@/lib/error-messages'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import {
   QrCode,
   Nfc,
@@ -26,31 +35,256 @@ import {
   Globe,
   MousePointer,
   Settings,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  Smartphone,
+  Clock,
 } from 'lucide-react'
 import { formatNumber, formatPercent } from '@/lib/utils'
 import { SmsPreview } from '@/components/sms/SmsPreview'
+import { EmailPreview } from '@/components/email/EmailPreview'
 import { WebsiteWidgetManager } from '@/components/embed'
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
+
+interface Shortlink {
+  code: string
+  type: 'qr' | 'nfc'
+  label: string
+  targetUrl: string
+  shortUrl: string
+  clicks: number
+  createdAt: string
+  lastClickedAt: string | null
+}
+
+interface ShortlinkStats {
+  totalQr: number
+  totalNfc: number
+  totalClicks: number
+}
 
 export default function CollectPage() {
   const { currentLocation } = useAppStore()
-  const [qrGenerated, setQrGenerated] = useState(false)
+  const { loading: authLoading, clientOrg } = useAuth()
+  const isClient = useIsClient()
+  
+  // Shortlinks state
+  const [shortlinks, setShortlinks] = useState<Shortlink[]>([])
+  const [stats, setStats] = useState<ShortlinkStats>({ totalQr: 0, totalNfc: 0, totalClicks: 0 })
+  const [loadingShortlinks, setLoadingShortlinks] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Create dialog state
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createType, setCreateType] = useState<'qr' | 'nfc'>('qr')
+  const [newLabel, setNewLabel] = useState('')
+  const [newTargetUrl, setNewTargetUrl] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [newShortlink, setNewShortlink] = useState<Shortlink | null>(null)
+  const [copied, setCopied] = useState(false)
+  
+  // Delete dialog state
+  const [deleteTarget, setDeleteTarget] = useState<Shortlink | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  // Other UI state
   const [smsValid, setSmsValid] = useState(true)
   const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
   const [embedStats, setEmbedStats] = useState({ impressions: 0, clicks: 0 })
+  
+  // NFC instructions dialog
+  const [nfcInstructionsOpen, setNfcInstructionsOpen] = useState(false)
+  const [selectedShortlink, setSelectedShortlink] = useState<Shortlink | null>(null)
 
-  const channels = collectChannels.filter(
-    (c) => !currentLocation || c.locationId === currentLocation.id
-  )
-  const tags = nfcTags.filter(
-    (t) => !currentLocation || t.locationId === currentLocation.id
-  )
+  // Get auth token from localStorage
+  const getAuthToken = useCallback(() => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('reputy_client_token')
+  }, [])
 
+  // Fetch shortlinks from API
+  const fetchShortlinks = useCallback(async () => {
+    const token = getAuthToken()
+    if (!token) return
+    
+    setLoadingShortlinks(true)
+    setError(null)
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/shortlinks`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      const data = await response.json()
+      
+      if (isErrorResponse(data)) {
+        const errorDisplay = parseBackendError(data)
+        setError(errorDisplay.message)
+        return
+      }
+      
+      setShortlinks(data.shortlinks || [])
+      setStats(data.stats || { totalQr: 0, totalNfc: 0, totalClicks: 0 })
+    } catch {
+      setError('Impossible de charger les shortlinks')
+    } finally {
+      setLoadingShortlinks(false)
+    }
+  }, [getAuthToken])
+
+  // Create shortlink
+  const handleCreate = async () => {
+    const token = getAuthToken()
+    if (!token) return
+    
+    if (!newTargetUrl) {
+      setError('URL de destination requise')
+      return
+    }
+    
+    setCreating(true)
+    setError(null)
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/shortlinks`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: createType,
+          targetUrl: newTargetUrl,
+          label: newLabel || `${createType === 'qr' ? 'QR Code' : 'Tag NFC'} - ${new Date().toLocaleDateString('fr-FR')}`
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (isErrorResponse(data)) {
+        const errorDisplay = parseBackendError(data)
+        setError(errorDisplay.message)
+        return
+      }
+      
+      setNewShortlink(data.shortlink)
+      fetchShortlinks()
+    } catch {
+      setError('Erreur lors de la création')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  // Delete shortlink
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    
+    const token = getAuthToken()
+    if (!token) return
+    
+    setDeleting(true)
+    
+    try {
+      await fetch(`${BACKEND_URL}/client/shortlinks/${deleteTarget.code}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      
+      fetchShortlinks()
+      setDeleteTarget(null)
+    } catch {
+      setError('Impossible de supprimer le shortlink')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  // Download QR code
+  const downloadQr = useCallback((code: string, format: 'png' | 'svg' = 'png') => {
+    const token = getAuthToken()
+    if (!token) return
+    
+    fetch(`${BACKEND_URL}/client/shortlinks/${code}/qr?format=${format}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => res.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `qr-${code}.${format}`
+        a.click()
+        URL.revokeObjectURL(url)
+      })
+      .catch(() => {
+        setError('Erreur lors du téléchargement du QR code')
+      })
+  }, [getAuthToken])
+
+  // Copy URL to clipboard
+  const copyUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = url
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  // Close create dialog
+  const closeCreateDialog = () => {
+    setCreateOpen(false)
+    setNewLabel('')
+    setNewTargetUrl('')
+    setNewShortlink(null)
+    setCopied(false)
+  }
+
+  // Open create dialog with type - pre-fill with Google Review URL if available
+  const openCreateDialog = (type: 'qr' | 'nfc') => {
+    setCreateType(type)
+    const googleReviewUrl = (clientOrg as any)?.options?.googleReviewUrl || ''
+    setNewTargetUrl(googleReviewUrl)
+    setCreateOpen(true)
+  }
+
+  // Initial load
+  useEffect(() => {
+    if (!authLoading && isClient) {
+      fetchShortlinks()
+    }
+  }, [authLoading, isClient, fetchShortlinks])
+
+  // Filter shortlinks by type
+  const qrLinks = shortlinks.filter(s => s.type === 'qr')
+  const nfcLinks = shortlinks.filter(s => s.type === 'nfc')
+  
+  // Get first shortlink for SMS/Email template
+  const primaryShortlink = shortlinks[0]
+
+  // Channel stats for display
   const channelStats = {
-    qr: channels.find((c) => c.type === 'qr'),
-    nfc: channels.find((c) => c.type === 'nfc'),
-    sms: channels.find((c) => c.type === 'sms'),
-    email: channels.find((c) => c.type === 'email'),
-    doctolib: channels.find((c) => c.type === 'doctolib'),
+    qr: { clicks: stats.totalClicks, reviewsGenerated: qrLinks.length, conversionRate: qrLinks.length > 0 ? 0.15 : 0 },
+    nfc: { clicks: 0, reviewsGenerated: nfcLinks.length, conversionRate: nfcLinks.length > 0 ? 0.12 : 0 },
+    sms: { sent: 0, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
+    email: { sent: 0, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
+    doctolib: { reviewsGenerated: 0, conversionRate: 0 },
   }
 
   return (
@@ -63,16 +297,27 @@ export default function CollectPage() {
         </p>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="h-5 w-5 text-red-500" />
+          <p className="text-red-700">{error}</p>
+          <Button variant="ghost" size="sm" onClick={() => setError(null)} className="ml-auto">
+            ✕
+          </Button>
+        </div>
+      )}
+
       {/* Channel Stats Overview */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
-          { type: 'qr', icon: QrCode, label: 'QR Code', color: 'text-blue-600' },
-          { type: 'nfc', icon: Nfc, label: 'NFC', color: 'text-purple-600' },
-          { type: 'sms', icon: MessageSquare, label: 'SMS', color: 'text-green-600' },
-          { type: 'email', icon: Mail, label: 'Email', color: 'text-orange-600' },
-          { type: 'doctolib', icon: Stethoscope, label: 'Doctolib', color: 'text-cyan-600' },
+          { type: 'qr', icon: QrCode, label: 'QR Code', color: 'text-blue-600', count: qrLinks.length },
+          { type: 'nfc', icon: Nfc, label: 'NFC', color: 'text-purple-600', count: nfcLinks.length },
+          { type: 'sms', icon: MessageSquare, label: 'SMS', color: 'text-green-600', count: 0 },
+          { type: 'email', icon: Mail, label: 'Email', color: 'text-orange-600', count: 0 },
+          { type: 'doctolib', icon: Stethoscope, label: 'Doctolib', color: 'text-cyan-600', count: 0 },
         ].map((channel) => {
-          const stats = channelStats[channel.type as keyof typeof channelStats]
+          const stat = channelStats[channel.type as keyof typeof channelStats]
           return (
             <Card key={channel.type}>
               <CardContent className="p-4">
@@ -83,10 +328,10 @@ export default function CollectPage() {
                   <div>
                     <p className="text-xs text-muted-foreground">{channel.label}</p>
                     <p className="text-lg font-bold">
-                      {stats ? formatPercent(stats.conversionRate) : '0%'}
+                      {channel.count}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {stats ? stats.reviewsGenerated : 0} avis
+                      {stat?.clicks || 0} clics
                     </p>
                   </div>
                 </div>
@@ -153,60 +398,90 @@ export default function CollectPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* QR Code Tab */}
+        {/* QR Code Tab - REAL DATA */}
         <TabsContent value="qr">
           <div className="grid md:grid-cols-2 gap-6">
             <Card>
-              <CardHeader>
-                <CardTitle>Générer un QR Code</CardTitle>
-                <CardDescription>
-                  Créez un QR code pointant vers votre page de collecte
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Vos QR Codes</CardTitle>
+                  <CardDescription>
+                    QR codes pointant vers votre page de collecte
+                  </CardDescription>
+                </div>
+                <Button onClick={() => openCreateDialog('qr')} className="gap-1">
+                  <Plus className="h-4 w-4" />
+                  Nouveau QR
+                </Button>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="aspect-square max-w-[250px] mx-auto bg-muted rounded-lg flex items-center justify-center">
-                  {qrGenerated ? (
-                    <div className="p-4 bg-white rounded-lg">
-                      {/* Mock QR Code */}
-                      <div className="w-[200px] h-[200px] bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMSAyMSI+PHBhdGggZD0iTTEgMWg3djdIMXptMiAyaDN2M0gzem0xMi04aDd2N2gtN3ptMiAyaDN2M2gtM3pNMSAxM2g3djdIMXptMiAyaDN2M0gzem0xMi0yaDJ2Mmgtdm0yIDBoMnYyaC0ybTAgNGgydjJoLTJ6IiBmaWxsPSIjMDAwIi8+PC9zdmc+')] bg-contain" />
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <QrCode className="h-16 w-16 mx-auto text-muted-foreground/50 mb-2" />
-                      <p className="text-sm text-muted-foreground">
-                        Cliquez pour générer
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    className="flex-1"
-                    onClick={() => setQrGenerated(true)}
-                  >
-                    {qrGenerated ? 'Régénérer' : 'Générer le QR'}
-                  </Button>
-                  {qrGenerated && (
-                    <Button variant="outline" className="gap-1">
-                      <Download className="h-4 w-4" />
-                      PNG
+                {loadingShortlinks ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : qrLinks.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <QrCode className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>Aucun QR code créé</p>
+                    <Button onClick={() => openCreateDialog('qr')} variant="outline" className="mt-4">
+                      Créer votre premier QR code
                     </Button>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {qrLinks.map((link) => (
+                      <div
+                        key={link.code}
+                        className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-100 rounded-lg">
+                            <QrCode className="h-5 w-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{link.label}</p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {link.shortUrl}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-sm font-medium">{link.clicks} clics</p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(link.createdAt).toLocaleDateString('fr-FR')}
+                            </p>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => downloadQr(link.code, 'png')} title="Télécharger PNG">
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => copyUrl(link.shortUrl)} title="Copier l'URL">
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-red-600" onClick={() => setDeleteTarget(link)} title="Supprimer">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle>Performance QR Code</CardTitle>
-                <CardDescription>Statistiques de votre QR code</CardDescription>
+                <CardDescription>Statistiques de vos QR codes</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {[
-                    { label: 'Scans', value: channelStats.qr?.clicks || 0, icon: Eye },
-                    { label: 'Avis générés', value: channelStats.qr?.reviewsGenerated || 0, icon: Star },
-                    { label: 'Taux conversion', value: formatPercent(channelStats.qr?.conversionRate || 0), icon: TrendingUp },
+                    { label: 'QR codes actifs', value: qrLinks.length, icon: QrCode },
+                    { label: 'Total scans', value: stats.totalClicks, icon: Eye },
+                    { label: 'Clics moyen/QR', value: qrLinks.length > 0 ? Math.round(stats.totalClicks / qrLinks.length) : 0, icon: TrendingUp },
                   ].map((stat) => (
                     <div key={stat.label} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                       <div className="flex items-center gap-3">
@@ -222,7 +497,7 @@ export default function CollectPage() {
           </div>
         </TabsContent>
 
-        {/* NFC Tab */}
+        {/* NFC Tab - REAL DATA */}
         <TabsContent value="nfc">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -230,22 +505,29 @@ export default function CollectPage() {
                 <CardTitle>Tags NFC</CardTitle>
                 <CardDescription>Gérez vos tags NFC de collecte</CardDescription>
               </div>
-              <Button className="gap-1">
+              <Button onClick={() => openCreateDialog('nfc')} className="gap-1">
                 <Plus className="h-4 w-4" />
                 Nouveau tag
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {tags.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Nfc className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>Aucun tag NFC configuré</p>
-                  </div>
-                ) : (
-                  tags.map((tag) => (
+              {loadingShortlinks ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : nfcLinks.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Nfc className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Aucun tag NFC configuré</p>
+                  <Button onClick={() => openCreateDialog('nfc')} variant="outline" className="mt-4">
+                    Créer votre premier lien NFC
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {nfcLinks.map((link) => (
                     <div
-                      key={tag.id}
+                      key={link.code}
                       className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
                     >
                       <div className="flex items-center gap-3">
@@ -253,40 +535,54 @@ export default function CollectPage() {
                           <Nfc className="h-5 w-5 text-purple-600" />
                         </div>
                         <div>
-                          <p className="font-medium">{tag.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {tag.shortUrl}
+                          <p className="font-medium">{link.label}</p>
+                          <p className="text-xs text-muted-foreground font-mono">
+                            {link.shortUrl}
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-6">
+                      <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <p className="text-sm font-medium">{tag.scans} scans</p>
+                          <p className="text-sm font-medium">{link.clicks} scans</p>
                           <p className="text-xs text-muted-foreground">
-                            {tag.conversions} avis
+                            {new Date(link.createdAt).toLocaleDateString('fr-FR')}
                           </p>
                         </div>
-                        <Badge variant={tag.active ? 'success' : 'secondary'}>
-                          {tag.active ? 'Actif' : 'Inactif'}
-                        </Badge>
-                        <Button variant="ghost" size="icon">
-                          <Copy className="h-4 w-4" />
-                        </Button>
+                        <Badge variant="success">Actif</Badge>
+                        <div className="flex gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => {
+                              setSelectedShortlink(link)
+                              setNfcInstructionsOpen(true)
+                            }}
+                            title="Instructions NFC"
+                          >
+                            <Smartphone className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => copyUrl(link.shortUrl)} title="Copier l'URL">
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="text-red-600" onClick={() => setDeleteTarget(link)} title="Supprimer">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* SMS Tab - NOUVEAU CONTENU */}
+        {/* SMS Tab - REAL DATA */}
         <TabsContent value="sms">
           <div className="grid lg:grid-cols-2 gap-6">
-            {/* Aperçu SMS avec validation - ÉDITABLE */}
+            {/* Aperçu SMS avec validation */}
             <SmsPreview
-              shortUrl="rpt.ly/abc123"
+              shortUrl={primaryShortlink?.shortUrl || 'rpt.ly/votre-lien'}
               phoneNumber={currentLocation?.name ? `Client de ${currentLocation.name}` : undefined}
               onValidationChange={setSmsValid}
               readOnly={false}
@@ -306,8 +602,7 @@ export default function CollectPage() {
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
                     Le <strong>lien de collecte</strong> est une URL courte unique générée pour votre établissement. 
-                    Quand un patient clique dessus, il accède à une page lui permettant de laisser un avis sur Google, 
-                    Doctolib ou d&apos;autres plateformes selon votre configuration.
+                    Quand un patient clique dessus, il accède à une page lui permettant de laisser un avis sur Google.
                   </p>
                   <ul className="text-sm text-muted-foreground space-y-1">
                     <li>✓ <strong>Unique à votre établissement</strong> - les avis sont automatiquement rattachés à vous</li>
@@ -324,14 +619,25 @@ export default function CollectPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex gap-2">
-                    <Input value="rpt.ly/abc123" readOnly className="font-mono" />
-                    <Button variant="outline" size="icon">
+                    <Input 
+                      value={primaryShortlink?.shortUrl || 'Créez un QR code pour obtenir un lien'} 
+                      readOnly 
+                      className="font-mono" 
+                    />
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      disabled={!primaryShortlink}
+                      onClick={() => primaryShortlink && copyUrl(primaryShortlink.shortUrl)}
+                    >
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Ce lien court est automatiquement inclus dans vos SMS. Il est limité à 20 caractères pour optimiser l&apos;espace.
-                  </p>
+                  {!primaryShortlink && (
+                    <p className="text-xs text-amber-600">
+                      ⚠️ Créez d&apos;abord un QR code dans l&apos;onglet QR pour obtenir un lien de collecte
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -357,7 +663,7 @@ export default function CollectPage() {
                 </CardContent>
               </Card>
 
-              {/* Info encodage et personnalisation */}
+              {/* Info encodage */}
               <Card className="border-amber-200 bg-amber-50/50">
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
@@ -370,11 +676,7 @@ export default function CollectPage() {
                       </h4>
                       <p className="text-sm text-amber-800">
                         Vous pouvez modifier le message SMS directement dans l&apos;aperçu à gauche. 
-                        Respectez la limite de <strong>160 caractères</strong> pour garantir l&apos;envoi en un seul SMS.
-                      </p>
-                      <p className="text-xs text-amber-700">
-                        <strong>Caractères autorisés :</strong> lettres standard (a-z), chiffres, 
-                        espaces et ponctuation simple. Évitez les accents spéciaux (à, â, ê...) et les emojis.
+                        Respectez la limite de <strong>160 caractères</strong>.
                       </p>
                     </div>
                   </div>
@@ -384,30 +686,12 @@ export default function CollectPage() {
           </div>
         </TabsContent>
 
-        {/* Email Tab */}
+        {/* Email Tab - EDITABLE */}
         <TabsContent value="email">
-          <Card>
-            <CardHeader>
-              <CardTitle>Collecte par Email</CardTitle>
-              <CardDescription>
-                Intégrez un lien de collecte dans vos emails
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm font-medium mb-2">Template Email</p>
-                <p className="text-sm text-muted-foreground">
-                  Cher(e) {'{prenom}'}, nous espérons que votre expérience chez{' '}
-                  {'{etablissement}'} vous a satisfait. Prenez quelques
-                  secondes pour nous laisser votre avis.
-                </p>
-              </div>
-              <Button variant="outline" className="gap-1">
-                <ExternalLink className="h-4 w-4" />
-                Personnaliser le template
-              </Button>
-            </CardContent>
-          </Card>
+          <EmailPreview 
+            cabinetName={(clientOrg as any)?.name || 'notre cabinet'}
+            shortUrl={primaryShortlink?.shortUrl}
+          />
         </TabsContent>
 
         {/* Doctolib Tab */}
@@ -425,22 +709,33 @@ export default function CollectPage() {
             <CardContent className="space-y-4">
               <div className="p-4 bg-cyan-50 border border-cyan-200 rounded-lg">
                 <p className="text-sm text-cyan-800">
-                  <strong>Note :</strong> Ce canal utilise un QR code / lien
-                  dédié à afficher en salle d&apos;attente ou à communiquer
-                  post-consultation. Pas d&apos;intégration API nécessaire.
+                  <strong>Note :</strong> Ce canal utilise vos QR codes / liens créés ci-dessus.
+                  Affichez-les en salle d&apos;attente ou communiquez-les post-consultation.
                 </p>
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm font-medium mb-2">QR Code Post-Consultation</p>
-                  <div className="w-32 h-32 bg-white rounded-lg mx-auto flex items-center justify-center">
-                    <QrCode className="h-20 w-20 text-cyan-600" />
-                  </div>
-                  <Button variant="outline" className="w-full mt-3 gap-1">
-                    <Download className="h-4 w-4" />
-                    Télécharger
-                  </Button>
+                  {qrLinks.length > 0 ? (
+                    <>
+                      <div className="w-32 h-32 bg-white rounded-lg mx-auto flex items-center justify-center border">
+                        <QrCode className="h-20 w-20 text-cyan-600" />
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        className="w-full mt-3 gap-1"
+                        onClick={() => downloadQr(qrLinks[0].code, 'png')}
+                      >
+                        <Download className="h-4 w-4" />
+                        Télécharger
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="text-center py-4 text-muted-foreground">
+                      <p className="text-sm">Créez un QR code dans l&apos;onglet QR</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 bg-muted/50 rounded-lg">
@@ -450,32 +745,227 @@ export default function CollectPage() {
                     <li>• Proposez-le après chaque consultation</li>
                     <li>• Intégrez le lien dans vos SMS de rappel</li>
                   </ul>
-                  <div className="mt-3">
-                    <p className="text-xs text-muted-foreground mb-1">Lien direct</p>
-                    <div className="flex gap-2">
-                      <Input value="https://rpty.io/d/doc123" readOnly className="text-xs" />
-                      <Button variant="outline" size="icon">
-                        <Copy className="h-4 w-4" />
-                      </Button>
+                  {primaryShortlink && (
+                    <div className="mt-3">
+                      <p className="text-xs text-muted-foreground mb-1">Lien direct</p>
+                      <div className="flex gap-2">
+                        <Input value={primaryShortlink.shortUrl} readOnly className="text-xs" />
+                        <Button variant="outline" size="icon" onClick={() => copyUrl(primaryShortlink.shortUrl)}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                <div>
-                  <p className="font-medium">Performance Canal Doctolib</p>
-                  <p className="text-sm text-muted-foreground">
-                    {channelStats.doctolib?.reviewsGenerated || 0} avis générés •{' '}
-                    {formatPercent(channelStats.doctolib?.conversionRate || 0)} conversion
-                  </p>
-                </div>
-                <Badge variant="success">Actif</Badge>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={(open) => !newShortlink && setCreateOpen(open)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {newShortlink 
+                ? `✅ ${createType === 'qr' ? 'QR Code' : 'Lien NFC'} créé !`
+                : `Nouveau ${createType === 'qr' ? 'QR Code' : 'lien NFC'}`}
+            </DialogTitle>
+            <DialogDescription>
+              {newShortlink 
+                ? 'Votre lien court est prêt à utiliser.'
+                : 'Configurez votre nouveau lien court.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {!newShortlink ? (
+            <>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Nom (optionnel)</label>
+                  <Input
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value)}
+                    placeholder="Ex: Comptoir accueil, Salle d'attente..."
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">URL de destination *</label>
+                  <Input
+                    type="url"
+                    value={newTargetUrl}
+                    onChange={(e) => setNewTargetUrl(e.target.value)}
+                    placeholder="https://g.page/r/votre-lien/review"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {newTargetUrl && (clientOrg as any)?.options?.googleReviewUrl === newTargetUrl
+                      ? '✅ Pré-rempli avec votre URL Google Review'
+                      : "L'URL vers laquelle les utilisateurs seront redirigés"}
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={closeCreateDialog}>
+                  Annuler
+                </Button>
+                <Button onClick={handleCreate} disabled={creating || !newTargetUrl}>
+                  {creating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Création...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Créer
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="space-y-4">
+                <div className="bg-slate-900 text-white rounded-lg p-4">
+                  <p className="text-sm text-slate-400 mb-1">URL courte</p>
+                  <p className="font-mono text-lg text-amber-300 break-all">
+                    {newShortlink.shortUrl}
+                  </p>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button 
+                    className="flex-1"
+                    variant={copied ? 'default' : 'outline'}
+                    onClick={() => copyUrl(newShortlink.shortUrl)}
+                  >
+                    {copied ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Copié !
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4 mr-2" />
+                        Copier l&apos;URL
+                      </>
+                    )}
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <a href={newShortlink.shortUrl} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Tester
+                    </a>
+                  </Button>
+                </div>
+                
+                {createType === 'qr' && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground text-center">
+                      Téléchargez votre QR code :
+                    </p>
+                    <div className="flex gap-2 justify-center">
+                      <Button variant="outline" onClick={() => downloadQr(newShortlink.code, 'png')}>
+                        <Download className="h-4 w-4 mr-2" />
+                        PNG
+                      </Button>
+                      <Button variant="outline" onClick={() => downloadQr(newShortlink.code, 'svg')}>
+                        <Download className="h-4 w-4 mr-2" />
+                        SVG
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
+                {createType === 'nfc' && (
+                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <p className="text-sm font-medium text-purple-900 mb-2">Instructions NFC</p>
+                    <ol className="text-sm text-purple-800 space-y-1 list-decimal list-inside">
+                      <li>Téléchargez NFC Tools (iOS/Android)</li>
+                      <li>Choisissez &quot;Écrire&quot; → &quot;Ajouter un enregistrement&quot;</li>
+                      <li>Sélectionnez &quot;URL&quot;</li>
+                      <li>Collez : <code className="bg-purple-100 px-1 rounded">{newShortlink.shortUrl}</code></li>
+                      <li>Approchez votre tag NFC et écrivez</li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button onClick={closeCreateDialog}>
+                  Fermer
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer ce shortlink ?</DialogTitle>
+            <DialogDescription>
+              Cette action est irréversible. Le lien &quot;{deleteTarget?.label}&quot; ne fonctionnera plus.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Suppression...
+                </>
+              ) : (
+                'Supprimer'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* NFC Instructions Dialog */}
+      <Dialog open={nfcInstructionsOpen} onOpenChange={setNfcInstructionsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Comment programmer votre tag NFC</DialogTitle>
+            <DialogDescription>
+              Suivez ces étapes pour configurer votre tag NFC
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+              <p className="text-sm font-medium text-purple-900 mb-2">URL à programmer</p>
+              <code className="text-sm bg-purple-100 px-2 py-1 rounded block break-all">
+                {selectedShortlink?.shortUrl}
+              </code>
+            </div>
+            <ol className="text-sm space-y-2 list-decimal list-inside">
+              <li>Téléchargez l&apos;app <strong>NFC Tools</strong> (gratuite sur iOS/Android)</li>
+              <li>Ouvrez l&apos;app et allez dans &quot;Écrire&quot;</li>
+              <li>Appuyez sur &quot;Ajouter un enregistrement&quot;</li>
+              <li>Sélectionnez &quot;URL/URI&quot;</li>
+              <li>Collez l&apos;URL ci-dessus</li>
+              <li>Appuyez sur &quot;Écrire&quot; et approchez votre tag NFC</li>
+            </ol>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => selectedShortlink && copyUrl(selectedShortlink.shortUrl)}>
+              <Copy className="h-4 w-4 mr-2" />
+              Copier l&apos;URL
+            </Button>
+            <Button onClick={() => setNfcInstructionsOpen(false)}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Widget Manager Modal */}
       {currentLocation && (

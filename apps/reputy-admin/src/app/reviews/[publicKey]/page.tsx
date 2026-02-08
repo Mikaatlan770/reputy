@@ -60,7 +60,12 @@ async function getReviewsData(publicKey: string) {
   let reputyItems: EmbedReviewItem[] = []
   try {
     const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-    const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || 'dev-token'
+    // P0.1: No fallback — must be configured explicitly
+    const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN
+    if (!API_TOKEN) {
+      console.warn('[P0.1] NEXT_PUBLIC_API_TOKEN not configured, skipping Reputy feedbacks fetch')
+      return
+    }
     
     const res = await fetch(`${BACKEND_URL}/api/feedbacks`, {
       headers: { Authorization: `Bearer ${API_TOKEN}` },

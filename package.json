@@ -19,7 +19,8 @@
     "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:admin\" \"npm run dev:web\"",
     "install:all": "npm install && cd apps/reputy-admin && npm install && cd ../reputy-web && npm install && cd ../backend && npm install",
     "clean": "rm -rf node_modules .turbo && rm -rf apps/*/node_modules apps/*/.next apps/*/out apps/*/dist apps/*/.turbo",
-    "pack:safe": "zip -r reputy-clean.zip . -x \"*/node_modules/*\" \"*/.next/*\" \"*/out/*\" \"*/dist/*\" \"*/.turbo/*\" \".git/*\" \".env*\" \"*.log\""
+    "guard:secrets": "node scripts/check-no-secrets.js",
+    "pack:safe": "zip -r reputy-clean.zip . -x \"*/node_modules/*\" \"*/.next/*\" \"*/out/*\" \"*/dist/*\" \"*/.turbo/*\" \".git/*\" \".env*\" \"*.log\" \"*.db\" \"*.db-wal\" \"*.db-shm\" \"*.sqlite\" \"data.json\" \"debug-org.js\" \"check-org-billing.js\""
   }
 }
 

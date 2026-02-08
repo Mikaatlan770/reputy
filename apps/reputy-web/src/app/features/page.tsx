@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Header } from '@/components/Header'
 import { Footer } from '@/components/Footer'
+import { WidgetPreview } from '@/components/ui/WidgetPreview'
 import { 
   Star, 
   Zap, 
@@ -65,13 +66,14 @@ const mainFeatures = [
   },
   {
     icon: Globe,
-    title: 'Widget site web',
-    description: 'Affichez vos meilleurs avis directement sur votre site internet.',
+    title: 'Widget d\'avis',
+    description: 'Affichez automatiquement vos meilleurs avis sur votre site, en quelques minutes.',
     benefits: [
-      'Widget personnalisable',
-      'Badge note moyenne',
-      'SEO-friendly (HTML pur)',
-      'Responsive design'
+      'Code à copier-coller (embed)',
+      'Choix du nombre d\'avis affichés',
+      'Design personnalisable (clair/sombre)',
+      'Mise à jour automatique depuis ReputyBoard',
+      'Améliore la confiance et le taux de conversion'
     ]
   },
   {
@@ -144,10 +146,27 @@ export default function FeaturesPage() {
                         </li>
                       ))}
                     </ul>
+                    {/* CTA spécial pour le widget */}
+                    {feature.title === 'Widget d\'avis' && (
+                      <Link
+                        href="/signup"
+                        className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 text-sm font-semibold text-white bg-primary-600 rounded-xl hover:bg-primary-700 transition-colors"
+                      >
+                        Générer mon widget
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    )}
                   </div>
-                  <div className={`bg-gradient-to-br from-gray-100 to-gray-50 rounded-3xl p-8 aspect-[4/3] flex items-center justify-center ${i % 2 === 1 ? 'md:order-1' : ''}`}>
-                    <feature.icon className="h-32 w-32 text-gray-300" />
-                  </div>
+                  {/* Aperçu spécial pour le widget */}
+                  {feature.title === 'Widget d\'avis' ? (
+                    <div className={`bg-gradient-to-br from-primary-50 to-accent-50 rounded-3xl p-8 flex items-center justify-center ${i % 2 === 1 ? 'md:order-1' : ''}`}>
+                      <WidgetPreview />
+                    </div>
+                  ) : (
+                    <div className={`bg-gradient-to-br from-gray-100 to-gray-50 rounded-3xl p-8 aspect-[4/3] flex items-center justify-center ${i % 2 === 1 ? 'md:order-1' : ''}`}>
+                      <feature.icon className="h-32 w-32 text-gray-300" />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -206,7 +225,7 @@ export default function FeaturesPage() {
               Prêt à essayer Reputy ?
             </h2>
             <p className="text-lg text-primary-200 mb-8">
-              14 jours d'essai gratuit, sans engagement
+              Forfait Bronze gratuit, sans engagement
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link 

@@ -1,6 +1,5 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
 import { useAuth, useIsClient } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
@@ -22,12 +21,9 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-
-// URL du site principal (reputy-web)
-const REPUTY_WEB_URL = process.env.NEXT_PUBLIC_REPUTY_WEB_URL || 'http://localhost:3001'
+import { LOGOUT_REDIRECT_URL } from '@/lib/constants'
 
 export function Topbar() {
-  const router = useRouter()
   const { 
     currentLocation, 
     setCurrentLocation, 
@@ -43,7 +39,7 @@ export function Topbar() {
   // Handle logout for clients - redirect to reputy-web
   const handleLogout = async () => {
     await logoutClient()
-    window.location.href = REPUTY_WEB_URL
+    window.location.href = LOGOUT_REDIRECT_URL
   }
   
   // Get display name based on auth mode

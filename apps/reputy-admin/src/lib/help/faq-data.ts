@@ -34,7 +34,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         question: 'Puis-je utiliser Reputy sur plusieurs établissements ?',
-        answer: 'Oui ! Selon votre plan, vous pouvez gérer plusieurs établissements depuis un seul compte. Le plan Starter permet 1 établissement, le plan Pro jusqu\'à 3, et le plan Enterprise offre un nombre illimité d\'établissements.',
+        answer: 'Oui ! Reputy est conçu pour gérer plusieurs établissements depuis un seul compte. Pour les groupes et multi-sites, le plan Platinum offre un accompagnement dédié.',
       },
     ],
   },
@@ -95,7 +95,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         question: 'Combien de crédits IA sont inclus dans mon plan ?',
-        answer: 'Le plan Pro inclut 100 suggestions IA par mois. Le plan Enterprise offre un usage illimité. Le plan Starter ne comprend pas l\'assistant IA, mais vous pouvez acheter des packs de crédits.',
+        answer: 'Le plan Or inclut 75 réponses IA par mois, le plan Platinum en inclut 150. Les plans Bronze et Argent n\'incluent pas l\'IA, mais vous pouvez acheter des packs IA (Mini: 25 réponses à 19€, Maxi: 75 réponses à 39€).',
       },
       {
         question: 'Les suggestions IA sont-elles publiées automatiquement ?',

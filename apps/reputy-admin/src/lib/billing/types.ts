@@ -4,23 +4,21 @@
 
 // ===== PLANS =====
 
-export type PlanId = 'free' | 'starter' | 'pro' | 'enterprise'
+export type PlanId = 'bronze' | 'argent' | 'or' | 'platinum'
 
 export interface Plan {
   id: PlanId
   name: string
   description: string
-  priceMonthly: number // en centimes
-  priceYearly: number // en centimes (avec réduction)
-  stripePriceIdMonthly?: string
-  stripePriceIdYearly?: string
+  priceMonthly: number // en centimes HT
+  stripePriceId?: string
   features: string[]
   quotas: {
     sms: number
     email: number
     ai: number
-    locations: number
-    users: number
+    qr: number
+    nfc: number
   }
   popular?: boolean
 }

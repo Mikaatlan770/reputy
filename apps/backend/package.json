@@ -1,16 +1,30 @@
 {
   "name": "avis-doctolib-backend",
-  "version": "0.2.0",
+  "version": "0.7.0",
   "private": true,
   "type": "commonjs",
   "scripts": {
     "dev": "node server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "db:init": "node lib/scripts/db-init.js",
+    "db:migrate": "node lib/migrate-json-to-sqlite.js",
+    "db:migrate-v2": "node lib/scripts/db-migrate-v2.js",
+    "db:check": "node lib/scripts/db-check.js",
+    "db:test": "node lib/scripts/test-sqlite.js",
+    "db:reset": "rm -f reputy.db reputy.db-wal reputy.db-shm && npm run db:init",
+    "test:installations": "node lib/scripts/test-installations.js",
+    "test:shortlinks": "node lib/scripts/test-shortlinks.js",
+    "test:billing": "node lib/scripts/test-billing-stub.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "nodemailer": "^6.10.0"
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^17.2.3",
+    "nodemailer": "^6.10.0",
+    "qrcode": "^1.5.3",
+    "stripe": "^14.0.0"
+  },
+  "optionalDependencies": {
+    "gocardless-nodejs": "^3.0.0"
   }
 }
-
-

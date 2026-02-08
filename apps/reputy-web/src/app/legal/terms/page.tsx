@@ -99,7 +99,7 @@ export default function TermsPage() {
               <ul className="list-disc list-inside text-gray-600 space-y-2 mb-4">
                 <li>Facturation mensuelle ou annuelle selon votre choix</li>
                 <li>Paiement par carte bancaire ou prélèvement SEPA</li>
-                <li>Essai gratuit de 14 jours sans engagement</li>
+                <li>Forfait Bronze gratuit sans limite de durée</li>
                 <li>Résiliation possible à tout moment</li>
               </ul>
             </section>

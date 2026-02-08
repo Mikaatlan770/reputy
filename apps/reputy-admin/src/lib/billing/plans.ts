@@ -1,7 +1,8 @@
 /**
  * Définition des plans et packs Reputy
  * 
- * Les prix sont en centimes pour éviter les erreurs de calcul
+ * Les prix sont en centimes HT pour éviter les erreurs de calcul
+ * Version: 2.0.0 - Nouvelle grille tarifaire (Bronze/Argent/Or/Platinum)
  */
 
 import type { Plan, Pack, PlanId } from './types'
@@ -9,105 +10,95 @@ import type { Plan, Pack, PlanId } from './types'
 // ===== PLANS =====
 
 export const PLANS: Record<PlanId, Plan> = {
-  free: {
-    id: 'free',
-    name: 'Gratuit',
-    description: 'Pour découvrir Reputy',
+  bronze: {
+    id: 'bronze',
+    name: 'Pack Bronze',
+    description: 'Gratuit, sans limite de durée',
     priceMonthly: 0,
-    priceYearly: 0,
     features: [
-      'Jusqu\'à 10 avis/mois',
-      '1 établissement',
-      '1 utilisateur',
-      'QR Code de collecte',
-      'Dashboard basique',
+      'Accès au ReputyBoard',
+      'Réponses manuelles aux avis',
+      '1 QR code (50 scans)',
+      'Module Doctolib',
     ],
     quotas: {
       sms: 0,
-      email: 10,
+      email: 0,
       ai: 0,
-      locations: 1,
-      users: 1,
+      qr: 1,
+      nfc: 0,
     },
   },
-  starter: {
-    id: 'starter',
-    name: 'Starter',
-    description: 'Pour les indépendants',
-    priceMonthly: 2900, // 29€
-    priceYearly: 29000, // 290€ (2 mois offerts)
-    stripePriceIdMonthly: 'price_starter_monthly',
-    stripePriceIdYearly: 'price_starter_yearly',
+  argent: {
+    id: 'argent',
+    name: 'Pack Argent',
+    description: 'Pour les cabinets en croissance',
+    priceMonthly: 5900, // 59€ HT
+    stripePriceId: 'price_1SxEX8Erzua3Kw4jWzNbxl2E',
     features: [
-      'Avis illimités',
-      '1 établissement',
-      '2 utilisateurs',
-      'QR Code + NFC',
-      '25 SMS/mois inclus',
-      '100 emails/mois inclus',
-      'Réponses templates',
-    ],
-    quotas: {
-      sms: 25,
-      email: 100,
-      ai: 0,
-      locations: 1,
-      users: 2,
-    },
-  },
-  pro: {
-    id: 'pro',
-    name: 'Pro',
-    description: 'Pour les professionnels',
-    priceMonthly: 5900, // 59€
-    priceYearly: 59000, // 590€ (2 mois offerts)
-    stripePriceIdMonthly: 'price_pro_monthly',
-    stripePriceIdYearly: 'price_pro_yearly',
-    features: [
-      'Tout Starter +',
-      '3 établissements',
-      '5 utilisateurs',
-      '50 SMS/mois inclus',
-      '500 emails/mois inclus',
-      'Assistant IA (100 suggestions/mois)',
-      'Analyse concurrence',
-      'Campagnes automatiques',
+      '100 SMS / mois',
+      '500 emails / mois',
+      '3 QR codes',
+      '1 Tag NFC',
+      'Module Doctolib',
       'Support prioritaire',
     ],
     quotas: {
-      sms: 50,
+      sms: 100,
       email: 500,
-      ai: 100,
-      locations: 3,
-      users: 5,
+      ai: 0,
+      qr: 3,
+      nfc: 1,
     },
-    popular: true,
   },
-  enterprise: {
-    id: 'enterprise',
-    name: 'Enterprise',
-    description: 'Pour les groupes',
-    priceMonthly: 14900, // 149€
-    priceYearly: 149000, // 1490€ (2 mois offerts)
-    stripePriceIdMonthly: 'price_enterprise_monthly',
-    stripePriceIdYearly: 'price_enterprise_yearly',
+  or: {
+    id: 'or',
+    name: 'Pack Or',
+    description: 'Pour les cabinets exigeants',
+    priceMonthly: 9900, // 99€ HT
+    stripePriceId: 'price_1SxEZ8Erzua3Kw4jNIwnz2ra',
     features: [
-      'Tout Pro +',
-      'Établissements illimités',
-      'Utilisateurs illimités',
-      '200 SMS/mois inclus',
-      'Emails illimités',
-      'IA illimitée',
-      'API access',
-      'Account manager dédié',
-      'SLA garanti',
+      '200 SMS / mois',
+      '1 000 emails / mois',
+      '75 réponses IA / mois',
+      '10 QR codes',
+      '3 Tags NFC',
+      'Module Doctolib',
+      'Support prioritaire',
+      'Statistiques avancées',
     ],
     quotas: {
       sms: 200,
-      email: -1, // illimité
-      ai: -1, // illimité
-      locations: -1, // illimité
-      users: -1, // illimité
+      email: 1000,
+      ai: 75,
+      qr: 10,
+      nfc: 3,
+    },
+    popular: true,
+  },
+  platinum: {
+    id: 'platinum',
+    name: 'Pack Platinum',
+    description: 'Pour les groupes & multi-sites',
+    priceMonthly: 14900, // 149€ HT
+    stripePriceId: 'price_1SxU5sErzua3Kw4jH3fUzSIZ',
+    features: [
+      '400 SMS / mois',
+      '2 000 emails / mois',
+      '150 réponses IA / mois',
+      '10 QR codes',
+      '3 Tags NFC',
+      'Module Doctolib',
+      'Support prioritaire',
+      'Statistiques avancées',
+      'Account manager dédié',
+    ],
+    quotas: {
+      sms: 400,
+      email: 2000,
+      ai: 150,
+      qr: 10,
+      nfc: 3,
     },
   },
 }
@@ -116,32 +107,23 @@ export const PLANS: Record<PlanId, Plan> = {
 
 export const SMS_PACKS: Pack[] = [
   {
-    id: 'sms-25',
+    id: 'sms-150',
     type: 'sms',
-    name: '25 SMS',
-    description: 'Pack de 25 crédits SMS',
-    quantity: 25,
-    price: 500, // 5€
-    stripePriceId: 'price_sms_25',
+    name: 'Pack SMS 150',
+    description: '150 SMS supplémentaires',
+    quantity: 150,
+    price: 2900, // 29€ HT
+    stripePriceId: 'price_1SxEbpErzua3Kw4jA3FO542Q',
   },
   {
-    id: 'sms-100',
+    id: 'sms-300',
     type: 'sms',
-    name: '100 SMS',
-    description: 'Pack de 100 crédits SMS',
-    quantity: 100,
-    price: 1500, // 15€ (-25%)
-    stripePriceId: 'price_sms_100',
+    name: 'Pack SMS 300',
+    description: '300 SMS supplémentaires',
+    quantity: 300,
+    price: 4900, // 49€ HT
+    stripePriceId: 'price_1SxEcwErzua3Kw4jKVy1EGzu',
     popular: true,
-  },
-  {
-    id: 'sms-500',
-    type: 'sms',
-    name: '500 SMS',
-    description: 'Pack de 500 crédits SMS',
-    quantity: 500,
-    price: 6000, // 60€ (-40%)
-    stripePriceId: 'price_sms_500',
   },
 ]
 
@@ -149,32 +131,23 @@ export const SMS_PACKS: Pack[] = [
 
 export const EMAIL_PACKS: Pack[] = [
   {
-    id: 'email-100',
+    id: 'email-1000',
     type: 'email',
-    name: '100 Emails',
-    description: 'Pack de 100 crédits email',
-    quantity: 100,
-    price: 200, // 2€
-    stripePriceId: 'price_email_100',
-  },
-  {
-    id: 'email-500',
-    type: 'email',
-    name: '500 Emails',
-    description: 'Pack de 500 crédits email',
-    quantity: 500,
-    price: 800, // 8€ (-20%)
-    stripePriceId: 'price_email_500',
-    popular: true,
+    name: 'Pack Email 1000',
+    description: '1 000 emails supplémentaires',
+    quantity: 1000,
+    price: 1900, // 19€ HT
+    stripePriceId: 'price_1SxUCgErzua3Kw4jvyEPABEV',
   },
   {
     id: 'email-2000',
     type: 'email',
-    name: '2000 Emails',
-    description: 'Pack de 2000 crédits email',
+    name: 'Pack Email 2000',
+    description: '2 000 emails supplémentaires',
     quantity: 2000,
-    price: 2500, // 25€ (-37%)
-    stripePriceId: 'price_email_2000',
+    price: 3900, // 39€ HT
+    stripePriceId: 'price_1SxUDFErzua3Kw4j4Gskl0Bb',
+    popular: true,
   },
 ]
 
@@ -182,32 +155,23 @@ export const EMAIL_PACKS: Pack[] = [
 
 export const AI_PACKS: Pack[] = [
   {
-    id: 'ai-50',
+    id: 'ia-mini',
     type: 'ai',
-    name: '50 crédits IA',
-    description: 'Pack de 50 suggestions IA',
-    quantity: 50,
-    price: 500, // 5€
-    stripePriceId: 'price_ai_50',
+    name: 'Pack IA Mini',
+    description: '25 réponses IA',
+    quantity: 25,
+    price: 1900, // 19€ HT
+    stripePriceId: 'price_1SxV2ZErzua3Kw4jLsYUd2iz',
   },
   {
-    id: 'ai-200',
+    id: 'ia-maxi',
     type: 'ai',
-    name: '200 crédits IA',
-    description: 'Pack de 200 suggestions IA',
-    quantity: 200,
-    price: 1500, // 15€ (-25%)
-    stripePriceId: 'price_ai_200',
+    name: 'Pack IA Maxi',
+    description: '75 réponses IA',
+    quantity: 75,
+    price: 3900, // 39€ HT
+    stripePriceId: 'price_1SxV3WErzua3Kw4jC7gCSmbv',
     popular: true,
-  },
-  {
-    id: 'ai-500',
-    type: 'ai',
-    name: '500 crédits IA',
-    description: 'Pack de 500 suggestions IA',
-    quantity: 500,
-    price: 3000, // 30€ (-40%)
-    stripePriceId: 'price_ai_500',
   },
 ]
 
@@ -226,7 +190,7 @@ export function getPack(packId: string): Pack | undefined {
 }
 
 export function formatPrice(cents: number): string {
-  return (cents / 100).toFixed(2).replace('.', ',') + ' \u20AC'
+  return (cents / 100).toFixed(2).replace('.', ',') + ' €'
 }
 
 export function formatPriceHT(cents: number): string {
@@ -241,7 +205,15 @@ export function calculateTTC(amountHT: number, vatRate: number = 20): number {
   return amountHT + calculateVAT(amountHT, vatRate)
 }
 
+// ===== PLAN LABELS (pour affichage) =====
 
+export const PLAN_LABELS: Record<PlanId, string> = {
+  bronze: 'Pack Bronze (Gratuit)',
+  argent: 'Pack Argent',
+  or: 'Pack Or',
+  platinum: 'Pack Platinum',
+}
 
+// ===== ORDERED PLANS (pour affichage dans l'ordre) =====
 
-
+export const ORDERED_PLAN_IDS: PlanId[] = ['bronze', 'argent', 'or', 'platinum']

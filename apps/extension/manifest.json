@@ -2,13 +2,13 @@
   "manifest_version": 3,
   "name": "Reputy - Gestion des avis",
   "version": "1.0.0",
-  "description": "Envoyez des demandes d'avis à vos patients/clients directement depuis Doctolib Pro ou votre interface métier.",
+  "description": "Extension pour professionnels de santé. Envoyez des demandes d'avis par SMS ou Email à vos patients directement depuis Doctolib Pro. Configuration par clé publique et token API.",
   "permissions": [
-    "storage",
-    "activeTab"
+    "storage"
   ],
   "host_permissions": [
     "https://pro.doctolib.fr/*",
+    "https://api.reputy.fr/*",
     "http://localhost:*/*",
     "http://127.0.0.1:*/*",
     "http://[::1]:*/*"
@@ -38,11 +38,6 @@
       "16": "icons/icon16.png",
       "48": "icons/icon48.png"
     },
-    "default_title": "Reputy"
+    "default_title": "Reputy - Options"
   }
 }
-
-
-
-
-

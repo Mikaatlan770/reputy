@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Org } from '@/lib/internal/fetch-internal'
 import { createOrg, refreshClients } from '@/lib/internal/actions'
 import { Button } from '@/components/ui/button'
@@ -36,6 +36,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
   Stethoscope,
   Store,
   Utensils,
@@ -71,6 +72,20 @@ const statusLabels = {
   cancelled: 'Annulé',
 }
 
+const planColors = {
+  bronze: 'bg-amber-700/20 text-amber-400 border-amber-700/30',
+  argent: 'bg-slate-400/20 text-slate-300 border-slate-400/30',
+  or: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  platinum: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+}
+
+const planLabels = {
+  bronze: 'Bronze',
+  argent: 'Argent',
+  or: 'Or',
+  platinum: 'Platinum',
+}
+
 function formatPrice(cents: number): string {
   return new Intl.NumberFormat('fr-FR', {
     style: 'currency',
@@ -88,12 +103,15 @@ function formatDate(dateStr: string): string {
 
 export function ClientsList({ initialOrgs, error }: ClientsListProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   // Use initialOrgs directly - it updates on router.refresh()
   const orgs = initialOrgs
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterVertical, setFilterVertical] = useState<string>('all')
+  // Plan filter from URL (sidebar) - not local state anymore
+  const filterPlan = searchParams.get('plan') || 'all'
   
   // Create modal state
   const [createOpen, setCreateOpen] = useState(false)
@@ -102,11 +120,21 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
   const [createLoading, setCreateLoading] = useState(false)
   const [createError, setCreateError] = useState('')
 
+  // Extract plan code from org.plan.code (e.g., "pro-health" -> "pro", or use direct match)
+  const getPlanType = (org: Org): string => {
+    const code = org.plan?.code?.toLowerCase() || ''
+    if (code.includes('platinum')) return 'platinum'
+    if (code.includes('or') || code.includes('gold')) return 'or'
+    if (code.includes('argent') || code.includes('silver')) return 'argent'
+    return 'bronze'
+  }
+
   const filteredOrgs = orgs.filter(org => {
     const matchesSearch = org.name.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesStatus = filterStatus === 'all' || org.status === filterStatus
     const matchesVertical = filterVertical === 'all' || org.vertical === filterVertical
-    return matchesSearch && matchesStatus && matchesVertical
+    const matchesPlan = filterPlan === 'all' || getPlanType(org) === filterPlan
+    return matchesSearch && matchesStatus && matchesVertical && matchesPlan
   })
 
   function handleRefresh() {
@@ -256,7 +284,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         </Dialog>
       </div>
 
-      {/* Stats */}
+      {/* Stats - Status */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card className="bg-slate-800/50 border-slate-700">
           <CardContent className="p-4">
@@ -290,6 +318,42 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         </Card>
       </div>
 
+      {/* Stats - Plans */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="bg-slate-800/50 border-amber-700/30">
+          <CardContent className="p-4">
+            <p className="text-xs text-amber-400 font-medium">🥉 Bronze</p>
+            <p className="text-2xl font-bold text-amber-400">
+              {orgs.filter(o => getPlanType(o) === 'bronze').length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-slate-400/30">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-300 font-medium">🥈 Argent</p>
+            <p className="text-2xl font-bold text-slate-300">
+              {orgs.filter(o => getPlanType(o) === 'argent').length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-yellow-500/30">
+          <CardContent className="p-4">
+            <p className="text-xs text-yellow-400 font-medium">🥇 Or</p>
+            <p className="text-2xl font-bold text-yellow-400">
+              {orgs.filter(o => getPlanType(o) === 'or').length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-purple-500/30">
+          <CardContent className="p-4">
+            <p className="text-xs text-purple-400 font-medium">💎 Platinum</p>
+            <p className="text-2xl font-bold text-purple-400">
+              {orgs.filter(o => getPlanType(o) === 'platinum').length}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* List */}
       <div className="space-y-2">
         {filteredOrgs.length === 0 ? (
@@ -304,13 +368,25 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
             const VerticalIcon = verticalIcons[org.vertical]
             // Use billingComputed for period-based pricing
             const bc = org.billingComputed
-            const periodPrice = bc?.priceThisPeriodCents || org.pricing?.finalPriceCents || org.plan.basePriceCents
-            const hasDiscount = bc?.isNegotiated && bc.priceMonthlyFinalCents !== bc.priceBaseCents
+            // NEW: Use effective billing prices (with coupons)
+            const catalogPrice = bc?.priceCatalogCents ?? bc?.priceBaseCents ?? org.plan.basePriceCents
+            const effectivePrice = bc?.priceEffectiveCents ?? bc?.priceMonthlyFinalCents ?? catalogPrice
+            const periodPrice = bc?.isProrata ? Math.round(effectivePrice * (bc?.ratio || 1)) : effectivePrice
+            // Check for discount (coupon or negotiated)
+            const hasCouponDiscount = bc?.hasDiscount === true
+            const hasNegotiatedDiscount = bc?.isNegotiated && bc.priceMonthlyFinalCents !== bc.priceBaseCents
+            const hasDiscount = hasCouponDiscount || hasNegotiatedDiscount
+            const discountLabel = bc?.discount?.label || (bc?.discountPercent ? `-${bc.discountPercent}%` : null)
             const isProrata = bc?.isProrata || false
+            const orgPlanType = getPlanType(org)
+            const isFilteredPlan = filterPlan !== 'all' && orgPlanType === filterPlan
             
             return (
               <Link key={org.id} href={`/internal/clients/${org.id}`}>
-                <Card className="bg-slate-800/50 border-slate-700 hover:border-slate-600 transition-colors cursor-pointer">
+                <Card className={cn(
+                  "bg-slate-800/50 border-slate-700 hover:border-slate-600 transition-all cursor-pointer",
+                  isFilteredPlan && "ring-2 ring-amber-500/60 border-amber-500/40 bg-amber-500/5"
+                )}>
                   <CardContent className="p-4">
                     <div className="flex items-center gap-4">
                       {/* Icon */}
@@ -325,6 +401,9 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                           <Badge variant="outline" className={statusColors[org.status]}>
                             {statusLabels[org.status]}
                           </Badge>
+                          <Badge variant="outline" className={planColors[getPlanType(org) as keyof typeof planColors]}>
+                            {planLabels[getPlanType(org) as keyof typeof planLabels]}
+                          </Badge>
                           {isProrata && (
                             <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
                               prorata
@@ -334,16 +413,14 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                         <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                           <span>{verticalLabels[org.vertical]}</span>
                           <span>•</span>
-                          <span>{org.plan.code}</span>
-                          <span>•</span>
                           <span>Créé le {formatDate(org.createdAt)}</span>
                         </div>
                       </div>
 
                       {/* Usage / Allocated - Period based */}
-                      <div className="hidden xl:flex items-center gap-3 text-sm">
+                      <div className="hidden xl:flex items-center gap-2 text-sm">
                         {/* SMS */}
-                        <div className="text-center min-w-[90px] px-2 py-1 rounded bg-blue-500/10 border border-blue-500/20">
+                        <div className="text-center min-w-[80px] px-2 py-1 rounded bg-blue-500/10 border border-blue-500/20">
                           <div className="flex items-center justify-center gap-1">
                             <MessageSquare className="h-3 w-3 text-blue-400" />
                             <span className="font-semibold text-blue-400">
@@ -352,10 +429,10 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                             <span className="text-slate-500">/</span>
                             <span className="text-slate-400">{bc?.smsAllocated || 0}</span>
                           </div>
-                          <p className="text-[10px] text-slate-500">SMS période</p>
+                          <p className="text-[10px] text-slate-500">SMS</p>
                         </div>
                         {/* Email */}
-                        <div className="text-center min-w-[90px] px-2 py-1 rounded bg-orange-500/10 border border-orange-500/20">
+                        <div className="text-center min-w-[80px] px-2 py-1 rounded bg-orange-500/10 border border-orange-500/20">
                           <div className="flex items-center justify-center gap-1">
                             <Mail className="h-3 w-3 text-orange-400" />
                             <span className="font-semibold text-orange-400">
@@ -364,7 +441,19 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                             <span className="text-slate-500">/</span>
                             <span className="text-slate-400">{bc?.emailAllocated || 0}</span>
                           </div>
-                          <p className="text-[10px] text-slate-500">Email période</p>
+                          <p className="text-[10px] text-slate-500">Email</p>
+                        </div>
+                        {/* IA */}
+                        <div className="text-center min-w-[70px] px-2 py-1 rounded bg-violet-500/10 border border-violet-500/20">
+                          <div className="flex items-center justify-center gap-1">
+                            <Sparkles className="h-3 w-3 text-violet-400" />
+                            <span className="font-semibold text-violet-400">
+                              {bc?.aiUsed || org.creditsComputed?.subscription?.aiUsed || 0}
+                            </span>
+                            <span className="text-slate-500">/</span>
+                            <span className="text-slate-400">{bc?.aiAllocated || org.creditsComputed?.subscription?.aiTotal || 0}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500">IA</p>
                         </div>
                       </div>
                       
@@ -379,26 +468,29 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                           <Mail className="h-3 w-3" />
                           <span className="font-medium">{bc?.emailUsed || 0}/{bc?.emailAllocated || 0}</span>
                         </div>
+                        <span className="text-slate-600">|</span>
+                        <div className="flex items-center gap-1 text-violet-400">
+                          <Sparkles className="h-3 w-3" />
+                          <span className="font-medium">{bc?.aiUsed || org.creditsComputed?.subscription?.aiUsed || 0}/{bc?.aiAllocated || org.creditsComputed?.subscription?.aiTotal || 0}</span>
+                        </div>
                       </div>
 
                       {/* Price with discount & prorata */}
                       <div className="hidden md:block text-right min-w-[110px]">
-                        {hasDiscount || isProrata ? (
+                        {hasDiscount ? (
                           <>
                             <div className="flex items-center justify-end gap-1">
-                              {hasDiscount && (
-                                <span className="text-slate-500 line-through text-xs">
-                                  {formatPrice(isProrata ? Math.round((bc?.priceBaseCents || 0) * (bc?.ratio || 1)) : (bc?.priceBaseCents || 0))}
-                                </span>
-                              )}
-                              <span className={`font-medium ${hasDiscount ? 'text-amber-400' : 'text-white'}`}>
+                              <span className="text-slate-500 line-through text-xs">
+                                {formatPrice(isProrata ? Math.round(catalogPrice * (bc?.ratio || 1)) : catalogPrice)}
+                              </span>
+                              <span className="font-bold text-red-400">
                                 {formatPrice(periodPrice)}
                               </span>
                             </div>
                             <div className="flex items-center justify-end gap-1 flex-wrap">
-                              {bc?.discountPercent && (
-                                <Badge className="bg-amber-500/20 text-amber-400 text-[10px] px-1">
-                                  -{bc.discountPercent}%
+                              {discountLabel && (
+                                <Badge className="bg-red-500/20 text-red-400 text-[10px] px-1.5 font-medium">
+                                  {discountLabel}
                                 </Badge>
                               )}
                               {isProrata && (
@@ -406,6 +498,18 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                                   {Math.round((bc?.ratio || 1) * 100)}%
                                 </Badge>
                               )}
+                            </div>
+                            <p className="text-[10px] text-slate-600">/mois</p>
+                          </>
+                        ) : isProrata ? (
+                          <>
+                            <p className="font-medium text-white">
+                              {formatPrice(periodPrice)}
+                            </p>
+                            <div className="flex items-center justify-end gap-1">
+                              <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1">
+                                prorata {Math.round((bc?.ratio || 1) * 100)}%
+                              </Badge>
                             </div>
                           </>
                         ) : (

@@ -2,9 +2,8 @@
 
 import { useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { BACKEND_URL, REPUTY_WEB_URL } from '@/lib/constants'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
-const REPUTY_WEB_URL = process.env.NEXT_PUBLIC_REPUTY_WEB_URL || 'http://localhost:3001'
 const TOKEN_KEY = 'reputy_client_token'
 
 /**

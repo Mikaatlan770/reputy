@@ -1,10 +1,54 @@
 'use client'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { starDistribution } from '@/lib/mock-data'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useReviewStats, StatsPeriod } from '@/lib/reviews'
 import { Star } from 'lucide-react'
 
-export function StarDistribution() {
+interface StarDistributionProps {
+  period?: StatsPeriod
+}
+
+export function StarDistribution({ period = '30d' }: StarDistributionProps) {
+  const { stats, loading, error } = useReviewStats(period)
+  
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">
+            Distribution des notes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {[5, 4, 3, 2, 1].map((stars) => (
+              <Skeleton key={stars} className="h-6 w-full" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error || !stats) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">
+            Distribution des notes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-32 flex items-center justify-center text-muted-foreground">
+            {error ? 'Erreur de chargement' : 'Aucune donnée'}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const starDistribution = stats.starDistribution
   const total = starDistribution.reduce((sum, s) => sum + s.count, 0)
 
   return (

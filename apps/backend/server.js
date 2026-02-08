@@ -38,8 +38,27 @@ const path = require('path');
 const { randomBytes, createHash, createHmac } = require('crypto');
 const bcrypt = require('bcryptjs');
 
+// Load environment variables from .env file
+require('dotenv').config();
+
 // P1.4: Structured logging
 const logger = require('./lib/logger');
+
+// Storage bridge (SQLite or data.json based on USE_SQLITE env)
+const storage = require('./lib/storage');
+
+// Billing modules
+const stripeBilling = require('./lib/billing/stripe');
+const gocardlessBilling = require('./lib/billing/gocardless');
+const webhookEventsRepo = require('./lib/billing/webhook-events.repo');
+const dunning = require('./lib/billing/dunning');
+const stateMachine = require('./lib/billing/state-machine');
+const billingTemplates = require('./emails/billing-templates');
+// New billing modules
+const planCatalog = require('./lib/billing/plan-catalog');
+const stripeCoupons = require('./lib/billing/stripe-coupons');
+const periodRollover = require('./lib/billing/period-rollover');
+const effectiveBilling = require('./lib/billing/effective-billing');
 
 // ============ ENVIRONMENT ============
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -59,7 +78,7 @@ const CABINET_API_TOKEN = process.env.CABINET_API_TOKEN || DEV_FALLBACKS.CABINET
 const INTERNAL_ADMIN_TOKEN = process.env.INTERNAL_ADMIN_TOKEN || DEV_FALLBACKS.INTERNAL_ADMIN_TOKEN;
 const ADMIN_COOKIE_SECRET = process.env.ADMIN_COOKIE_SECRET || DEV_FALLBACKS.ADMIN_COOKIE_SECRET;
 const REVIEWS_BASE_URL = process.env.REVIEWS_BASE_URL || `http://127.0.0.1:${PORT}`;
-const VERSION = '0.6.3'; // P1.4: Structured logging
+const VERSION = '0.7.0'; // SQLite migration
 
 // P1.4: Set version in logger
 logger.setVersion(VERSION);
@@ -274,14 +293,109 @@ const DEFAULT_SETTINGS = {
 const DATA_FILE = path.join(__dirname, 'data.json');
 
 // ============ MULTI-TENANT: DEFAULT QUOTAS PER PLAN ============
+// ============================================================
+// PLAN QUOTAS - Version 2.0 (Updated pricing grid)
+// ============================================================
+// Bronze = FREE (no Stripe), Argent/Or/Platinum = paid plans
+// QR/NFC: scans per device (500 for paid, 50 for Bronze)
+
 const PLAN_DEFAULTS = {
-  health_basic: { smsIncluded: 50, emailIncluded: 50, aiIncluded: 20 },
-  health_pro: { smsIncluded: 200, emailIncluded: 200, aiIncluded: 100 },
-  food_basic: { smsIncluded: 100, emailIncluded: 100, aiIncluded: 30 },
-  food_pro: { smsIncluded: 300, emailIncluded: 300, aiIncluded: 150 },
-  business_basic: { smsIncluded: 30, emailIncluded: 200, aiIncluded: 20 },
-  business_pro: { smsIncluded: 100, emailIncluded: 500 },
+  // ──────────────────────────────────────────────────────────────
+  // BRONZE - GRATUIT (pas de Stripe)
+  // ──────────────────────────────────────────────────────────────
+  // Accès ReputyBoard, réponses manuelles, 1 QR (50 scans)
+  // Campagnes SMS/Email UNIQUEMENT via achat de packs
+  health_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+  food_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+  business_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+  // Alias pour rétrocompatibilité
+  health_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+  food_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+  business_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+
+  // ──────────────────────────────────────────────────────────────
+  // ARGENT - 59€ HT/mois
+  // ──────────────────────────────────────────────────────────────
+  // 100 SMS, 500 emails, Module Doctolib, 3 QR, 1 NFC
+  health_argent: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
+  food_argent: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
+  business_argent: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
+  // Alias (silver = argent)
+  health_silver: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
+  health_pro: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
+
+  // ──────────────────────────────────────────────────────────────
+  // OR - 99€ HT/mois
+  // ──────────────────────────────────────────────────────────────
+  // 200 SMS, 1000 emails, 75 IA, Module Doctolib, 10 QR, 3 NFC
+  health_or: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  food_or: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  business_or: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  // Alias (gold = or)
+  health_gold: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  health_enterprise: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+
+  // ──────────────────────────────────────────────────────────────
+  // PLATINUM - 129€ HT/mois
+  // ──────────────────────────────────────────────────────────────
+  // 400 SMS, 2000 emails, 150 IA, Module Doctolib, 10 QR, 3 NFC
+  health_platinum: { smsIncluded: 400, emailIncluded: 2000, aiIncluded: 150, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  food_platinum: { smsIncluded: 400, emailIncluded: 2000, aiIncluded: 150, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  business_platinum: { smsIncluded: 400, emailIncluded: 2000, aiIncluded: 150, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
 };
+
+// Plan tier mapping (for feature access checks)
+const PLAN_TIERS = {
+  bronze: 0,
+  basic: 0, // alias
+  argent: 1,
+  silver: 1, // alias
+  pro: 1, // alias
+  or: 2,
+  gold: 2, // alias
+  enterprise: 2, // alias
+  platinum: 3,
+};
+
+// Features available per tier
+const TIER_FEATURES = {
+  0: ['reputyboard', 'manual_replies', 'qr_basic'], // Bronze
+  1: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib'], // Argent
+  2: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'monthly_report'], // Or
+  3: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'advanced_report', 'priority_support'], // Platinum
+};
+
+/**
+ * Get plan tier from plan code
+ * @param {string} planCode - e.g., 'health_argent', 'health_bronze'
+ * @returns {number} - Tier level (0-3)
+ */
+function getPlanTier(planCode) {
+  if (!planCode) return 0;
+  const parts = planCode.split('_');
+  const tier = parts[1] || 'basic';
+  return PLAN_TIERS[tier] ?? 0;
+}
+
+/**
+ * Check if a plan has a specific feature
+ * @param {string} planCode - e.g., 'health_argent'
+ * @param {string} feature - e.g., 'doctolib', 'ai'
+ * @returns {boolean}
+ */
+function planHasFeature(planCode, feature) {
+  const tier = getPlanTier(planCode);
+  return TIER_FEATURES[tier]?.includes(feature) ?? false;
+}
+
+/**
+ * Check if plan is a paid plan (requires Stripe)
+ * @param {string} planCode 
+ * @returns {boolean}
+ */
+function isPaidPlan(planCode) {
+  return getPlanTier(planCode) >= 1;
+}
 
 // ============ PACK CATALOG (MVP) ============
 // Packs are prorated when purchased mid-period
@@ -462,6 +576,8 @@ function ensureSchema(data) {
       smsIncluded: org.quotas?.smsIncluded ?? PLAN_DEFAULTS[org.plan?.code]?.smsIncluded ?? 50,
       emailIncluded: org.quotas?.emailIncluded ?? PLAN_DEFAULTS[org.plan?.code]?.emailIncluded ?? 50,
       aiIncluded: org.quotas?.aiIncluded ?? PLAN_DEFAULTS[org.plan?.code]?.aiIncluded ?? 20,
+      qrIncluded: org.quotas?.qrIncluded ?? PLAN_DEFAULTS[org.plan?.code]?.qrIncluded ?? 1,
+      nfcIncluded: org.quotas?.nfcIncluded ?? PLAN_DEFAULTS[org.plan?.code]?.nfcIncluded ?? 0,
       ...org.quotas
     },
     balances: {
@@ -576,6 +692,8 @@ function initSubscriptionCredits(org, periodStart, periodEnd) {
   const smsMonthlyBase = org.quotas?.smsIncluded || 0;
   const emailMonthlyBase = org.quotas?.emailIncluded || 0;
   const aiMonthlyBase = org.quotas?.aiIncluded || 0;
+  const qrMonthlyBase = org.quotas?.qrIncluded || 0;
+  const nfcMonthlyBase = org.quotas?.nfcIncluded || 0;
   
   // Calculate prorata ratio
   const ratio = calculateProrataRatio(periodStart, periodEnd);
@@ -585,9 +703,12 @@ function initSubscriptionCredits(org, periodStart, periodEnd) {
   const smsIncludedThisPeriod = isProrata ? Math.round(smsMonthlyBase * ratio) : smsMonthlyBase;
   const emailIncludedThisPeriod = isProrata ? Math.round(emailMonthlyBase * ratio) : emailMonthlyBase;
   const aiIncludedThisPeriod = isProrata ? Math.round(aiMonthlyBase * ratio) : aiMonthlyBase;
+  // QR/NFC: No prorata (these are persistent limits, not monthly resets)
+  const qrIncludedThisPeriod = qrMonthlyBase;
+  const nfcIncludedThisPeriod = nfcMonthlyBase;
   
   if (isProrata) {
-    console.log(`[BILLING] 📊 Prorata applied: ratio=${(ratio * 100).toFixed(1)}%, SMS: ${smsMonthlyBase} → ${smsIncludedThisPeriod}, Email: ${emailMonthlyBase} → ${emailIncludedThisPeriod}, AI: ${aiMonthlyBase} → ${aiIncludedThisPeriod}`);
+    logger.info(`[BILLING] Prorata applied: ratio=${(ratio * 100).toFixed(1)}%, SMS: ${smsMonthlyBase} → ${smsIncludedThisPeriod}, Email: ${emailMonthlyBase} → ${emailIncludedThisPeriod}, AI: ${aiMonthlyBase} → ${aiIncludedThisPeriod}`);
   }
   
   return {
@@ -595,18 +716,26 @@ function initSubscriptionCredits(org, periodStart, periodEnd) {
     smsMonthlyBase,
     emailMonthlyBase,
     aiMonthlyBase,
+    qrMonthlyBase,
+    nfcMonthlyBase,
     // Prorated values for this period
     smsIncludedMonthly: smsIncludedThisPeriod,
     emailIncludedMonthly: emailIncludedThisPeriod,
     aiIncludedMonthly: aiIncludedThisPeriod,
+    qrIncludedMonthly: qrIncludedThisPeriod,
+    nfcIncludedMonthly: nfcIncludedThisPeriod,
     // Gift credits (always 0 at init, added via backoffice)
     smsGiftMonthly: 0,
     emailGiftMonthly: 0,
     aiGiftMonthly: 0,
+    qrGiftMonthly: 0,
+    nfcGiftMonthly: 0,
     // Usage tracking
     smsUsedThisPeriod: 0,
     emailUsedThisPeriod: 0,
     aiUsedThisPeriod: 0,
+    qrUsedThisPeriod: 0,
+    nfcUsedThisPeriod: 0,
     // Period info
     periodStart,
     periodEnd,
@@ -623,7 +752,9 @@ function initPackWallet() {
   return {
     smsRemaining: 0,
     emailRemaining: 0,
-    aiRemaining: 0
+    aiRemaining: 0,
+    qrRemaining: 0,
+    nfcRemaining: 0
   };
 }
 
@@ -635,6 +766,9 @@ function ensureOrgBilling(org) {
   const period = computePeriod(new Date(), startedAt);
   
   org.billing = {
+    // Preserve existing billing fields (stripeCouponId, stripeSubscriptionId, etc.)
+    ...org.billing,
+    // Ensure required fields exist with defaults
     provider: org.billing?.provider || 'none',
     stripeCustomerId: org.billing?.stripeCustomerId || null,
     gocardlessMandateId: org.billing?.gocardlessMandateId || null,
@@ -642,7 +776,7 @@ function ensureOrgBilling(org) {
     status: org.billing?.status || org.status || 'active',
     periodStart: period.periodStart,
     periodEnd: period.periodEnd,
-    anchor: 'calendar_month'
+    anchor: org.billing?.anchor || 'calendar_month'
   };
   return org;
 }
@@ -847,16 +981,24 @@ function getSubscriptionRemaining(org) {
   const smsTotal = (sub.smsIncludedMonthly || 0) + (sub.smsGiftMonthly || 0);
   const emailTotal = (sub.emailIncludedMonthly || 0) + (sub.emailGiftMonthly || 0);
   const aiTotal = (sub.aiIncludedMonthly || 0) + (sub.aiGiftMonthly || 0);
+  const qrTotal = (sub.qrIncludedMonthly || 0) + (sub.qrGiftMonthly || 0);
+  const nfcTotal = (sub.nfcIncludedMonthly || 0) + (sub.nfcGiftMonthly || 0);
   return {
     sms: Math.max(0, smsTotal - (sub.smsUsedThisPeriod || 0)),
     email: Math.max(0, emailTotal - (sub.emailUsedThisPeriod || 0)),
     ai: Math.max(0, aiTotal - (sub.aiUsedThisPeriod || 0)),
+    qr: Math.max(0, qrTotal - (sub.qrUsedThisPeriod || 0)),
+    nfc: Math.max(0, nfcTotal - (sub.nfcUsedThisPeriod || 0)),
     smsTotal,
     emailTotal,
     aiTotal,
+    qrTotal,
+    nfcTotal,
     smsUsed: sub.smsUsedThisPeriod || 0,
     emailUsed: sub.emailUsedThisPeriod || 0,
-    aiUsed: sub.aiUsedThisPeriod || 0
+    aiUsed: sub.aiUsedThisPeriod || 0,
+    qrUsed: sub.qrUsedThisPeriod || 0,
+    nfcUsed: sub.nfcUsedThisPeriod || 0
   };
 }
 
@@ -867,7 +1009,9 @@ function getPackRemaining(org) {
   return {
     sms: org.packWallet?.smsRemaining || 0,
     email: org.packWallet?.emailRemaining || 0,
-    ai: org.packWallet?.aiRemaining || 0
+    ai: org.packWallet?.aiRemaining || 0,
+    qr: org.packWallet?.qrRemaining || 0,
+    nfc: org.packWallet?.nfcRemaining || 0
   };
 }
 
@@ -881,6 +1025,8 @@ function getTotalRemaining(org) {
     sms: sub.sms + pack.sms,
     email: sub.email + pack.email,
     ai: sub.ai + pack.ai,
+    qr: sub.qr + pack.qr,
+    nfc: sub.nfc + pack.nfc,
     subscription: sub,
     pack
   };
@@ -977,6 +1123,12 @@ function debitCredits(data, org, type, qty = 1) {
   } else if (type === 'ai') {
     subRemaining = sub.ai;
     packRemaining = pack.ai;
+  } else if (type === 'qr') {
+    subRemaining = sub.qr;
+    packRemaining = pack.qr;
+  } else if (type === 'nfc') {
+    subRemaining = sub.nfc;
+    packRemaining = pack.nfc;
   } else {
     return { success: false, reason: 'INVALID_TYPE' };
   }
@@ -989,6 +1141,10 @@ function debitCredits(data, org, type, qty = 1) {
       org.subscriptionCredits.emailUsedThisPeriod += qty;
     } else if (type === 'ai') {
       org.subscriptionCredits.aiUsedThisPeriod = (org.subscriptionCredits.aiUsedThisPeriod || 0) + qty;
+    } else if (type === 'qr') {
+      org.subscriptionCredits.qrUsedThisPeriod = (org.subscriptionCredits.qrUsedThisPeriod || 0) + qty;
+    } else if (type === 'nfc') {
+      org.subscriptionCredits.nfcUsedThisPeriod = (org.subscriptionCredits.nfcUsedThisPeriod || 0) + qty;
     }
     return { success: true, debitedFrom: 'subscription' };
   }
@@ -1001,20 +1157,30 @@ function debitCredits(data, org, type, qty = 1) {
       org.packWallet.emailRemaining -= qty;
     } else if (type === 'ai') {
       org.packWallet.aiRemaining = (org.packWallet.aiRemaining || 0) - qty;
+    } else if (type === 'qr') {
+      org.packWallet.qrRemaining = (org.packWallet.qrRemaining || 0) - qty;
+    } else if (type === 'nfc') {
+      org.packWallet.nfcRemaining = (org.packWallet.nfcRemaining || 0) - qty;
     }
     return { success: true, debitedFrom: 'pack' };
   }
   
-  // No credits remaining
+  // No credits remaining - return structured error for UI
   const total = getTotalRemaining(org);
+  const quotaTypeLabel = type === 'qr' ? 'QR' : type === 'nfc' ? 'NFC' : type.toUpperCase();
   return { 
     success: false, 
     reason: 'QUOTA_EXCEEDED',
+    errorCategory: `QUOTA_${type.toUpperCase()}_EXCEEDED`,
+    message: `Quota ${quotaTypeLabel} atteint. Veuillez acheter des crédits supplémentaires.`,
+    action: `BUY_${type.toUpperCase()}_ADDON`,
     smsRemaining: total.sms,
     emailRemaining: total.email,
     aiRemaining: total.ai,
-    subscriptionRemaining: { sms: sub.sms, email: sub.email, ai: sub.ai },
-    packRemaining: { sms: pack.sms, email: pack.email, ai: pack.ai },
+    qrRemaining: total.qr,
+    nfcRemaining: total.nfc,
+    subscriptionRemaining: { sms: sub.sms, email: sub.email, ai: sub.ai, qr: sub.qr, nfc: sub.nfc },
+    packRemaining: { sms: pack.sms, email: pack.email, ai: pack.ai, qr: pack.qr, nfc: pack.nfc },
     periodEnd: org.billing?.periodEnd
   };
 }
@@ -1312,14 +1478,28 @@ function enrichOrg(data, org, debugNow = null) {
   // Legacy pricing (for backward compat)
   const pricing = calculateOrgPricing(org);
   
+  // *** NEW: Get quotas from plan-catalog (source of truth) ***
+  const catalogQuotas = planCatalog.getPlanQuotas(org.plan?.code);
+  
   // Prorata info from subscriptionCredits
   const isProrata = org.subscriptionCredits?.isProrata || false;
   const ratio = org.subscriptionCredits?.ratio || 1;
-  const smsMonthlyBase = org.subscriptionCredits?.smsMonthlyBase || org.quotas?.smsIncluded || 0;
-  const emailMonthlyBase = org.subscriptionCredits?.emailMonthlyBase || org.quotas?.emailIncluded || 0;
-  const aiMonthlyBase = org.subscriptionCredits?.aiMonthlyBase || org.quotas?.aiIncluded || 0;
+  // Use plan-catalog quotas as base, not stored values
+  const smsMonthlyBase = catalogQuotas.smsIncluded || 0;
+  const emailMonthlyBase = catalogQuotas.emailIncluded || 0;
+  const aiMonthlyBase = catalogQuotas.aiIncluded || 0;
   
   // Build credits computed with NEW structure
+  // Use plan-catalog quotas + gifts (not stored values which may be outdated)
+  const smsGift = org.subscriptionCredits?.smsGiftMonthly || 0;
+  const emailGift = org.subscriptionCredits?.emailGiftMonthly || 0;
+  const aiGift = org.subscriptionCredits?.aiGiftMonthly || 0;
+  
+  // Calculate effective monthly values (catalog base * prorata + gifts)
+  const smsIncludedEffective = Math.round(smsMonthlyBase * ratio) + smsGift;
+  const emailIncludedEffective = Math.round(emailMonthlyBase * ratio) + emailGift;
+  const aiIncludedEffective = Math.round(aiMonthlyBase * ratio) + aiGift;
+  
   const creditsComputed = {
     // Period info
     periodStart: org.billing.periodStart,
@@ -1332,28 +1512,28 @@ function enrichOrg(data, org, debugNow = null) {
     
     // Subscription credits (monthly, expiring)
     subscription: {
-      // Base monthly values (before prorata)
+      // Base monthly values (from plan-catalog)
       smsMonthlyBase,
       emailMonthlyBase,
       aiMonthlyBase,
-      // Prorated included values for this period
-      smsIncludedMonthly: org.subscriptionCredits?.smsIncludedMonthly || 0,
-      emailIncludedMonthly: org.subscriptionCredits?.emailIncludedMonthly || 0,
-      aiIncludedMonthly: org.subscriptionCredits?.aiIncludedMonthly || 0,
-      // Gift credits
-      smsGiftMonthly: org.subscriptionCredits?.smsGiftMonthly || 0,
-      emailGiftMonthly: org.subscriptionCredits?.emailGiftMonthly || 0,
-      aiGiftMonthly: org.subscriptionCredits?.aiGiftMonthly || 0,
-      // Totals and usage
-      smsTotal: sub.smsTotal,
-      emailTotal: sub.emailTotal,
-      aiTotal: sub.aiTotal,
-      smsUsed: sub.smsUsed,
-      emailUsed: sub.emailUsed,
-      aiUsed: sub.aiUsed,
-      smsRemaining: sub.sms,
-      emailRemaining: sub.email,
-      aiRemaining: sub.ai,
+      // Effective included values for this period (catalog * prorata)
+      smsIncludedMonthly: Math.round(smsMonthlyBase * ratio),
+      emailIncludedMonthly: Math.round(emailMonthlyBase * ratio),
+      aiIncludedMonthly: Math.round(aiMonthlyBase * ratio),
+      // Gift credits (stored in DB)
+      smsGiftMonthly: smsGift,
+      emailGiftMonthly: emailGift,
+      aiGiftMonthly: aiGift,
+      // Totals and usage (using effective values from plan-catalog)
+      smsTotal: smsIncludedEffective,
+      emailTotal: emailIncludedEffective,
+      aiTotal: aiIncludedEffective,
+      smsUsed: org.subscriptionCredits?.smsUsedThisPeriod || 0,
+      emailUsed: org.subscriptionCredits?.emailUsedThisPeriod || 0,
+      aiUsed: org.subscriptionCredits?.aiUsedThisPeriod || 0,
+      smsRemaining: Math.max(0, smsIncludedEffective - (org.subscriptionCredits?.smsUsedThisPeriod || 0)),
+      emailRemaining: Math.max(0, emailIncludedEffective - (org.subscriptionCredits?.emailUsedThisPeriod || 0)),
+      aiRemaining: Math.max(0, aiIncludedEffective - (org.subscriptionCredits?.aiUsedThisPeriod || 0)),
       // Prorata specific
       isProrata,
       ratio,
@@ -1369,11 +1549,11 @@ function enrichOrg(data, org, debugNow = null) {
       requiresActiveSubscription: true
     },
     
-    // Totals
+    // Totals (subscription + packs)
     total: {
-      smsRemaining: total.sms,
-      emailRemaining: total.email,
-      aiRemaining: total.ai
+      smsRemaining: Math.max(0, smsIncludedEffective - (org.subscriptionCredits?.smsUsedThisPeriod || 0)) + pack.sms,
+      emailRemaining: Math.max(0, emailIncludedEffective - (org.subscriptionCredits?.emailUsedThisPeriod || 0)) + pack.email,
+      aiRemaining: Math.max(0, aiIncludedEffective - (org.subscriptionCredits?.aiUsedThisPeriod || 0)) + pack.ai
     },
     
     // Status check
@@ -1381,44 +1561,75 @@ function enrichOrg(data, org, debugNow = null) {
     subscriptionActive: org.status === 'active'
   };
   
+  // Get effective billing from new centralized function
+  const eb = effectiveBilling.computeEffectiveBilling({ 
+    org, 
+    now: debugNow ? new Date(debugNow) : new Date(),
+    ensurePeriod: false // Already ensured above
+  });
+  
   // Legacy billingComputed for backward compat with old UI
+  // Now enriched with effective billing data
+  // Calculate effective usage remaining
+  const smsUsedThisPeriod = org.subscriptionCredits?.smsUsedThisPeriod || 0;
+  const emailUsedThisPeriod = org.subscriptionCredits?.emailUsedThisPeriod || 0;
+  const aiUsedThisPeriod = org.subscriptionCredits?.aiUsedThisPeriod || 0;
+  
   const billingComputed = {
     periodStart: org.billing.periodStart,
     periodEnd: org.billing.periodEnd,
     ratio,
     isProrata,
     
-    smsUsed: sub.smsUsed,
-    smsAllocated: sub.smsTotal + pack.sms,
-    smsRemaining: total.sms,
-    emailUsed: sub.emailUsed,
-    emailAllocated: sub.emailTotal + pack.email,
-    emailRemaining: total.email,
+    // Usage and allocation (using plan-catalog values)
+    smsUsed: smsUsedThisPeriod,
+    smsAllocated: smsIncludedEffective + pack.sms,
+    smsRemaining: Math.max(0, smsIncludedEffective - smsUsedThisPeriod) + pack.sms,
+    emailUsed: emailUsedThisPeriod,
+    emailAllocated: emailIncludedEffective + pack.email,
+    emailRemaining: Math.max(0, emailIncludedEffective - emailUsedThisPeriod) + pack.email,
+    aiUsed: aiUsedThisPeriod,
+    aiAllocated: aiIncludedEffective + pack.ai,
+    aiRemaining: Math.max(0, aiIncludedEffective - aiUsedThisPeriod) + pack.ai,
     
-    // Monthly base vs prorated
+    // Monthly base vs prorated (from plan-catalog)
     smsMonthlyBase,
     emailMonthlyBase,
-    smsIncludedMonthly: org.subscriptionCredits?.smsIncludedMonthly || 0,
-    emailIncludedMonthly: org.subscriptionCredits?.emailIncludedMonthly || 0,
-    smsIncludedThisPeriod: org.subscriptionCredits?.smsIncludedMonthly || 0,
-    emailIncludedThisPeriod: org.subscriptionCredits?.emailIncludedMonthly || 0,
+    aiMonthlyBase,
+    smsIncludedMonthly: Math.round(smsMonthlyBase * ratio),
+    emailIncludedMonthly: Math.round(emailMonthlyBase * ratio),
+    aiIncludedMonthly: Math.round(aiMonthlyBase * ratio),
+    smsIncludedThisPeriod: smsIncludedEffective,
+    emailIncludedThisPeriod: emailIncludedEffective,
+    aiIncludedThisPeriod: aiIncludedEffective,
     
     breakdown: {
-      included: { sms: org.subscriptionCredits?.smsIncludedMonthly || 0, email: org.subscriptionCredits?.emailIncludedMonthly || 0 },
-      gift: { sms: org.subscriptionCredits?.smsGiftMonthly || 0, email: org.subscriptionCredits?.emailGiftMonthly || 0 },
-      pack: { sms: pack.sms, email: pack.email }
+      included: { sms: Math.round(smsMonthlyBase * ratio), email: Math.round(emailMonthlyBase * ratio), ai: Math.round(aiMonthlyBase * ratio) },
+      gift: { sms: smsGift, email: emailGift, ai: aiGift },
+      pack: { sms: pack.sms, email: pack.email, ai: pack.ai }
     },
     
     // Legacy allocations (empty since we use new system)
     allocations: [],
     
-    // Pricing - apply prorata to price if applicable
-    priceBaseCents: pricing.basePriceCents,
-    priceMonthlyFinalCents: pricing.finalPriceCents,
-    priceThisPeriodCents: isProrata ? Math.round(pricing.finalPriceCents * ratio) : pricing.finalPriceCents,
+    // *** NEW: Pricing from effective billing (centralized source of truth) ***
+    priceBaseCents: eb.priceCatalogCents,
+    priceMonthlyFinalCents: eb.priceEffectiveCents,
+    priceThisPeriodCents: isProrata ? Math.round(eb.priceEffectiveCents * ratio) : eb.priceEffectiveCents,
     discountPercent: pricing.discountPercent,
     isNegotiated: pricing.isNegotiated,
     currency: pricing.currency,
+    
+    // *** NEW: Effective billing fields for UI ***
+    hasDiscount: eb.hasDiscount,
+    discount: eb.discount,
+    couponInfo: eb.couponInfo,
+    stripeCouponId: eb.stripeCouponId,
+    priceCatalogCents: eb.priceCatalogCents,
+    priceEffectiveCents: eb.priceEffectiveCents,
+    priceCatalogFormatted: eb.priceCatalogFormatted,
+    priceEffectiveFormatted: eb.priceEffectiveFormatted,
+    periodEndFormatted: eb.periodEndFormatted,
     
     noRollover: true
   };
@@ -1427,22 +1638,49 @@ function enrichOrg(data, org, debugNow = null) {
     ...org,
     creditsComputed,  // NEW
     billingComputed,  // Legacy compat
-    // Legacy fields for backward compat
+    // Legacy fields for backward compat (using effective values)
     usage30d: {
-      smsUsed: sub.smsUsed,
-      emailUsed: sub.emailUsed,
-      total: sub.smsUsed + sub.emailUsed
+      smsUsed: smsUsedThisPeriod,
+      emailUsed: emailUsedThisPeriod,
+      aiUsed: aiUsedThisPeriod,
+      total: smsUsedThisPeriod + emailUsedThisPeriod
     },
     allocation: {
-      smsAllocated: sub.smsTotal + pack.sms,
-      emailAllocated: sub.emailTotal + pack.email
+      smsAllocated: smsIncludedEffective + pack.sms,
+      emailAllocated: emailIncludedEffective + pack.email,
+      aiAllocated: aiIncludedEffective + pack.ai
     },
     remaining: {
-      sms: total.sms,
-      email: total.email
+      sms: Math.max(0, smsIncludedEffective - smsUsedThisPeriod) + pack.sms,
+      email: Math.max(0, emailIncludedEffective - emailUsedThisPeriod) + pack.email,
+      ai: Math.max(0, aiIncludedEffective - aiUsedThisPeriod) + pack.ai
     },
     pricing
   };
+}
+
+/**
+ * P0.1: Sanitize org object before sending in API responses.
+ * Removes sensitive fields (token hashes, internal secrets).
+ * Keeps non-sensitive metadata (dates, IDs).
+ * 
+ * @param {object} org - org object (raw or enriched)
+ * @returns {object} sanitized org (safe for API response)
+ */
+function sanitizeOrg(org) {
+  if (!org) return org;
+  const sanitized = { ...org };
+  
+  // Remove token hashes (sensitive — enables offline brute-force if leaked)
+  delete sanitized.apiTokenHash;
+  delete sanitized.apiTokenPreviousHash;
+  delete sanitized.apiTokenPreviousExpiresAt;
+  
+  // Keep non-sensitive token metadata (useful for admin UI)
+  // sanitized.apiTokenCreatedAt — kept
+  // sanitized.apiTokenLastRotatedAt — kept
+  
+  return sanitized;
 }
 
 /**
@@ -1578,13 +1816,43 @@ function getAuthUser(req, data) {
   }
   
   const token = authHeader.slice(7);
+  
+  // Use session repository in SQLite mode
+  const repos = storage.getRepos();
+  if (repos && repos.session) {
+    const sessionData = repos.session.validateSession(token);
+    if (!sessionData) return null;
+    
+    // Get user from SQLite
+    const user = repos.user.getById(sessionData.userId);
+    if (!user) return null;
+    
+    // Get org from SQLite
+    const org = repos.org.getById(sessionData.orgId);
+    
+    return { 
+      user, 
+      org,
+      session: { 
+        token, 
+        userId: sessionData.userId, 
+        orgId: sessionData.orgId, 
+        expiresAt: sessionData.expiresAt 
+      } 
+    };
+  }
+  
+  // Legacy JSON mode
   const session = getSessionByToken(data, token);
   if (!session) return null;
   
   const user = data.users.find(u => u.id === session.userId);
   if (!user) return null;
   
-  return { user, session };
+  // Get org from data
+  const org = data.orgs ? data.orgs.find(o => o.id === user.orgId) : null;
+  
+  return { user, org, session };
 }
 
 /**
@@ -1722,19 +1990,15 @@ function isRequestExpired(request) {
 }
 
 // ============ DATA LAYER ============
+// Now using storage bridge (SQLite or data.json based on USE_SQLITE env)
 
 function loadData() {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      // Apply schema migration
-      return ensureSchema(raw);
-    }
-  } catch (err) {
-    console.error('[REPUTY] Error loading data:', err);
+  const data = storage.loadData();
+  // Apply schema migration for JSON mode compatibility
+  if (!storage.USE_SQLITE) {
+    return ensureSchema(data);
   }
-  // Return empty structure with all required collections
-  return ensureSchema({});
+  return data;
 }
 
 // ============ AUTH MIDDLEWARES ============
@@ -1760,6 +2024,10 @@ function validateAuth(req) {
  * SECURITY PRINCIPLE:
  * 1) Org is resolved ONLY via publicKey (never by token lookup)
  * 2) Token is verified AGAINST that specific org only
+ * 
+ * Supports both:
+ * - SQLite mode: compare SHA256(token) against stored hash (timing-safe)
+ * - JSON mode: direct token comparison (legacy)
  * 
  * @param {object} req - HTTP request
  * @param {string} publicKey - Public key from header/body
@@ -1804,8 +2072,41 @@ function validateExtensionAuth(req, publicKey) {
     return { ok: false, error: 'UNAUTHORIZED', message: 'Token invalide en production' };
   }
   
-  // 6) Verify token against THIS org's apiToken
+  // 6) Verify token
   const now = Date.now();
+  
+  // SQLite mode: compare hashes (timing-safe)
+  if (storage.USE_SQLITE && org.apiTokenHash) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    
+    // Check current token (timing-safe comparison)
+    const isCurrentToken = org.apiTokenHash && 
+      tokenHash.length === org.apiTokenHash.length &&
+      require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenHash));
+    
+    if (isCurrentToken) {
+      return { ok: true, org };
+    }
+    
+    // Check previous token (grace period)
+    if (org.apiTokenPreviousHash && 
+        org.apiTokenPreviousExpiresAt &&
+        now < new Date(org.apiTokenPreviousExpiresAt).getTime()) {
+      const isPreviousToken = tokenHash.length === org.apiTokenPreviousHash.length &&
+        require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenPreviousHash));
+      
+      if (isPreviousToken) {
+        console.log(`[SECURITY] ℹ️  Using previous token (grace period) for org ${org.id}`);
+        return { ok: true, org };
+      }
+    }
+    
+    // Token doesn't match
+    console.warn(`[SECURITY] 🚫 Invalid token for org ${org.id} (publicKey: ${publicKey})`);
+    return { ok: false, error: 'UNAUTHORIZED', message: 'Token invalide' };
+  }
+  
+  // JSON mode: direct comparison (legacy)
   const isCurrentToken = token === org.apiToken;
   const isPreviousTokenValid = org.apiTokenPrevious && 
     token === org.apiTokenPrevious && 
@@ -1883,11 +2184,7 @@ function determineReviewRouting(rating) {
 }
 
 function saveData(data) {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error('[REPUTY] Error saving data:', err);
-  }
+  storage.saveData(data);
 }
 
 // ============ HTTP HELPERS ============
@@ -2575,7 +2872,11 @@ function generateExpiredPage() {
 // ============ ROUTE HANDLERS ============
 
 function handleHealth(res) {
-  sendJson(res, 200, { ok: true, version: VERSION });
+  sendJson(res, 200, { 
+    ok: true, 
+    version: VERSION,
+    storage: storage.USE_SQLITE ? 'sqlite' : 'json'
+  });
 }
 
 async function handleSendReview(req, res) {
@@ -2626,30 +2927,37 @@ async function handleSendReview(req, res) {
   const orgId = org.id;
   const data = loadData();
   
-  // Vérifier statut org
-  if (org.status !== 'active') {
-    recordTelemetry(data, orgId, 'warn', 'SUBSCRIPTION_INACTIVE', 
+  // STATE MACHINE GUARD: Check if org can send SMS/email
+  // This replaces the old simple status check with proper state machine logic
+  const accessCheckSms = stateMachine.canPerformAction(org, 'sendSms');
+  const accessCheckEmail = stateMachine.canPerformAction(org, 'sendEmail');
+  
+  // Block if BOTH SMS and email are blocked (read_only or suspended state)
+  if (!accessCheckSms.allowed && !accessCheckEmail.allowed) {
+    recordTelemetry(data, orgId, 'warn', accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED', 
       `Tentative d'envoi sur compte ${org.status}`, { source: 'extension', publicKey });
     saveData(data);
     
-    // P1.4: Log extension subscription inactive
+    // P1.4: Log extension subscription restricted
     logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
       requestId: reqId,
       orgId,
       durationMs: Date.now() - startTime,
       status: 403,
-      errorCode: 'SUBSCRIPTION_INACTIVE',
+      errorCode: accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
       orgStatus: org.status
     });
     
     return sendJson(res, 403, {
       ok: false,
-      error: 'SUBSCRIPTION_INACTIVE',
-      message: 'Abonnement inactif. Les envois sont désactivés.',
+      errorCategory: accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
+      error: accessCheckSms.error?.errorCode || 'FEATURE_BLOCKED',
+      message: accessCheckSms.error?.message || 'Fonctionnalité non disponible avec votre abonnement actuel.',
+      action: accessCheckSms.error?.action || 'UPGRADE_PLAN',
       details: {
         status: org.status,
         orgName: org.name,
-        message: 'Contactez votre administrateur pour réactiver votre abonnement.'
+        message: stateMachine.getStateInfo(org).blockMessage || 'Contactez votre administrateur.'
       }
     });
   }
@@ -2761,7 +3069,100 @@ async function handleSendReview(req, res) {
     });
   }
 
-  // ============ NOUVELLE REQUEST ============
+  // ============ SQLITE MODE: DB-DRIVEN IDEMPOTENCE ============
+  if (storage.USE_SQLITE) {
+    const repos = storage.getRepos();
+    
+    // Use client-provided key or generate one
+    const idempotencyKey = body.requestId || body.idempotencyKey || randomBytes(12).toString('hex');
+    const feedbackUrl = `${REVIEWS_BASE_URL}/r/${idempotencyKey}`;
+    
+    // DB-driven idempotence: returns existing if already created
+    const { request: dbRequest, created } = repos.request.createOrGetByIdempotencyKey(idempotencyKey, {
+      orgId: orgId,
+      channel: body.channel,
+      patient: {
+        name: body.patientName,
+        firstName: body.patientFirstName || '',
+        lastName: body.patientLastName || '',
+        email: body.patientEmail || '',
+        phone: body.patientPhone || ''
+      },
+      feedbackUrl: feedbackUrl,
+      meta: {
+        source: body.source || 'chrome-extension',
+        pageUrl: body.pageUrl || '',
+        appointmentDate: body.appointmentDate || '',
+        locationId: body.locationId || ''
+      }
+    });
+    
+    // If already existed, return as duplicate
+    if (!created) {
+      console.log(`[REPUTY][API] ⚡ SQLite idempotence: ${idempotencyKey} already exists`);
+      
+      return sendJson(res, 200, {
+        ok: true,
+        requestId: dbRequest.idempotencyKey,
+        feedbackUrl: dbRequest.feedbackUrl,
+        duplicate: true,
+        reason: 'Requête déjà traitée (idempotent)'
+      });
+    }
+    
+    // New request created - check quota and record usage
+    const channel = body.channel;
+    const usageType = channel === 'email' ? 'email' : 'sms';
+    
+    // Get fresh org data for quota check
+    const freshOrg = repos.org.getById(orgId);
+    if (!freshOrg) {
+      return sendJson(res, 500, { ok: false, error: 'ORG_NOT_FOUND' });
+    }
+    
+    // TODO: Implement quota check in SQLite mode
+    // For now, just record usage
+    repos.usage.addEntry({
+      orgId: orgId,
+      type: usageType,
+      qty: 1,
+      details: {
+        requestId: dbRequest.idempotencyKey,
+        channel: channel,
+        source: 'extension',
+        patientName: body.patientName
+      }
+    });
+    
+    // Create message entry (queued for future sending)
+    const recipient = channel === 'email' ? body.patientEmail : body.patientPhone;
+    repos.message.create({
+      requestDbId: dbRequest.id,
+      channel: channel,
+      recipient: recipient,
+      status: 'queued'
+    });
+    
+    // Log success
+    logger.logExtensionAction('EXTENSION_SEND_REVIEW_SUCCESS', true, req, {
+      requestId: dbRequest.idempotencyKey,
+      orgId: orgId,
+      channel: channel,
+      durationMs: Date.now() - startTime,
+      status: 201
+    });
+    
+    console.log(`[REPUTY][API] ✅ SQLite: New request created: ${dbRequest.idempotencyKey}`);
+    
+    return sendJson(res, 201, {
+      ok: true,
+      requestId: dbRequest.idempotencyKey,
+      feedbackUrl: dbRequest.feedbackUrl,
+      duplicate: false
+    });
+  }
+
+  // ============ JSON MODE: NOUVELLE REQUEST (legacy) ============
   const requestId = randomBytes(12).toString('hex');
   const reviewUrl = `${REVIEWS_BASE_URL}/r/${requestId}`;
   const now = new Date().toISOString();
@@ -3072,6 +3473,21 @@ function handleGetRequests(req, res) {
 }
 
 function handleGetSettings(req, res) {
+  // Try session auth first (for dashboard users)
+  const data = loadData();
+  const sessionAuth = getAuthUser(req, data);
+  
+  if (sessionAuth && sessionAuth.org) {
+    // User is authenticated via session - return org-specific settings
+    const org = sessionAuth.org;
+    return sendJson(res, 200, {
+      googleReviewUrl: org.options?.googleReviewUrl || '',
+      cabinetName: org.name || '',
+      reviewRouting: org.options?.reviewRouting || DEFAULT_SETTINGS.reviewRouting
+    });
+  }
+  
+  // Fallback to legacy API token auth (for backward compatibility)
   const auth = validateAuth(req);
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
@@ -3082,10 +3498,10 @@ function handleGetSettings(req, res) {
 }
 
 async function handleSaveSettings(req, res) {
-  const auth = validateAuth(req);
-  if (!auth.ok) {
-    return sendJson(res, 401, { error: auth.error });
-  }
+  const data = loadData();
+  
+  // Try session auth first (for dashboard users)
+  const sessionAuth = getAuthUser(req, data);
   
   let body;
   try {
@@ -3094,7 +3510,53 @@ async function handleSaveSettings(req, res) {
     return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
   
-  const data = loadData();
+  if (sessionAuth && sessionAuth.org) {
+    // User is authenticated via session - save to org-specific options
+    const org = sessionAuth.org;
+    const repos = storage.getRepos();
+    
+    if (repos && repos.org) {
+      // Update org options in SQLite
+      const optionsUpdate = {};
+      if (body.googleReviewUrl !== undefined) {
+        optionsUpdate.googleReviewUrl = body.googleReviewUrl.trim();
+      }
+      
+      // Update options
+      repos.org.updateOptions(org.id, optionsUpdate);
+      
+      // Update org name if provided
+      if (body.cabinetName !== undefined && body.cabinetName.trim()) {
+        repos.org.update(org.id, { name: body.cabinetName.trim() });
+      }
+      
+      // Reload org to get updated data
+      const updatedOrg = repos.org.getById(org.id);
+      
+      logger.logAudit('SETTINGS_UPDATED', {
+        orgId: org.id,
+        userId: sessionAuth.user.id,
+        changes: { googleReviewUrl: optionsUpdate.googleReviewUrl, cabinetName: body.cabinetName }
+      });
+      
+      return sendJson(res, 200, { 
+        success: true, 
+        settings: {
+          googleReviewUrl: updatedOrg.options?.googleReviewUrl || '',
+          cabinetName: updatedOrg.name || ''
+        }
+      });
+    }
+    
+    return sendJson(res, 500, { error: 'Base de données non disponible' });
+  }
+  
+  // Fallback to legacy API token auth
+  const auth = validateAuth(req);
+  if (!auth.ok) {
+    return sendJson(res, 401, { error: auth.error });
+  }
+  
   const currentSettings = data.settings || {};
   
   // Update settings (merge with existing, especially reviewRouting)
@@ -3106,7 +3568,7 @@ async function handleSaveSettings(req, res) {
   
   saveData(data);
   
-  console.log('[REPUTY][SETTINGS] Settings updated:', data.settings);
+  logger.logAudit('SETTINGS_UPDATED_LEGACY', { settings: data.settings });
   
   return sendJson(res, 200, { success: true, settings: data.settings });
 }
@@ -3114,6 +3576,17 @@ async function handleSaveSettings(req, res) {
 // ============ REVIEW ROUTING API ============
 
 function handleGetReviewRouting(req, res) {
+  const data = loadData();
+  
+  // Try session auth first (for dashboard users)
+  const sessionAuth = getAuthUser(req, data);
+  
+  if (sessionAuth && sessionAuth.org) {
+    const org = sessionAuth.org;
+    return sendJson(res, 200, org.options?.reviewRouting || DEFAULT_SETTINGS.reviewRouting);
+  }
+  
+  // Fallback to legacy API token auth
   const auth = validateAuth(req);
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
@@ -3124,10 +3597,7 @@ function handleGetReviewRouting(req, res) {
 }
 
 async function handleSaveReviewRouting(req, res) {
-  const auth = validateAuth(req);
-  if (!auth.ok) {
-    return sendJson(res, 401, { error: auth.error });
-  }
+  const data = loadData();
   
   let body;
   try {
@@ -3148,32 +3618,54 @@ async function handleSaveReviewRouting(req, res) {
   const validTargets = ['DOCTOLIB', 'GOOGLE'];
   const validPublicTarget = validTargets.includes(publicTarget) ? publicTarget : 'DOCTOLIB';
   
-  const data = loadData();
+  const reviewRouting = {
+    enabled: enabled === true || enabled === 'true',
+    threshold: validThreshold,
+    publicTarget: validPublicTarget
+  };
+  
+  // Try session auth first (for dashboard users)
+  const sessionAuth = getAuthUser(req, data);
+  
+  if (sessionAuth && sessionAuth.org) {
+    const org = sessionAuth.org;
+    const repos = storage.getRepos();
+    
+    if (repos && repos.org) {
+      // Save to org options in SQLite
+      repos.org.updateOptions(org.id, { reviewRouting });
+      
+      logger.logAudit('REVIEW_ROUTING_UPDATED', {
+        orgId: org.id,
+        userId: sessionAuth.user.id,
+        reviewRouting
+      });
+      
+      return sendJson(res, 200, { success: true, reviewRouting });
+    }
+    
+    return sendJson(res, 500, { error: 'Base de données non disponible' });
+  }
+  
+  // Fallback to legacy API token auth
+  const auth = validateAuth(req);
+  if (!auth.ok) {
+    return sendJson(res, 401, { error: auth.error });
+  }
   
   // Ensure settings exists
   if (!data.settings) {
     data.settings = { ...DEFAULT_SETTINGS };
   }
   
-  // Update reviewRouting
-  data.settings.reviewRouting = {
-    enabled: enabled === true || enabled === 'true',
-    threshold: validThreshold,
-    publicTarget: validPublicTarget
-  };
+  // Update reviewRouting (legacy mode)
+  data.settings.reviewRouting = reviewRouting;
   
   saveData(data);
   
-  console.log('[REPUTY][SETTINGS] Review routing updated:', data.settings.reviewRouting);
+  logger.logAudit('REVIEW_ROUTING_UPDATED_LEGACY', { reviewRouting });
   
-  // Tests de validation rapides (logs)
-  console.log('[REPUTY][ROUTING TEST] stars=5, threshold=4 =>', determineReviewRouting(5));
-  console.log('[REPUTY][ROUTING TEST] stars=3, threshold=4 =>', determineReviewRouting(3));
-  
-  return sendJson(res, 200, { 
-    success: true, 
-    reviewRouting: data.settings.reviewRouting 
-  });
+  return sendJson(res, 200, { success: true, reviewRouting });
 }
 
 // ============ INTERNAL BACKOFFICE API (Super Admin) ============
@@ -3214,7 +3706,7 @@ function handleListOrgs(req, res, urlParams = new URLSearchParams()) {
         console.log(`[DEBUG] Org ${org.id}: rotated=${result.rotated}, allocationCreated=${result.allocationCreated}`);
       }
     }
-    return enrichOrg(data, org);
+    return sanitizeOrg(enrichOrg(data, org));
   });
   
   return sendJson(res, 200, { 
@@ -3254,7 +3746,7 @@ async function handleCreateOrg(req, res) {
   const data = loadData();
   const now = nowISO();
   const planCode = `${vertical}_basic`;
-  const quotas = PLAN_DEFAULTS[planCode] || { smsIncluded: 50, emailIncluded: 50, aiIncluded: 20 };
+  const quotas = PLAN_DEFAULTS[planCode] || { smsIncluded: 50, emailIncluded: 50, aiIncluded: 20, qrIncluded: 1, nfcIncluded: 0 };
   
   const newOrg = {
     id: generateId(),
@@ -3302,7 +3794,7 @@ async function handleCreateOrg(req, res) {
   
   console.log('[REPUTY][INTERNAL] Org created:', newOrg.id, newOrg.name);
   
-  return sendJson(res, 201, { org: newOrg });
+  return sendJson(res, 201, { org: sanitizeOrg(newOrg) });
 }
 
 /**
@@ -3366,7 +3858,7 @@ function handleGetOrg(req, res, orgId, urlParams = new URLSearchParams()) {
       .slice(0, 50);
     
     return sendJson(res, 200, {
-      org: enrichedOrg,
+      org: sanitizeOrg(enrichedOrg),
       usage: { 
         days7: { sms: usage7d.sms, email: usage7d.email, total: usage7d.total },
         days30: { sms: usage30d.sms, email: usage30d.email, total: usage30d.total }
@@ -3428,19 +3920,38 @@ async function handleUpdateOrg(req, res, orgId) {
       });
     }
     
-    // Quotas
+    // Quotas - merge with existing
     if (body.quotas) {
-      if (body.quotas.smsIncluded !== undefined) org.quotas.smsIncluded = body.quotas.smsIncluded;
-      if (body.quotas.emailIncluded !== undefined) org.quotas.emailIncluded = body.quotas.emailIncluded;
-      if (body.quotas.aiIncluded !== undefined) org.quotas.aiIncluded = body.quotas.aiIncluded;
+      org.quotas = {
+        ...org.quotas,
+        ...(body.quotas.smsIncluded !== undefined && { smsIncluded: body.quotas.smsIncluded }),
+        ...(body.quotas.emailIncluded !== undefined && { emailIncluded: body.quotas.emailIncluded }),
+        ...(body.quotas.aiIncluded !== undefined && { aiIncluded: body.quotas.aiIncluded }),
+        ...(body.quotas.qrIncluded !== undefined && { qrIncluded: body.quotas.qrIncluded }),
+        ...(body.quotas.nfcIncluded !== undefined && { nfcIncluded: body.quotas.nfcIncluded }),
+      };
     }
     
     org.updatedAt = nowISO();
-    saveData(data);
+    
+    // Save via repository in SQLite mode
+    const repos = storage.getRepos();
+    if (repos && repos.org) {
+      repos.org.update(orgId, { 
+        name: org.name,
+        vertical: org.vertical,
+        plan: org.plan,
+        negotiated: org.negotiated,
+        options: org.options,
+        quotas: org.quotas
+      });
+    } else {
+      saveData(data);
+    }
     
     console.log('[REPUTY][INTERNAL] Org updated:', orgId);
     
-    return sendJson(res, 200, { org });
+    return sendJson(res, 200, { org: sanitizeOrg(org) });
   } catch (err) {
     return sendJson(res, err.status || 500, { error: err.message });
   }
@@ -3598,7 +4109,7 @@ async function handleAddCredits(req, res, orgId) {
     });
     
     return sendJson(res, 200, { 
-      org: enrichOrg(data, org),
+      org: sanitizeOrg(enrichOrg(data, org)),
       added: {
         type: creditType,
         sms: finalSms,
@@ -3693,13 +4204,26 @@ async function handleChangeStatus(req, res, orgId) {
     org.status = status;
     org.updatedAt = nowISO();
     
-    // Update org in data
-    const orgIndex = data.orgs.findIndex(o => o.id === orgId);
-    if (orgIndex >= 0) {
-      data.orgs[orgIndex] = org;
-    }
+    // Persist status change
+    const repos = storage.getRepos();
+    let responseOrg = org; // For the response
     
-    saveData(data);
+    if (repos) {
+      // SQLite mode: persist via repository
+      repos.org.update(orgId, { status });
+      // Reload fresh org from DB for accurate response
+      const freshOrg = repos.org.getById(orgId);
+      if (freshOrg) {
+        responseOrg = freshOrg;
+      }
+    } else {
+      // Legacy JSON mode
+      const orgIndex = data.orgs.findIndex(o => o.id === orgId);
+      if (orgIndex >= 0) {
+        data.orgs[orgIndex] = org;
+      }
+      saveData(data);
+    }
     
     // P1.4: Log org status change
     logger.logInternalAction('INTERNAL_ORG_STATUS_CHANGE', req, {
@@ -3723,7 +4247,7 @@ async function handleChangeStatus(req, res, orgId) {
     }
     
     return sendJson(res, 200, { 
-      org: enrichOrg(data, org), 
+      org: sanitizeOrg(enrichOrg(data, responseOrg)), 
       previousStatus: oldStatus,
       message,
       creditsLost: creditsLost ? {
@@ -3979,8 +4503,58 @@ function handleGetOrgByPublicKey(req, res, publicKey) {
 // ============ AUTH ENDPOINTS ============
 
 /**
+ * Extract Google Place ID from a Google Maps/Business URL
+ * Supports various URL formats:
+ * - https://g.page/r/XXXXXX/review
+ * - https://www.google.com/maps/place/...
+ * - https://maps.google.com/?cid=XXXXX
+ * @param {string} url - Google Business URL
+ * @returns {string|null} - Place ID or null
+ */
+function extractGooglePlaceId(url) {
+  if (!url) return null;
+  
+  try {
+    // Format: https://g.page/r/XXXXX/review or https://g.page/r/XXXXX
+    const gPageMatch = url.match(/g\.page\/r\/([A-Za-z0-9_-]+)/);
+    if (gPageMatch) return `gpage_${gPageMatch[1]}`;
+    
+    // Format: cid=XXXXX (customer ID)
+    const cidMatch = url.match(/[?&]cid=(\d+)/);
+    if (cidMatch) return `cid_${cidMatch[1]}`;
+    
+    // Format: place_id=XXXXX
+    const placeIdMatch = url.match(/place_id[=:]([A-Za-z0-9_-]+)/);
+    if (placeIdMatch) return placeIdMatch[1];
+    
+    // Fallback: hash the URL to create a unique identifier
+    const crypto = require('crypto');
+    return `url_${crypto.createHash('sha256').update(url).digest('hex').substring(0, 16)}`;
+  } catch (err) {
+    logger.logError('GOOGLE_PLACE_ID_EXTRACTION_ERROR', { url, error: err.message });
+    return null;
+  }
+}
+
+/**
+ * Check if a Google Place ID already exists (for Bronze anti-abuse)
+ * @param {object} data - Data store
+ * @param {string} googlePlaceId - Google Place ID
+ * @returns {object|null} - Existing org or null
+ */
+function findOrgByGooglePlaceId(data, googlePlaceId) {
+  if (!googlePlaceId) return null;
+  return data.orgs.find(org => org.googlePlaceId === googlePlaceId);
+}
+
+/**
  * POST /auth/signup - Inscription client
- * Body: { email, password, orgName, vertical? }
+ * Body: { email, password, orgName, vertical?, plan?, googleBusinessUrl? }
+ * 
+ * VERROU ANTI-ABUS BRONZE:
+ * - Pour le forfait Bronze (gratuit), googleBusinessUrl est OBLIGATOIRE
+ * - Un seul compte Bronze par Google Business (vérifié via google_place_id)
+ * - Les forfaits payants n'ont pas cette restriction
  */
 async function handleSignup(req, res) {
   const startTime = Date.now();
@@ -3993,9 +4567,16 @@ async function handleSignup(req, res) {
     return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
   
-  const { email, password, orgName, vertical = 'health' } = body;
+  const { 
+    email, 
+    password, 
+    orgName, 
+    vertical = 'health',
+    plan = 'bronze', // Default to Bronze (free)
+    googleBusinessUrl // Required for Bronze
+  } = body;
   
-  // Validation
+  // Validation de base
   if (!email || !password || !orgName) {
     return sendJson(res, 400, { error: 'Email, password et orgName requis' });
   }
@@ -4014,6 +4595,37 @@ async function handleSignup(req, res) {
     return sendJson(res, 400, { error: `Vertical invalide. Valeurs: ${validVerticals.join(', ')}` });
   }
   
+  const validPlans = ['bronze', 'argent', 'or', 'platinum'];
+  if (!validPlans.includes(plan)) {
+    return sendJson(res, 400, { error: `Plan invalide. Valeurs: ${validPlans.join(', ')}` });
+  }
+  
+  // ═══════════════════════════════════════════════════════════════
+  // VERROU ANTI-ABUS BRONZE
+  // ═══════════════════════════════════════════════════════════════
+  let googlePlaceId = null;
+  
+  if (plan === 'bronze') {
+    // Bronze REQUIRES a Google Business URL
+    if (!googleBusinessUrl) {
+      return sendJson(res, 400, { 
+        error: 'GOOGLE_BUSINESS_REQUIRED',
+        message: 'Le forfait Bronze gratuit nécessite un lien Google Business pour valider votre établissement.',
+        action: 'PROVIDE_GOOGLE_BUSINESS_URL'
+      });
+    }
+    
+    // Extract Google Place ID
+    googlePlaceId = extractGooglePlaceId(googleBusinessUrl);
+    if (!googlePlaceId) {
+      return sendJson(res, 400, { 
+        error: 'INVALID_GOOGLE_BUSINESS_URL',
+        message: 'Le lien Google Business fourni est invalide. Utilisez le format: https://g.page/r/XXXX/review',
+        action: 'PROVIDE_VALID_GOOGLE_URL'
+      });
+    }
+  }
+  
   const data = loadData();
   
   // Check if email already exists
@@ -4021,13 +4633,40 @@ async function handleSignup(req, res) {
     return sendJson(res, 409, { error: 'EMAIL_ALREADY_EXISTS', message: 'Un compte existe déjà avec cet email' });
   }
   
+  // VERROU: Check if Google Place ID already exists (Bronze only)
+  if (plan === 'bronze' && googlePlaceId) {
+    const existingOrg = findOrgByGooglePlaceId(data, googlePlaceId);
+    if (existingOrg) {
+      logger.logAudit('BRONZE_ANTI_ABUSE_BLOCKED', {
+        email,
+        googlePlaceId,
+        existingOrgId: existingOrg.id,
+        existingOrgName: existingOrg.name
+      });
+      
+      return sendJson(res, 409, { 
+        error: 'GOOGLE_BUSINESS_ALREADY_REGISTERED',
+        message: 'Un compte gratuit existe déjà pour cet établissement. Connectez-vous ou passez à une offre payante.',
+        action: 'LOGIN_OR_UPGRADE',
+        hint: 'Si vous êtes le propriétaire de cet établissement, connectez-vous avec l\'email associé ou choisissez un forfait payant.'
+      });
+    }
+  }
+  
   // Hash password
   const passwordHash = await hashPassword(password);
+  
+  // Determine plan code
+  const planCode = `${vertical}_${plan === 'bronze' ? 'basic' : plan}`;
+  const planDefaults = PLAN_DEFAULTS[planCode] || PLAN_DEFAULTS[`${vertical}_basic`] || {};
+  
+  // Determine price based on plan
+  const PLAN_PRICES = { bronze: 0, argent: 5900, or: 9900, platinum: 12900 };
+  const basePriceCents = PLAN_PRICES[plan] || 0;
   
   // Create org (status = pending until email verified)
   const orgId = generateId();
   const publicKey = generatePublicKey();
-  const planCode = `${vertical}_basic`;
   
   const org = {
     id: orgId,
@@ -4036,19 +4675,23 @@ async function handleSignup(req, res) {
     email: email.toLowerCase(),
     vertical,
     status: 'pending', // Will be "active" after email verification
+    // Google Business (for Bronze anti-abuse)
+    googlePlaceId: googlePlaceId || null,
+    googleReviewsUrl: googleBusinessUrl || null,
     createdAt: nowISO(),
     updatedAt: nowISO(),
     billing: {
-      provider: 'none',
+      provider: plan === 'bronze' ? 'none' : 'pending', // Bronze never goes through Stripe
       stripeCustomerId: null,
       gocardlessMandateId: null,
       startedAt: nowISO(),
+      status: plan === 'bronze' ? 'active' : 'pending_payment',
       periodStart: null,
       periodEnd: null
     },
     plan: {
       code: planCode,
-      basePriceCents: 4900,
+      basePriceCents,
       currency: 'EUR',
       billingCycle: 'monthly'
     },
@@ -4063,13 +4706,18 @@ async function handleSignup(req, res) {
       reviewRouting: true,
       widgetsSeo: false,
       multiLocations: false,
-      prioritySupport: false,
-      custom: {}
+      prioritySupport: plan === 'platinum',
+      custom: {},
+      googleReviewUrl: googleBusinessUrl || null
     },
     quotas: {
-      smsIncluded: PLAN_DEFAULTS[planCode]?.smsIncluded || 50,
-      emailIncluded: PLAN_DEFAULTS[planCode]?.emailIncluded || 50,
-      aiIncluded: PLAN_DEFAULTS[planCode]?.aiIncluded || 20
+      smsIncluded: planDefaults.smsIncluded ?? 0,
+      emailIncluded: planDefaults.emailIncluded ?? 0,
+      aiIncluded: planDefaults.aiIncluded ?? 0,
+      qrIncluded: planDefaults.qrIncluded ?? 1,
+      nfcIncluded: planDefaults.nfcIncluded ?? 0,
+      qrScans: planDefaults.qrScans ?? 50,
+      nfcScans: planDefaults.nfcScans ?? 0
     },
     balances: {
       smsExtra: 0,
@@ -4085,7 +4733,7 @@ async function handleSignup(req, res) {
     email: email.toLowerCase(),
     passwordHash,
     role: 'owner',
-    name: orgName, // Use org name as default user name
+    name: orgName,
     emailVerified: false,
     createdAt: nowISO(),
     updatedAt: nowISO(),
@@ -4100,7 +4748,7 @@ async function handleSignup(req, res) {
   
   saveData(data);
   
-  // P1.4: Log signup
+  // Log signup
   logger.logAuth('SIGNUP', true, req, {
     requestId,
     email,
@@ -4108,16 +4756,28 @@ async function handleSignup(req, res) {
     orgId,
     orgName,
     vertical,
+    plan,
+    googlePlaceId: googlePlaceId || null,
     durationMs: Date.now() - startTime,
     status: 201
   });
   
-  return sendJson(res, 201, {
+  // Response based on plan
+  const response = {
     ok: true,
     next: 'verify',
     email: email.toLowerCase(),
+    plan,
     message: 'Un code de vérification a été envoyé à votre email'
-  });
+  };
+  
+  // For paid plans, indicate they need to complete payment after verification
+  if (plan !== 'bronze') {
+    response.nextAfterVerify = 'payment';
+    response.message = 'Un code de vérification a été envoyé. Après vérification, vous serez redirigé vers le paiement.';
+  }
+  
+  return sendJson(res, 201, response);
 }
 
 /**
@@ -4398,10 +5058,19 @@ async function handleLogin(req, res) {
   // Update last login
   user.lastLoginAt = nowISO();
   
-  // Create session
-  const session = createSession(data, user.id, user.orgId);
-  
-  saveData(data);
+  // Create session - use repository in SQLite mode
+  let session;
+  const repos = storage.getRepos();
+  if (repos && repos.session) {
+    // SQLite mode: use session repository
+    session = repos.session.createSession(user.id, user.orgId);
+    // Update user last login in SQLite
+    repos.user.updateLastLogin(user.id);
+  } else {
+    // Legacy JSON mode
+    session = createSession(data, user.id, user.orgId);
+    saveData(data);
+  }
   
   // P1.4: Log successful login
   logger.logAuth('LOGIN_SUCCESS', true, req, {
@@ -4437,13 +5106,18 @@ async function handleLogout(req, res) {
     return sendJson(res, 200, { ok: true }); // Already logged out
   }
   
-  // Remove session
-  const sessionIndex = data.sessions.findIndex(s => s.token === auth.session.token);
-  if (sessionIndex >= 0) {
-    data.sessions.splice(sessionIndex, 1);
+  // Remove session - use repository in SQLite mode
+  const repos = storage.getRepos();
+  if (repos && repos.session) {
+    repos.session.deleteSession(auth.session.token);
+  } else {
+    // Legacy JSON mode
+    const sessionIndex = data.sessions.findIndex(s => s.token === auth.session.token);
+    if (sessionIndex >= 0) {
+      data.sessions.splice(sessionIndex, 1);
+    }
+    saveData(data);
   }
-  
-  saveData(data);
   
   return sendJson(res, 200, { ok: true });
 }
@@ -4612,6 +5286,2132 @@ function handleClientGetSettings(req, res) {
   });
 }
 
+// ============ CLIENT INSTALLATIONS ENDPOINTS ============
+
+/**
+ * GET /client/installations - List installations for authenticated org
+ */
+function handleClientListInstallations(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    // Fallback for non-SQLite mode
+    return sendJson(res, 200, { installations: [] });
+  }
+  
+  const installations = repos.installation.getByOrgId(auth.user.orgId);
+  
+  return sendJson(res, 200, {
+    ok: true,
+    installations: installations.map(i => ({
+      id: i.id,
+      label: i.label,
+      tokenMasked: i.tokenMasked,
+      createdAt: i.createdAt,
+      lastSeenAt: i.lastSeenAt,
+      status: i.status
+    }))
+  });
+}
+
+/**
+ * POST /client/installations - Create new installation
+ * Returns token in cleartext ONLY HERE
+ */
+async function handleClientCreateInstallation(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 501, { 
+      ok: false,
+      errorCategory: 'SERVICE_UNAVAILABLE',
+      errorCode: 'NOT_IMPLEMENTED',
+      message: 'Fonctionnalité non disponible',
+      action: 'RETRY_LATER'
+    });
+  }
+  
+  try {
+    const body = await parseBody(req);
+    const label = body.label || 'Nouvelle installation';
+    const metadata = body.metadata || {};
+    
+    const result = repos.installation.create(auth.user.orgId, label, metadata);
+    
+    console.log(`[REPUTY][INSTALLATION] Created installation ${result.installation.id} for org ${auth.user.orgId}`);
+    
+    // Return token in cleartext ONLY HERE
+    return sendJson(res, 201, {
+      ok: true,
+      installation: {
+        id: result.installation.id,
+        label: result.installation.label,
+        tokenMasked: result.installation.tokenMasked,
+        createdAt: result.installation.createdAt
+      },
+      token: result.token, // CLEARTEXT - shown only once!
+      warning: "Copiez ce token maintenant, il ne sera plus affiché."
+    });
+  } catch (err) {
+    console.error('[REPUTY][INSTALLATION] Create error:', err);
+    return sendJson(res, 500, { 
+      ok: false,
+      errorCategory: 'INTERNAL_ERROR',
+      errorCode: 'INTERNAL_ERROR',
+      message: 'Erreur lors de la création',
+      action: 'RETRY'
+    });
+  }
+}
+
+/**
+ * POST /client/installations/:id/revoke - Revoke an installation
+ */
+async function handleClientRevokeInstallation(req, res, installationId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 501, { 
+      ok: false,
+      errorCategory: 'SERVICE_UNAVAILABLE',
+      errorCode: 'NOT_IMPLEMENTED',
+      message: 'Fonctionnalité non disponible',
+      action: 'RETRY_LATER'
+    });
+  }
+  
+  // Verify the installation belongs to the user's org
+  const installation = repos.installation.getById(installationId);
+  if (!installation || installation.orgId !== auth.user.orgId) {
+    return sendJson(res, 404, { 
+      ok: false,
+      errorCategory: 'NOT_FOUND',
+      errorCode: 'NOT_FOUND',
+      message: 'Installation introuvable',
+      action: 'CHECK_URL'
+    });
+  }
+  
+  if (installation.revokedAt) {
+    return sendJson(res, 409, { 
+      ok: false,
+      errorCategory: 'ALREADY_EXISTS',
+      errorCode: 'ALREADY_REVOKED',
+      message: 'Cette installation est déjà révoquée',
+      action: 'UPDATE'
+    });
+  }
+  
+  const success = repos.installation.revoke(installationId);
+  
+  if (success) {
+    logger.logAudit('INSTALLATION_REVOKED', 'Installation revoked', {
+      route: '/client/installations/:id/revoke',
+      method: 'POST',
+      status: 200,
+      actor: 'client',
+      userId: auth.user.id,
+      orgId: auth.user.orgId,
+      installationId: installationId
+    });
+    return sendJson(res, 200, { ok: true, message: 'Installation révoquée' });
+  } else {
+    return sendJson(res, 500, { 
+      ok: false,
+      errorCategory: 'INTERNAL_ERROR',
+      errorCode: 'REVOKE_FAILED',
+      message: 'Échec de la révocation',
+      action: 'RETRY'
+    });
+  }
+}
+
+/**
+ * POST /client/installations/:id/rotate - Rotate installation token
+ * Returns new token in cleartext ONLY HERE
+ */
+async function handleClientRotateInstallation(req, res, installationId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 501, { 
+      ok: false,
+      errorCategory: 'SERVICE_UNAVAILABLE',
+      errorCode: 'NOT_IMPLEMENTED',
+      message: 'Fonctionnalité non disponible',
+      action: 'RETRY_LATER'
+    });
+  }
+  
+  // Verify the installation belongs to the user's org
+  const installation = repos.installation.getById(installationId);
+  if (!installation || installation.orgId !== auth.user.orgId) {
+    return sendJson(res, 404, { 
+      ok: false,
+      errorCategory: 'NOT_FOUND',
+      errorCode: 'NOT_FOUND',
+      message: 'Installation introuvable',
+      action: 'CHECK_URL'
+    });
+  }
+  
+  if (installation.revokedAt) {
+    return sendJson(res, 409, { 
+      ok: false,
+      errorCategory: 'INSTALLATION_REVOKED',
+      errorCode: 'ALREADY_REVOKED',
+      message: 'Cette installation est révoquée et ne peut pas être régénérée',
+      action: 'NEW_INSTALLATION'
+    });
+  }
+  
+  const result = repos.installation.rotateToken(installationId);
+  
+  if (result) {
+    // Log avec logger structuré (JAMAIS le token en clair)
+    logger.logAudit('INSTALLATION_TOKEN_ROTATED', 'Installation token rotated', {
+      route: '/client/installations/:id/rotate',
+      method: 'POST',
+      status: 200,
+      actor: 'client',
+      userId: auth.user.id,
+      orgId: auth.user.orgId,
+      installationId: installationId,
+      installationLabel: result.installation.label
+      // ⚠️ JAMAIS le token en clair ici
+    });
+    
+    // Return new token in cleartext ONLY HERE
+    return sendJson(res, 200, {
+      ok: true,
+      installation: {
+        id: result.installation.id,
+        label: result.installation.label,
+        tokenMasked: result.installation.tokenMasked,
+        createdAt: result.installation.createdAt
+      },
+      token: result.token, // CLEARTEXT - shown only once!
+      warning: "Copiez ce nouveau token maintenant, il ne sera plus affiché."
+    });
+  } else {
+    return sendJson(res, 500, { 
+      ok: false,
+      errorCategory: 'INTERNAL_ERROR',
+      errorCode: 'ROTATE_FAILED',
+      message: 'Échec de la régénération du token',
+      action: 'RETRY'
+    });
+  }
+}
+
+// ============ CLIENT SHORTLINKS ENDPOINTS ============
+
+/**
+ * GET /client/shortlinks - List shortlinks for authenticated org
+ */
+function handleClientListShortlinks(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 200, { shortlinks: [], stats: { totalQr: 0, totalNfc: 0, totalClicks: 0 } });
+  }
+  
+  const shortlinks = repos.shortlink.getByOrgId(auth.user.orgId);
+  const stats = repos.shortlink.getStatsByOrgId(auth.user.orgId);
+  
+  return sendJson(res, 200, {
+    ok: true,
+    shortlinks: shortlinks.map(s => ({
+      code: s.code,
+      type: s.type,
+      label: s.label,
+      targetUrl: s.targetUrl,
+      shortUrl: repos.shortlink.buildShortUrl(s.code, REVIEWS_BASE_URL),
+      clicks: s.clicks,
+      createdAt: s.createdAt,
+      lastClickedAt: s.lastClickedAt
+    })),
+    stats
+  });
+}
+
+/**
+ * POST /client/shortlinks - Create new shortlink (QR or NFC)
+ */
+async function handleClientCreateShortlink(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  // STATE MACHINE GUARD: Check if org can create shortlinks
+  const accessCheck = stateMachine.canPerformAction(auth.org, 'createShortlink');
+  if (!accessCheck.allowed) {
+    return sendJson(res, 403, {
+      ok: false,
+      errorCategory: accessCheck.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
+      errorCode: accessCheck.error?.errorCode || 'FEATURE_BLOCKED',
+      message: accessCheck.error?.message || 'Fonctionnalité non disponible avec votre abonnement actuel',
+      action: accessCheck.error?.action || 'UPGRADE_PLAN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 501, { 
+      ok: false,
+      errorCategory: 'SERVICE_UNAVAILABLE',
+      errorCode: 'NOT_IMPLEMENTED',
+      message: 'Fonctionnalité non disponible',
+      action: 'RETRY_LATER'
+    });
+  }
+  
+  try {
+    const body = await parseBody(req);
+    const { type, targetUrl, label } = body;
+    
+    // Validate type
+    if (!type || !['qr', 'nfc'].includes(type)) {
+      return sendJson(res, 400, { 
+        ok: false,
+        errorCategory: 'VALIDATION_ERROR',
+        errorCode: 'INVALID_TYPE',
+        message: 'Type invalide (qr ou nfc)',
+        action: 'FIX_INPUT',
+        field: 'type'
+      });
+    }
+    
+    // Validate targetUrl
+    if (!targetUrl) {
+      return sendJson(res, 400, { 
+        ok: false,
+        errorCategory: 'MISSING_FIELD',
+        errorCode: 'MISSING_TARGET_URL',
+        message: 'URL de destination requise',
+        action: 'FIX_INPUT',
+        field: 'targetUrl'
+      });
+    }
+    
+    // Check and consume quota for QR/NFC creation
+    const org = data.orgs.find(o => o.id === auth.user.orgId);
+    if (!org) {
+      return sendJson(res, 404, { 
+        ok: false,
+        errorCategory: 'ORG_NOT_FOUND',
+        errorCode: 'NOT_FOUND',
+        message: 'Organisation non trouvée',
+        action: 'CONTACT_SUPPORT'
+      });
+    }
+    
+    // Debit 1 unit from quota (qr or nfc)
+    const debitResult = debitCredits(data, org, type, 1);
+    if (!debitResult.success) {
+      const quotaTypeLabel = type === 'qr' ? 'QR' : 'NFC';
+      const priceHint = type === 'qr' ? '5€ HT' : '15€ HT';
+      return sendJson(res, 402, { 
+        ok: false,
+        errorCategory: debitResult.errorCategory || `QUOTA_${type.toUpperCase()}_EXCEEDED`,
+        errorCode: 'QUOTA_EXCEEDED',
+        message: debitResult.message || `Quota ${quotaTypeLabel} atteint. Vous pouvez acheter un crédit supplémentaire (${priceHint}).`,
+        action: debitResult.action || `BUY_${type.toUpperCase()}_ADDON`,
+        quotaRemaining: {
+          qr: debitResult.qrRemaining || 0,
+          nfc: debitResult.nfcRemaining || 0
+        }
+      });
+    }
+    
+    // Save quota debit to data
+    const orgIndex = data.orgs.findIndex(o => o.id === org.id);
+    if (orgIndex >= 0) {
+      data.orgs[orgIndex] = org;
+      saveData(data);
+    }
+    
+    const shortlink = repos.shortlink.create(auth.user.orgId, type, targetUrl, label);
+    
+    logger.logAudit('shortlink_created', auth.user.id, {
+      orgId: auth.user.orgId,
+      type: type,
+      code: shortlink.code,
+      debitedFrom: debitResult.debitedFrom
+    });
+    
+    return sendJson(res, 201, {
+      ok: true,
+      shortlink: {
+        code: shortlink.code,
+        type: shortlink.type,
+        label: shortlink.label,
+        targetUrl: shortlink.targetUrl,
+        shortUrl: repos.shortlink.buildShortUrl(shortlink.code, REVIEWS_BASE_URL),
+        createdAt: shortlink.createdAt
+      }
+    });
+  } catch (err) {
+    console.error('[REPUTY][SHORTLINK] Create error:', err);
+    return sendJson(res, 500, { 
+      ok: false,
+      errorCategory: 'INTERNAL_ERROR',
+      errorCode: 'INTERNAL_ERROR',
+      message: 'Erreur lors de la création',
+      action: 'RETRY'
+    });
+  }
+}
+
+/**
+ * DELETE /client/shortlinks/:code - Delete a shortlink
+ */
+async function handleClientDeleteShortlink(req, res, code) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 501, { 
+      ok: false,
+      errorCategory: 'SERVICE_UNAVAILABLE',
+      errorCode: 'NOT_IMPLEMENTED',
+      message: 'Fonctionnalité non disponible',
+      action: 'RETRY_LATER'
+    });
+  }
+  
+  // Verify the shortlink belongs to the user's org
+  const shortlink = repos.shortlink.getByCode(code);
+  if (!shortlink || shortlink.orgId !== auth.user.orgId) {
+    return sendJson(res, 404, { 
+      ok: false,
+      errorCategory: 'NOT_FOUND',
+      errorCode: 'NOT_FOUND',
+      message: 'Shortlink introuvable',
+      action: 'CHECK_URL'
+    });
+  }
+  
+  const success = repos.shortlink.remove(code);
+  
+  if (success) {
+    logger.logAudit('shortlink_deleted', auth.user.id, {
+      orgId: auth.user.orgId,
+      code: code
+    });
+    return sendJson(res, 200, { ok: true, message: 'Shortlink supprimé' });
+  } else {
+    return sendJson(res, 500, { 
+      ok: false,
+      errorCategory: 'INTERNAL_ERROR',
+      errorCode: 'DELETE_FAILED',
+      message: 'Échec de la suppression',
+      action: 'RETRY'
+    });
+  }
+}
+
+/**
+ * GET /client/shortlinks/:code/qr - Generate QR code image for shortlink
+ * Query params: format=png|svg (default: png)
+ */
+async function handleClientGetShortlinkQR(req, res, code) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 501, { 
+      ok: false,
+      errorCategory: 'SERVICE_UNAVAILABLE',
+      errorCode: 'NOT_IMPLEMENTED',
+      message: 'Fonctionnalité non disponible',
+      action: 'RETRY_LATER'
+    });
+  }
+  
+  // Verify the shortlink belongs to the user's org
+  const shortlink = repos.shortlink.getByCode(code);
+  if (!shortlink || shortlink.orgId !== auth.user.orgId) {
+    return sendJson(res, 404, { 
+      ok: false,
+      errorCategory: 'NOT_FOUND',
+      errorCode: 'NOT_FOUND',
+      message: 'Shortlink introuvable',
+      action: 'CHECK_URL'
+    });
+  }
+  
+  // Parse format from query string
+  const urlParsed = require('url').parse(req.url, true);
+  const format = (urlParsed.query.format || 'png').toLowerCase();
+  
+  if (!['png', 'svg'].includes(format)) {
+    return sendJson(res, 400, { 
+      ok: false,
+      errorCategory: 'INVALID_FORMAT',
+      errorCode: 'BAD_REQUEST',
+      message: 'Format invalide. Utilisez png ou svg.',
+      action: 'FIX_INPUT'
+    });
+  }
+  
+  try {
+    const QRCode = require('qrcode');
+    
+    // Build the short URL to encode (not the target URL!)
+    const shortUrl = repos.shortlink.buildShortUrl(code, REVIEWS_BASE_URL);
+    
+    if (format === 'svg') {
+      // Generate SVG
+      const svgString = await QRCode.toString(shortUrl, {
+        type: 'svg',
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      
+      res.writeHead(200, {
+        'Content-Type': 'image/svg+xml',
+        'Content-Disposition': `inline; filename="qr-${code}.svg"`,
+        'Cache-Control': 'private, max-age=3600',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type'
+      });
+      res.end(svgString);
+    } else {
+      // Generate PNG
+      const pngBuffer = await QRCode.toBuffer(shortUrl, {
+        type: 'png',
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Content-Disposition': `inline; filename="qr-${code}.png"`,
+        'Cache-Control': 'private, max-age=3600',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type'
+      });
+      res.end(pngBuffer);
+    }
+    
+    logger.logAudit('qr_generated', auth.user.id, {
+      orgId: auth.user.orgId,
+      code: code,
+      format: format
+    });
+    
+  } catch (err) {
+    logger.logError('QR generation error:', err);
+    return sendJson(res, 500, { 
+      ok: false,
+      errorCategory: 'INTERNAL_ERROR',
+      errorCode: 'QR_GENERATION_FAILED',
+      message: 'Erreur lors de la génération du QR code',
+      action: 'RETRY'
+    });
+  }
+}
+
+/**
+ * GET /r/:code - Public shortlink redirect
+ */
+function handleShortlinkRedirect(req, res, code) {
+  const repos = storage.getRepos();
+  
+  if (!repos) {
+    // In non-SQLite mode, just 404
+    return sendJson(res, 404, { error: 'Not found' });
+  }
+  
+  const shortlink = repos.shortlink.getByCode(code);
+  
+  if (!shortlink) {
+    // Return a nice 404 page
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Lien introuvable</title></head>
+      <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+        <h1>🔗 Lien introuvable</h1>
+        <p>Ce lien n'existe pas ou a été supprimé.</p>
+      </body>
+      </html>
+    `);
+    return;
+  }
+  
+  // Increment clicks counter
+  repos.shortlink.incrementClicks(code);
+  
+  // 302 redirect to target URL
+  res.writeHead(302, { 'Location': shortlink.targetUrl });
+  res.end();
+}
+
+// ============================================================
+// REVIEWS HANDLERS (Phase 1A)
+// ============================================================
+
+/**
+ * GET /client/reviews - List reviews for authenticated org
+ * Query params: status, rating, sort, order, limit, offset, search
+ */
+function handleClientListReviews(req, res, queryParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 200, { ok: true, reviews: [], total: 0, hasMore: false });
+  }
+  
+  const filters = {
+    status: queryParams.get('status'),
+    rating: queryParams.get('rating') ? parseInt(queryParams.get('rating')) : null,
+    search: queryParams.get('search')
+  };
+  
+  const pagination = {
+    sort: queryParams.get('sort') || 'reviewed_at',
+    order: queryParams.get('order') || 'desc',
+    limit: parseInt(queryParams.get('limit')) || 20,
+    offset: parseInt(queryParams.get('offset')) || 0
+  };
+  
+  const result = repos.review.listReviews(auth.user.orgId, filters, pagination);
+  
+  return sendJson(res, 200, {
+    ok: true,
+    reviews: result.reviews,
+    total: result.total,
+    hasMore: result.hasMore
+  });
+}
+
+/**
+ * GET /client/reviews/stats - Get review statistics for authenticated org
+ * Query params: period (7d, 30d, 90d, 365d) - default: 30d
+ */
+function handleClientReviewStats(req, res, queryParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  // Get period from query params (default: 30d)
+  const period = queryParams?.get('period') || '30d';
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 200, { 
+      ok: true, 
+      stats: {
+        period,
+        totalAllTime: 0,
+        avgRatingAllTime: 0,
+        totalPeriod: 0,
+        avgRatingPeriod: 0,
+        pendingCount: 0,
+        repliedCountPeriod: 0,
+        responseRatePeriod: 0,
+        avgResponseTimeHours: null,
+        reviewsDeltaPct: null,
+        avgRatingDelta: null,
+        responseRateDeltaPct: null,
+        starDistributionPeriod: [
+          { stars: 5, count: 0, percentage: 0 },
+          { stars: 4, count: 0, percentage: 0 },
+          { stars: 3, count: 0, percentage: 0 },
+          { stars: 2, count: 0, percentage: 0 },
+          { stars: 1, count: 0, percentage: 0 }
+        ],
+        // Legacy fields
+        total: 0,
+        avgRating: 0,
+        repliedCount: 0,
+        ignoredCount: 0,
+        responseRate: 0,
+        reviews30Days: 0,
+        starDistribution: [
+          { stars: 5, count: 0, percentage: 0 },
+          { stars: 4, count: 0, percentage: 0 },
+          { stars: 3, count: 0, percentage: 0 },
+          { stars: 2, count: 0, percentage: 0 },
+          { stars: 1, count: 0, percentage: 0 }
+        ]
+      }
+    });
+  }
+  
+  const stats = repos.review.getStats(auth.user.orgId, period);
+  
+  return sendJson(res, 200, {
+    ok: true,
+    stats
+  });
+}
+
+/**
+ * GET /client/reviews/analytics - Get review analytics time series
+ * Query params: period (7d, 30d, 90d, 365d), groupBy (day, week, month)
+ */
+function handleClientReviewAnalytics(req, res, queryParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 200, { ok: true, analytics: { series: [] } });
+  }
+  
+  const period = queryParams.get('period') || '30d';
+  const groupBy = queryParams.get('groupBy') || 'day';
+  
+  const analytics = repos.review.getAnalytics(auth.user.orgId, period, groupBy);
+  
+  return sendJson(res, 200, {
+    ok: true,
+    analytics
+  });
+}
+
+/**
+ * GET /client/reviews/:id - Get single review by ID
+ */
+function handleClientGetReview(req, res, reviewId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 404, { ok: false, error: 'Review not found' });
+  }
+  
+  const review = repos.review.getById(auth.user.orgId, reviewId);
+  
+  if (!review) {
+    return sendJson(res, 404, { ok: false, error: 'Review not found' });
+  }
+  
+  return sendJson(res, 200, {
+    ok: true,
+    review
+  });
+}
+
+/**
+ * POST /client/reviews/:id/reply - Submit reply to a review (idempotent)
+ * Body: { replyText: string }
+ * Sets reply_status to 'queued' for async processing
+ */
+async function handleClientReplyReview(req, res, reviewId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 404, { ok: false, error: 'Review not found' });
+  }
+  
+  // Check review exists and belongs to org
+  const existing = repos.review.getById(auth.user.orgId, reviewId);
+  if (!existing) {
+    return sendJson(res, 404, { ok: false, error: 'Review not found' });
+  }
+  
+  // Parse body
+  const body = await parseJsonBody(req);
+  
+  if (!body.replyText || typeof body.replyText !== 'string' || !body.replyText.trim()) {
+    return sendJson(res, 400, { 
+      ok: false, 
+      errorCategory: 'VALIDATION_ERROR',
+      errorCode: 'MISSING_REPLY_TEXT',
+      message: 'Le texte de réponse est requis',
+      action: 'PROVIDE_REPLY_TEXT'
+    });
+  }
+  
+  // Idempotence: if already queued or sent, return existing
+  if (['queued', 'sent'].includes(existing.replyStatus)) {
+    return sendJson(res, 200, {
+      ok: true,
+      review: existing,
+      message: 'Reply already queued or sent'
+    });
+  }
+  
+  // Update reply with status 'queued' (will be processed async)
+  const updated = repos.review.updateReply(auth.user.orgId, reviewId, {
+    replyText: body.replyText.trim(),
+    replyStatus: 'queued',
+    replyError: null
+  });
+  
+  // Log for audit
+  logger.logAudit('REVIEW_REPLY_QUEUED', {
+    reviewId,
+    orgId: auth.user.orgId,
+    userId: auth.user.id,
+    replyLength: body.replyText.length
+  });
+  
+  return sendJson(res, 200, {
+    ok: true,
+    review: updated,
+    message: 'Reply queued for processing'
+  });
+}
+
+/**
+ * POST /client/reviews/:id/status - Update review status
+ * Body: { status: 'pending' | 'replied' | 'ignored' }
+ */
+async function handleClientUpdateReviewStatus(req, res, reviewId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 404, { ok: false, error: 'Review not found' });
+  }
+  
+  const body = await parseJsonBody(req);
+  
+  const validStatuses = ['pending', 'replied', 'ignored'];
+  if (!body.status || !validStatuses.includes(body.status)) {
+    return sendJson(res, 400, { 
+      ok: false, 
+      errorCategory: 'VALIDATION_ERROR',
+      errorCode: 'INVALID_STATUS',
+      message: 'Statut invalide. Valeurs acceptées: pending, replied, ignored',
+      action: 'PROVIDE_VALID_STATUS'
+    });
+  }
+  
+  const updated = repos.review.updateStatus(auth.user.orgId, reviewId, body.status);
+  
+  if (!updated) {
+    return sendJson(res, 404, { ok: false, error: 'Review not found' });
+  }
+  
+  return sendJson(res, 200, {
+    ok: true,
+    review: updated
+  });
+}
+
+/**
+ * POST /client/reviews - Create a review (for dev/test/import)
+ * Body: Review object
+ */
+async function handleClientCreateReview(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  // Protection dev-only: bloque en production sauf si ALLOW_DEV_SEED=1
+  const allowDev = process.env.ALLOW_DEV_SEED === '1';
+  const isProd = process.env.NODE_ENV === 'production';
+  
+  if (isProd && !allowDev) {
+    console.warn('[SECURITY] Blocked dev-only reviews endpoint in production', { path: req.url });
+    return sendJson(res, 403, {
+      ok: false,
+      error: 'Cette route est désactivée en production',
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 500, { ok: false, error: 'Storage not available' });
+  }
+  
+  const body = await parseJsonBody(req);
+  
+  // Validate required fields
+  if (!body.authorName) {
+    return sendJson(res, 400, { ok: false, error: 'authorName is required' });
+  }
+  if (!body.rating || body.rating < 1 || body.rating > 5) {
+    return sendJson(res, 400, { ok: false, error: 'rating must be 1-5' });
+  }
+  if (!body.reviewedAt) {
+    return sendJson(res, 400, { ok: false, error: 'reviewedAt is required (ISO date)' });
+  }
+  
+  try {
+    const review = repos.review.create({
+      ...body,
+      orgId: auth.user.orgId
+    });
+    
+    return sendJson(res, 201, {
+      ok: true,
+      review
+    });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, error: err.message });
+  }
+}
+
+/**
+ * POST /client/reviews/bulk - Bulk import reviews (for sync/import)
+ * Body: { reviews: [...] }
+ */
+async function handleClientBulkImportReviews(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth) {
+    return sendJson(res, 401, { 
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+  
+  // Protection dev-only: bloque en production sauf si ALLOW_DEV_SEED=1
+  const allowDev = process.env.ALLOW_DEV_SEED === '1';
+  const isProd = process.env.NODE_ENV === 'production';
+  
+  if (isProd && !allowDev) {
+    console.warn('[SECURITY] Blocked dev-only bulk reviews endpoint in production', { path: req.url });
+    return sendJson(res, 403, {
+      ok: false,
+      error: 'Cette route est désactivée en production',
+    });
+  }
+  
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 500, { ok: false, error: 'Storage not available' });
+  }
+  
+  const body = await parseJsonBody(req);
+  
+  if (!body.reviews || !Array.isArray(body.reviews)) {
+    return sendJson(res, 400, { ok: false, error: 'reviews array is required' });
+  }
+  
+  if (body.reviews.length > 100) {
+    return sendJson(res, 400, { ok: false, error: 'Maximum 100 reviews per request' });
+  }
+  
+  const result = repos.review.bulkInsert(auth.user.orgId, body.reviews);
+  
+  logger.logAudit('REVIEWS_BULK_IMPORTED', {
+    orgId: auth.user.orgId,
+    userId: auth.user.id,
+    inserted: result.inserted,
+    skipped: result.skipped
+  });
+  
+  return sendJson(res, 200, {
+    ok: true,
+    inserted: result.inserted,
+    skipped: result.skipped
+  });
+}
+
+// ============================================================
+// BILLING HANDLERS (Étape 3)
+// ============================================================
+
+/**
+ * GET /client/billing/status - Get billing status for authenticated org
+ * Returns: plan, access state, dates, quotas using computeEffectiveBilling
+ * 
+ * NOW USES: effectiveBilling.computeEffectiveBilling() for consistent data
+ */
+async function handleBillingStatus(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  const repos = storage.getRepos();
+  
+  if (!auth || !auth.user) {
+    return sendJson(res, 401, { 
+      error: 'Non authentifié',
+      errorCategory: 'AUTH_REQUIRED',
+      action: 'LOGIN'
+    });
+  }
+  
+  let org = auth.org;
+  if (!org) {
+    return sendJson(res, 404, { 
+      error: 'Organisation non trouvée',
+      errorCategory: 'ORG_NOT_FOUND'
+    });
+  }
+  
+  // Compute effective billing (includes period rollover)
+  const now = new Date();
+  const billing = effectiveBilling.computeEffectiveBilling({ org, now, repos });
+  
+  // Refresh org after potential period rollover
+  if (billing.periodRolledOver && repos) {
+    org = repos.org.getById(org.id);
+  }
+  
+  // Get current state from state machine
+  const accessState = stateMachine.getCurrentState(org);
+  const stateInfo = stateMachine.getStateInfo(org);
+  
+  // Get dunning state if applicable
+  const dunningState = dunning.getDunningState(org);
+  
+  // Plan labels
+  const planLabels = {
+    health_bronze: 'Pack Bronze (Gratuit)',
+    health_argent: 'Pack Argent',
+    health_or: 'Pack Or',
+    health_platinum: 'Pack Platinum'
+  };
+  
+  // Billing provider info
+  const orgBilling = org.billing || {};
+  const hasPaymentMethod = !!(orgBilling.stripeCustomerId || orgBilling.gocardlessMandateId);
+  
+  return sendJson(res, 200, {
+    ok: true,
+    billing: {
+      // Plan info from effectiveBilling
+      plan: billing.planCode,
+      planLabel: planLabels[billing.planCode] || billing.planName,
+      planName: billing.planName,
+      
+      // Price info from effectiveBilling
+      priceCatalogCents: billing.priceCatalogCents,
+      priceEffectiveCents: billing.priceEffectiveCents,
+      priceFormatted: billing.priceEffectiveFormatted,
+      
+      // Discount info
+      hasDiscount: billing.hasDiscount,
+      discount: billing.discount,
+      couponInfo: billing.couponInfo,
+      
+      // Access state
+      accessState,
+      accessStateLabel: stateMachine.getStateLabel(accessState),
+      isRestricted: stateInfo.isRestricted || false,
+      warningMessage: stateInfo.warningMessage || null,
+      blockMessage: stateInfo.blockMessage || null,
+      
+      // Period info from effectiveBilling (always current after rollover)
+      periodStart: billing.billingPeriod.periodStart,
+      periodEnd: billing.billingPeriod.periodEnd,
+      periodEndFormatted: billing.periodEndFormatted,
+      
+      trialEnd: orgBilling.trialEnd || null,
+      pastDueSince: dunningState.pastDueSince || null,
+      daysPastDue: dunningState.pastDueSince ? dunning.getDaysPastDue(dunningState) : null,
+      
+      provider: billing.billingProvider,
+      hasPaymentMethod,
+      
+      // Quotas from effectiveBilling (consistent with catalog)
+      quotas: {
+        sms: {
+          included: billing.quotasEffective.smsIncluded,
+          used: billing.monthlyUsed.sms,
+          remaining: billing.monthlyRemaining.sms,
+          packsBalance: billing.packsBalance.sms,
+          totalAvailable: billing.totalAvailableThisMonth.sms
+        },
+        email: {
+          included: billing.quotasEffective.emailIncluded,
+          used: billing.monthlyUsed.email,
+          remaining: billing.monthlyRemaining.email,
+          packsBalance: billing.packsBalance.email,
+          totalAvailable: billing.totalAvailableThisMonth.email
+        },
+        ai: {
+          included: billing.quotasEffective.aiIncluded,
+          used: billing.monthlyUsed.ai,
+          remaining: billing.monthlyRemaining.ai,
+          packsBalance: billing.packsBalance.ai,
+          totalAvailable: billing.totalAvailableThisMonth.ai
+        },
+        qr: {
+          included: billing.quotasEffective.qrIncluded,
+          used: billing.monthlyUsed.qr,
+          remaining: billing.monthlyRemaining.qr
+        },
+        nfc: {
+          included: billing.quotasEffective.nfcIncluded,
+          used: billing.monthlyUsed.nfc,
+          remaining: billing.monthlyRemaining.nfc
+        }
+      },
+      
+      // Legacy compatibility fields
+      quotasLegacy: {
+        sms: { included: billing.quotasEffective.smsIncluded, used: billing.monthlyUsed.sms, remaining: billing.monthlyRemaining.sms },
+        email: { included: billing.quotasEffective.emailIncluded, used: billing.monthlyUsed.email, remaining: billing.monthlyRemaining.email },
+        ai: { included: billing.quotasEffective.aiIncluded, used: billing.monthlyUsed.ai, remaining: billing.monthlyRemaining.ai },
+        qr: { included: billing.quotasEffective.qrIncluded, used: billing.monthlyUsed.qr, remaining: billing.monthlyRemaining.qr },
+        nfc: { included: billing.quotasEffective.nfcIncluded, used: billing.monthlyUsed.nfc, remaining: billing.monthlyRemaining.nfc }
+      }
+    }
+  });
+}
+
+/**
+ * POST /client/billing/checkout - Create Stripe checkout session
+ */
+async function handleBillingCheckout(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth || !auth.user) {
+    return sendJson(res, 401, { 
+      error: 'Non authentifié',
+      errorCategory: 'AUTH_REQUIRED',
+      action: 'LOGIN'
+    });
+  }
+  
+  const org = auth.org;
+  if (!org) {
+    return sendJson(res, 404, { 
+      error: 'Organisation non trouvée',
+      errorCategory: 'ORG_NOT_FOUND'
+    });
+  }
+  
+  // Parse body
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { 
+      error: 'Requête invalide',
+      errorCategory: 'INVALID_REQUEST'
+    });
+  }
+  
+  const { planId, provider = 'stripe', billingDetails } = body;
+  
+  // Bronze is FREE and NEVER goes through Stripe
+  if (planId === 'bronze') {
+    return sendJson(res, 400, {
+      error: 'Le forfait Bronze est gratuit et ne nécessite pas de paiement.',
+      errorCategory: 'BRONZE_IS_FREE',
+      action: 'USE_BRONZE_DIRECTLY'
+    });
+  }
+  
+  // Validate paid plans
+  const validPaidPlans = ['argent', 'or', 'platinum'];
+  if (!planId || !validPaidPlans.includes(planId)) {
+    return sendJson(res, 400, {
+      error: `Forfait invalide. Choisissez parmi: ${validPaidPlans.join(', ')}.`,
+      errorCategory: 'INVALID_PLAN',
+      action: 'SELECT_VALID_PLAN'
+    });
+  }
+  
+  // Handle SEPA (GoCardless)
+  if (provider === 'gocardless' || provider === 'sepa') {
+    const result = await gocardlessBilling.createMandateFlow({
+      orgId: org.id,
+      planId,
+      billingDetails,
+      successUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?success=true`,
+      cancelUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?canceled=true`
+    });
+    
+    if (result.error) {
+      return sendJson(res, 400, result.error);
+    }
+    
+    return sendJson(res, 200, { ok: true, url: result.url });
+  }
+  
+  // Handle Stripe (default)
+  const result = await stripeBilling.createCheckoutSession({
+    orgId: org.id,
+    planId,
+    customerEmail: auth.user.email,
+    customerId: org.billing?.stripeCustomerId,
+    successUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?canceled=true`
+  });
+  
+  if (result.error) {
+    return sendJson(res, 400, result.error);
+  }
+  
+  logger.logAudit('BILLING_CHECKOUT_INITIATED', {
+    orgId: org.id,
+    userId: auth.user.id,
+    planId,
+    provider
+  });
+  
+  return sendJson(res, 200, { ok: true, url: result.url, sessionId: result.sessionId });
+}
+
+/**
+ * POST /client/billing/pack/checkout - Create Stripe checkout for pack purchase (one-time)
+ * 
+ * Request body:
+ * - packId: string (required) - Pack ID: 'ia-mini', 'ia-maxi', 'sms-150', 'sms-300', 'email-1000', 'email-2000', 'qr', 'nfc'
+ * - quantity: number (optional, default 1) - Quantity of packs
+ * 
+ * Response:
+ * - ok: boolean
+ * - url: string - Stripe checkout URL
+ * - sessionId: string - Stripe session ID
+ */
+async function handlePackCheckout(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth || !auth.user) {
+    return sendJson(res, 401, { 
+      error: 'Non authentifié',
+      errorCategory: 'AUTH_REQUIRED',
+      action: 'LOGIN'
+    });
+  }
+  
+  const org = auth.org;
+  if (!org) {
+    return sendJson(res, 404, { 
+      error: 'Organisation non trouvée',
+      errorCategory: 'ORG_NOT_FOUND'
+    });
+  }
+  
+  // Parse body
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { 
+      error: 'Requête invalide',
+      errorCategory: 'INVALID_REQUEST'
+    });
+  }
+  
+  const { packId, quantity = 1 } = body;
+  
+  // Validate pack ID
+  const validPacks = ['ia-mini', 'ia-maxi', 'sms-150', 'sms-300', 'email-1000', 'email-2000', 'qr', 'nfc'];
+  if (!packId || !validPacks.includes(packId)) {
+    return sendJson(res, 400, {
+      error: `Pack invalide. Choisissez parmi: ${validPacks.join(', ')}.`,
+      errorCategory: 'INVALID_PACK',
+      action: 'SELECT_VALID_PACK'
+    });
+  }
+  
+  // Call Stripe module
+  const result = await stripeBilling.createPackCheckoutSession({
+    orgId: org.id,
+    packId,
+    quantity: parseInt(quantity, 10) || 1,
+    customerEmail: auth.user.email,
+    customerId: org.billing?.stripeCustomerId,
+    successUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?pack_success=true&pack=${packId}&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?pack_canceled=true`
+  });
+  
+  if (result.error) {
+    return sendJson(res, 400, result.error);
+  }
+  
+  logger.logAudit('BILLING_PACK_CHECKOUT_INITIATED', {
+    orgId: org.id,
+    userId: auth.user.id,
+    packId,
+    quantity,
+    provider: 'stripe'
+  });
+  
+  return sendJson(res, 200, { ok: true, url: result.url, sessionId: result.sessionId });
+}
+
+/**
+ * POST /client/billing/pack/multi-checkout - Create multi-pack checkout session
+ */
+async function handleMultiPackCheckout(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth || !auth.user) {
+    return sendJson(res, 401, { 
+      error: 'Non authentifié',
+      errorCategory: 'AUTH_REQUIRED',
+      action: 'LOGIN'
+    });
+  }
+  
+  const org = auth.org;
+  if (!org) {
+    return sendJson(res, 404, { 
+      error: 'Organisation non trouvée',
+      errorCategory: 'ORG_NOT_FOUND'
+    });
+  }
+  
+  // Parse body
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { 
+      error: 'Requête invalide',
+      errorCategory: 'INVALID_REQUEST'
+    });
+  }
+  
+  const { items } = body; // Array of {packId, quantity}
+  
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return sendJson(res, 400, {
+      error: 'Aucun pack sélectionné.',
+      errorCategory: 'INVALID_REQUEST',
+      action: 'SELECT_PACKS'
+    });
+  }
+  
+  // Validate all packs
+  const validPacks = ['ia-mini', 'ia-maxi', 'sms-150', 'sms-300', 'email-1000', 'email-2000', 'qr', 'nfc'];
+  for (const item of items) {
+    if (!item.packId || !validPacks.includes(item.packId)) {
+      return sendJson(res, 400, {
+        error: `Pack invalide: ${item.packId}. Choisissez parmi: ${validPacks.join(', ')}.`,
+        errorCategory: 'INVALID_PACK',
+        action: 'SELECT_VALID_PACK'
+      });
+    }
+  }
+  
+  // Call Stripe module
+  const result = await stripeBilling.createMultiPackCheckoutSession({
+    orgId: org.id,
+    items: items.map(i => ({ packId: i.packId, quantity: parseInt(i.quantity, 10) || 1 })),
+    customerEmail: auth.user.email,
+    customerId: org.billing?.stripeCustomerId,
+    successUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?pack_success=true&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing?pack_canceled=true`
+  });
+  
+  if (result.error) {
+    return sendJson(res, 400, result.error);
+  }
+  
+  logger.logAudit('BILLING_MULTI_PACK_CHECKOUT_INITIATED', {
+    orgId: org.id,
+    userId: auth.user.id,
+    items,
+    provider: 'stripe'
+  });
+  
+  return sendJson(res, 200, { ok: true, url: result.url, sessionId: result.sessionId });
+}
+
+/**
+ * POST /client/billing/portal - Create Stripe customer portal session
+ */
+async function handleBillingPortal(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth || !auth.user) {
+    return sendJson(res, 401, { 
+      error: 'Non authentifié',
+      errorCategory: 'AUTH_REQUIRED',
+      action: 'LOGIN'
+    });
+  }
+  
+  const org = auth.org;
+  if (!org) {
+    return sendJson(res, 404, { 
+      error: 'Organisation non trouvée',
+      errorCategory: 'ORG_NOT_FOUND'
+    });
+  }
+  
+  const customerId = org.billing?.stripeCustomerId;
+  
+  if (!customerId) {
+    return sendJson(res, 400, {
+      error: 'Aucun compte de facturation associé. Effectuez d\'abord un paiement.',
+      errorCategory: 'NO_BILLING_ACCOUNT',
+      action: 'SETUP_BILLING'
+    });
+  }
+  
+  const result = await stripeBilling.createPortalSession({
+    customerId,
+    returnUrl: `${process.env.REPUTY_DOMAIN || 'http://localhost:3002'}/billing`
+  });
+  
+  if (result.error) {
+    return sendJson(res, 400, result.error);
+  }
+  
+  logger.logAudit('BILLING_PORTAL_ACCESSED', {
+    orgId: org.id,
+    userId: auth.user.id
+  });
+  
+  return sendJson(res, 200, { ok: true, url: result.url });
+}
+
+/**
+ * POST /webhooks/stripe - Handle Stripe webhook events
+ */
+async function handleStripeWebhook(req, res) {
+  // Get raw body for signature verification
+  let rawBody;
+  try {
+    rawBody = await getRawRequestBody(req);
+  } catch (err) {
+    logger.logError('STRIPE_WEBHOOK_BODY_ERROR', { error: err.message });
+    return sendJson(res, 400, { error: 'Invalid request body' });
+  }
+  
+  const signature = req.headers['stripe-signature'];
+  
+  if (!signature) {
+    return sendJson(res, 400, { error: 'Missing signature' });
+  }
+  
+  // Verify signature
+  const verification = stripeBilling.verifyWebhook(rawBody, signature);
+  
+  if (verification.error) {
+    logger.logError('STRIPE_WEBHOOK_SIGNATURE_INVALID', { error: verification.error.message });
+    return sendJson(res, 400, verification.error);
+  }
+  
+  const event = verification.event;
+  
+  // Process with idempotence
+  const processResult = await webhookEventsRepo.processWithIdempotence(
+    event,
+    'stripe',
+    async (evt) => {
+      await processStripeEvent(evt);
+    }
+  );
+  
+  if (processResult.skipped) {
+    return sendJson(res, 200, { received: true, skipped: true });
+  }
+  
+  if (processResult.error) {
+    // Log but still return 200 to prevent Stripe retries for business logic errors
+    logger.logError('STRIPE_WEBHOOK_PROCESSING_ERROR', {
+      eventId: event.id,
+      eventType: event.type,
+      error: processResult.error.message
+    });
+  }
+  
+  return sendJson(res, 200, { received: true });
+}
+
+/**
+ * Process a Stripe webhook event
+ */
+async function processStripeEvent(event) {
+  const data = loadData();
+  const eventType = event.type;
+  const eventData = event.data.object;
+  
+  logger.logAudit('STRIPE_EVENT_PROCESSING', {
+    eventId: event.id,
+    eventType,
+    customerId: eventData.customer
+  });
+  
+  switch (eventType) {
+    case 'checkout.session.completed':
+      await handleCheckoutCompleted(data, eventData);
+      break;
+      
+    case 'invoice.paid':
+      await handleInvoicePaid(data, eventData);
+      break;
+      
+    case 'invoice.payment_failed':
+      await handleInvoicePaymentFailed(data, eventData);
+      break;
+      
+    case 'customer.subscription.updated':
+      await handleSubscriptionUpdated(data, eventData);
+      break;
+      
+    case 'customer.subscription.deleted':
+      await handleSubscriptionDeleted(data, eventData);
+      break;
+      
+    default:
+      logger.logAudit('STRIPE_EVENT_IGNORED', { eventType, eventId: event.id });
+  }
+}
+
+/**
+ * Handle checkout.session.completed
+ */
+async function handleCheckoutCompleted(data, session) {
+  const orgId = session.metadata?.orgId;
+  const planId = session.metadata?.planId;
+  const customerId = session.customer;
+  const subscriptionId = session.subscription;
+  
+  if (!orgId) {
+    logger.logError('STRIPE_CHECKOUT_NO_ORG', { sessionId: session.id });
+    return;
+  }
+  
+  const org = data.orgs.find(o => o.id === orgId);
+  if (!org) {
+    logger.logError('STRIPE_CHECKOUT_ORG_NOT_FOUND', { orgId, sessionId: session.id });
+    return;
+  }
+  
+  // Update org billing info
+  org.billing = org.billing || {};
+  org.billing.provider = 'stripe';
+  org.billing.stripeCustomerId = customerId;
+  org.billing.stripeSubscriptionId = subscriptionId;
+  org.billing.status = 'active';
+  
+  // Update plan
+  if (planId) {
+    org.plan = org.plan || {};
+    
+    // Map planId to plan code (support all plans: argent, or, platinum)
+    const vertical = org.vertical || 'health';
+    const planCodeMap = {
+      argent: `${vertical}_argent`,
+      or: `${vertical}_or`,
+      platinum: `${vertical}_platinum`,
+      // Legacy aliases
+      silver: `${vertical}_argent`,
+      gold: `${vertical}_or`
+    };
+    org.plan.code = planCodeMap[planId] || `${vertical}_${planId}`;
+    
+    // Update quotas based on plan
+    const planQuotas = PLAN_DEFAULTS[org.plan.code] || PLAN_DEFAULTS[`${vertical}_argent`];
+    if (planQuotas) {
+      org.quotas = { ...org.quotas, ...planQuotas };
+      
+      // Initialize/reset subscription credits for new period with new plan quotas
+      const now = new Date();
+      const periodEndDate = new Date(now);
+      periodEndDate.setMonth(periodEndDate.getMonth() + 1);
+      
+      org.subscriptionCredits = {
+        periodStart: now.toISOString(),
+        periodEnd: periodEndDate.toISOString(),
+        // Base monthly values (for reference)
+        smsMonthlyBase: planQuotas.smsIncluded || 0,
+        emailMonthlyBase: planQuotas.emailIncluded || 0,
+        aiMonthlyBase: planQuotas.aiIncluded || 0,
+        qrMonthlyBase: planQuotas.qrIncluded || 1,
+        nfcMonthlyBase: planQuotas.nfcIncluded || 0,
+        // Included quotas for this period (used by getSubscriptionRemaining)
+        smsIncludedMonthly: planQuotas.smsIncluded || 0,
+        emailIncludedMonthly: planQuotas.emailIncluded || 0,
+        aiIncludedMonthly: planQuotas.aiIncluded || 0,
+        qrIncludedMonthly: planQuotas.qrIncluded || 1,
+        nfcIncludedMonthly: planQuotas.nfcIncluded || 0,
+        // Gift credits (0 at start)
+        smsGiftMonthly: 0,
+        emailGiftMonthly: 0,
+        aiGiftMonthly: 0,
+        qrGiftMonthly: 0,
+        nfcGiftMonthly: 0,
+        // Usage counters (reset to 0 for new subscription)
+        smsUsedThisPeriod: 0,
+        emailUsedThisPeriod: 0,
+        aiUsedThisPeriod: 0,
+        qrUsedThisPeriod: 0,
+        nfcUsedThisPeriod: 0,
+        // Prorata info
+        ratio: 1,
+        isProrata: false
+      };
+      
+      logger.logAudit('SUBSCRIPTION_CREDITS_INITIALIZED', {
+        orgId: org.id,
+        planId,
+        planCode: org.plan.code,
+        quotas: {
+          sms: planQuotas.smsIncluded,
+          email: planQuotas.emailIncluded,
+          ai: planQuotas.aiIncluded,
+          qr: planQuotas.qrIncluded,
+          nfc: planQuotas.nfcIncluded
+        }
+      });
+    }
+  }
+  
+  // Update status from trial to active
+  org.status = 'active';
+  org.updatedAt = new Date().toISOString();
+  
+  // Clear any dunning state
+  dunning.clearDunning(org);
+  
+  // Persist to database
+  const repos = storage.getRepos();
+  if (repos) {
+    repos.org.update(orgId, {
+      status: 'active',
+      billing: org.billing,
+      plan: org.plan,
+      quotas: org.quotas,
+      subscriptionCredits: org.subscriptionCredits, // Include subscription credits
+      options: org.options // dunning state is stored in options
+    });
+  } else {
+    saveData(data);
+  }
+  
+  logger.logAudit('STRIPE_CHECKOUT_COMPLETED', {
+    orgId,
+    planId,
+    customerId,
+    subscriptionId
+  });
+  
+  // Send confirmation email (async, don't block)
+  sendBillingEmail('payment_success', org, { planId }).catch(err => {
+    logger.logError('BILLING_EMAIL_ERROR', { orgId, type: 'payment_success', error: err.message });
+  });
+}
+
+/**
+ * Handle invoice.paid
+ */
+async function handleInvoicePaid(data, invoice) {
+  const customerId = invoice.customer;
+  const subscriptionId = invoice.subscription;
+  const amountPaid = invoice.amount_paid;
+  
+  // Find org by Stripe customer ID
+  const org = data.orgs.find(o => o.billing?.stripeCustomerId === customerId);
+  if (!org) {
+    logger.logAudit('STRIPE_INVOICE_NO_ORG', { customerId, invoiceId: invoice.id });
+    return;
+  }
+  
+  // Update billing period
+  const periodStart = new Date(invoice.period_start * 1000).toISOString();
+  const periodEnd = new Date(invoice.period_end * 1000).toISOString();
+  
+  org.billing = org.billing || {};
+  org.billing.status = 'active';
+  org.billing.periodStart = periodStart;
+  org.billing.periodEnd = periodEnd;
+  
+  // Reset subscription credits for new period
+  // Get plan quotas to set included credits
+  const planCode = org.plan?.code || 'health_argent';
+  const planQuotas = PLAN_DEFAULTS[planCode] || PLAN_DEFAULTS['health_argent'] || {};
+  
+  org.subscriptionCredits = {
+    periodStart,
+    periodEnd,
+    // Base monthly values (for reference)
+    smsMonthlyBase: planQuotas.smsIncluded || 0,
+    emailMonthlyBase: planQuotas.emailIncluded || 0,
+    aiMonthlyBase: planQuotas.aiIncluded || 0,
+    qrMonthlyBase: planQuotas.qrIncluded || 1,
+    nfcMonthlyBase: planQuotas.nfcIncluded || 0,
+    // Included quotas for this period (used by getSubscriptionRemaining)
+    smsIncludedMonthly: planQuotas.smsIncluded || 0,
+    emailIncludedMonthly: planQuotas.emailIncluded || 0,
+    aiIncludedMonthly: planQuotas.aiIncluded || 0,
+    qrIncludedMonthly: planQuotas.qrIncluded || 1,
+    nfcIncludedMonthly: planQuotas.nfcIncluded || 0,
+    // Gift credits (preserve existing or reset to 0)
+    smsGiftMonthly: org.subscriptionCredits?.smsGiftMonthly || 0,
+    emailGiftMonthly: org.subscriptionCredits?.emailGiftMonthly || 0,
+    aiGiftMonthly: org.subscriptionCredits?.aiGiftMonthly || 0,
+    qrGiftMonthly: org.subscriptionCredits?.qrGiftMonthly || 0,
+    nfcGiftMonthly: org.subscriptionCredits?.nfcGiftMonthly || 0,
+    // Usage counters (reset for new period)
+    smsUsedThisPeriod: 0,
+    emailUsedThisPeriod: 0,
+    aiUsedThisPeriod: 0,
+    qrUsedThisPeriod: 0,
+    nfcUsedThisPeriod: 0,
+    // Prorata info (full month = no prorata)
+    ratio: 1,
+    isProrata: false
+  };
+  
+  logger.logAudit('SUBSCRIPTION_CREDITS_RESET', {
+    orgId: org.id,
+    planCode,
+    quotas: {
+      sms: planQuotas.smsIncluded,
+      email: planQuotas.emailIncluded,
+      ai: planQuotas.aiIncluded,
+      qr: planQuotas.qrIncluded,
+      nfc: planQuotas.nfcIncluded
+    }
+  });
+  
+  // Update status
+  org.status = 'active';
+  org.updatedAt = new Date().toISOString();
+  
+  // Clear dunning
+  dunning.clearDunning(org);
+  
+  // Persist to database
+  const repos = storage.getRepos();
+  if (repos) {
+    repos.org.update(org.id, {
+      status: 'active',
+      billing: org.billing,
+      subscriptionCredits: org.subscriptionCredits,
+      options: org.options // dunning state is stored in options
+    });
+  } else {
+    saveData(data);
+  }
+  
+  logger.logAudit('STRIPE_INVOICE_PAID', {
+    orgId: org.id,
+    invoiceId: invoice.id,
+    amountPaid,
+    periodStart,
+    periodEnd
+  });
+  
+  // Send confirmation email
+  sendBillingEmail('payment_success', org, { 
+    amount: amountPaid,
+    periodStart,
+    periodEnd,
+    invoiceUrl: invoice.hosted_invoice_url
+  }).catch(err => {
+    logger.logError('BILLING_EMAIL_ERROR', { orgId: org.id, error: err.message });
+  });
+}
+
+/**
+ * Handle invoice.payment_failed
+ */
+async function handleInvoicePaymentFailed(data, invoice) {
+  const customerId = invoice.customer;
+  
+  const org = data.orgs.find(o => o.billing?.stripeCustomerId === customerId);
+  if (!org) {
+    logger.logAudit('STRIPE_INVOICE_FAIL_NO_ORG', { customerId, invoiceId: invoice.id });
+    return;
+  }
+  
+  // Set status to past_due
+  org.status = 'past_due';
+  org.billing = org.billing || {};
+  org.billing.status = 'past_due';
+  org.updatedAt = new Date().toISOString();
+  
+  // Initialize dunning
+  dunning.initializeDunning(org);
+  
+  // Persist to database
+  const repos = storage.getRepos();
+  if (repos) {
+    repos.org.update(org.id, {
+      status: 'past_due',
+      billing: org.billing,
+      options: org.options // dunning state is stored in options
+    });
+  } else {
+    saveData(data);
+  }
+  
+  logger.logAudit('STRIPE_INVOICE_FAILED', {
+    orgId: org.id,
+    invoiceId: invoice.id
+  });
+  
+  // Send failure notification
+  sendBillingEmail('payment_failed', org, { daysPastDue: 0 }).catch(err => {
+    logger.logError('BILLING_EMAIL_ERROR', { orgId: org.id, error: err.message });
+  });
+}
+
+/**
+ * Handle customer.subscription.updated
+ */
+async function handleSubscriptionUpdated(data, subscription) {
+  const customerId = subscription.customer;
+  
+  const org = data.orgs.find(o => o.billing?.stripeCustomerId === customerId);
+  if (!org) {
+    return;
+  }
+  
+  // Update subscription info
+  org.billing = org.billing || {};
+  org.billing.stripeSubscriptionId = subscription.id;
+  org.billing.status = subscription.status;
+  
+  // Map Stripe status to our status
+  const statusMap = {
+    active: 'active',
+    past_due: 'past_due',
+    canceled: 'cancelled',
+    unpaid: 'past_due',
+    trialing: 'trial'
+  };
+  
+  org.status = statusMap[subscription.status] || org.status;
+  org.updatedAt = new Date().toISOString();
+  
+  // Persist to database
+  const repos = storage.getRepos();
+  if (repos) {
+    repos.org.update(org.id, {
+      status: org.status,
+      billing: org.billing
+    });
+  } else {
+    saveData(data);
+  }
+  
+  logger.logAudit('STRIPE_SUBSCRIPTION_UPDATED', {
+    orgId: org.id,
+    subscriptionId: subscription.id,
+    status: subscription.status
+  });
+}
+
+/**
+ * Handle customer.subscription.deleted
+ */
+async function handleSubscriptionDeleted(data, subscription) {
+  const customerId = subscription.customer;
+  
+  const org = data.orgs.find(o => o.billing?.stripeCustomerId === customerId);
+  if (!org) {
+    return;
+  }
+  
+  // Mark as cancelled
+  org.status = 'cancelled';
+  org.billing = org.billing || {};
+  org.billing.status = 'cancelled';
+  org.billing.cancelledAt = new Date().toISOString();
+  org.updatedAt = new Date().toISOString();
+  
+  // Persist to database
+  const repos = storage.getRepos();
+  if (repos) {
+    repos.org.update(org.id, {
+      status: 'cancelled',
+      billing: org.billing
+    });
+  } else {
+    saveData(data);
+  }
+  
+  logger.logAudit('STRIPE_SUBSCRIPTION_DELETED', {
+    orgId: org.id,
+    subscriptionId: subscription.id
+  });
+  
+  // Send notification
+  sendBillingEmail('subscription_cancelled', org, {}).catch(err => {
+    logger.logError('BILLING_EMAIL_ERROR', { orgId: org.id, error: err.message });
+  });
+}
+
+/**
+ * POST /webhooks/gocardless - Handle GoCardless webhook events (stub)
+ */
+async function handleGoCardlessWebhook(req, res) {
+  // Get raw body
+  let rawBody;
+  try {
+    rawBody = await getRawRequestBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: 'Invalid request body' });
+  }
+  
+  const signature = req.headers['webhook-signature'];
+  
+  // Verify and parse
+  const verification = gocardlessBilling.verifyWebhook(rawBody, signature);
+  
+  if (verification.error) {
+    // GoCardless not implemented yet
+    if (verification.error.errorCode === 'SEPA_NOT_READY') {
+      logger.logAudit('GOCARDLESS_WEBHOOK_NOT_IMPLEMENTED', {});
+      return sendJson(res, 200, { received: true, implemented: false });
+    }
+    return sendJson(res, 400, verification.error);
+  }
+  
+  // Process events (stub)
+  const result = await gocardlessBilling.handleWebhookEvents(verification.events);
+  
+  return sendJson(res, 200, { received: true, processed: result.processed });
+}
+
+/**
+ * Send billing-related email
+ */
+async function sendBillingEmail(type, org, details) {
+  const SUPPORT_BILLING_EMAIL = process.env.SUPPORT_BILLING_EMAIL;
+  
+  // Get template
+  let template;
+  const templateData = {
+    orgId: org.id,
+    orgName: org.name,
+    email: org.email,
+    planId: org.plan?.code || 'bronze',
+    ...details
+  };
+  
+  switch (type) {
+    case 'payment_success':
+      template = billingTemplates.getPaymentSuccessTemplate(templateData);
+      break;
+    case 'payment_failed':
+      template = billingTemplates.getPaymentFailedTemplate(templateData);
+      break;
+    case 'read_only':
+      template = billingTemplates.getReadOnlyTemplate(templateData);
+      break;
+    default:
+      logger.logAudit('BILLING_EMAIL_UNKNOWN_TYPE', { type, orgId: org.id });
+      return;
+  }
+  
+  // Log the email (actual sending via nodemailer would go here)
+  logger.logAudit('BILLING_EMAIL_QUEUED', {
+    type,
+    orgId: org.id,
+    to: org.email,
+    subject: template.subject
+  });
+  
+  // Send internal notification if configured
+  if (SUPPORT_BILLING_EMAIL) {
+    const internalTemplate = billingTemplates.getInternalBillingNotification({
+      type,
+      ...templateData,
+      provider: org.billing?.provider
+    });
+    
+    logger.logAudit('BILLING_INTERNAL_NOTIFICATION', {
+      type,
+      orgId: org.id,
+      to: SUPPORT_BILLING_EMAIL,
+      subject: internalTemplate.subject
+    });
+  }
+  
+  // TODO: Actually send emails via nodemailer when email provider is configured
+  // For now, just log them
+}
+
+/**
+ * Helper to get raw request body (for webhook signature verification)
+ */
+function getRawRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+// ============================================================
+// END BILLING HANDLERS
+// ============================================================
+
 /**
  * POST /internal/orgs/:orgId/reset-public-key - Régénère la publicKey
  * Attention: l'extension devra être mise à jour avec la nouvelle clé
@@ -4731,6 +7531,367 @@ function handleGetApiToken(req, res, orgId) {
     });
   } catch (err) {
     return sendJson(res, err.status || 500, { error: err.message });
+  }
+}
+
+// ============================================================
+// BILLING MANAGEMENT (Admin) - Assign Plan & Coupons
+// ============================================================
+
+/**
+ * POST /internal/orgs/:orgId/assign-plan - Assigner un plan à un client
+ * Body: { planCode: "health_argent" | "health_or" | "health_platinum" | "health_bronze" }
+ * 
+ * Action atomique :
+ * - Met à jour plan.code
+ * - Met à jour le prix selon le catalogue
+ * - Met à jour les quotas selon le catalogue  
+ * - Reset les crédits mensuels
+ * - Rollover période si nécessaire
+ */
+async function handleAssignPlan(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const repos = storage.getRepos();
+  
+  try {
+    const body = await parseBody(req);
+    const { planCode } = body;
+    
+    // Validate plan code
+    const validCodes = planCatalog.getAvailablePlanCodes();
+    if (!planCode || !validCodes.includes(planCode)) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Plan invalide. Plans disponibles: ${validCodes.join(', ')}`,
+      });
+    }
+    
+    // Get org
+    let org;
+    if (repos) {
+      org = repos.org.getById(orgId);
+    } else {
+      const data = loadData();
+      org = data.orgs[orgId];
+    }
+    
+    if (!org) {
+      return sendJson(res, 404, { ok: false, error: 'Client non trouvé' });
+    }
+    
+    // Get plan info from catalog
+    const plan = planCatalog.getPlan(planCode);
+    const quotas = planCatalog.getPlanQuotas(planCode);
+    
+    // Build update
+    const now = new Date();
+    
+    // Ensure billing period is current and get reset credits
+    periodRollover.ensureBillingPeriodIsCurrent({ org, now, repos, persist: false });
+    
+    // Build subscription credits with new plan quotas
+    const newSubscriptionCredits = {
+      periodStart: org.billing?.periodStart || now.toISOString(),
+      periodEnd: org.billing?.periodEnd || now.toISOString(),
+      smsIncludedMonthly: quotas.smsIncluded,
+      emailIncludedMonthly: quotas.emailIncluded,
+      aiIncludedMonthly: quotas.aiIncluded,
+      qrIncludedMonthly: quotas.qrIncluded,
+      nfcIncludedMonthly: quotas.nfcIncluded,
+      smsGiftMonthly: org.subscriptionCredits?.smsGiftMonthly || 0,
+      emailGiftMonthly: org.subscriptionCredits?.emailGiftMonthly || 0,
+      aiGiftMonthly: org.subscriptionCredits?.aiGiftMonthly || 0,
+      smsTotal: quotas.smsIncluded + (org.subscriptionCredits?.smsGiftMonthly || 0),
+      emailTotal: quotas.emailIncluded + (org.subscriptionCredits?.emailGiftMonthly || 0),
+      aiTotal: quotas.aiIncluded + (org.subscriptionCredits?.aiGiftMonthly || 0),
+      smsUsedThisPeriod: 0,
+      emailUsedThisPeriod: 0,
+      aiUsedThisPeriod: 0,
+      qrUsedThisPeriod: 0,
+      nfcUsedThisPeriod: 0,
+    };
+    
+    // Update org
+    let updatedOrg;
+    if (repos) {
+      updatedOrg = repos.org.assignPlan(orgId, {
+        planCode,
+        priceCents: plan.priceCents,
+        quotas,
+        subscriptionCredits: newSubscriptionCredits,
+      });
+    } else {
+      // Legacy JSON mode
+      const data = loadData();
+      org.plan = {
+        ...org.plan,
+        code: planCode,
+        basePriceCents: plan.priceCents,
+        currency: 'EUR',
+        billingCycle: 'monthly',
+      };
+      org.quotas = { ...org.quotas, ...quotas };
+      org.subscriptionCredits = newSubscriptionCredits;
+      saveData(data);
+      updatedOrg = org;
+    }
+    
+    // Compute effective billing for response
+    const billing = effectiveBilling.computeEffectiveBilling({ org: updatedOrg, now, repos, ensurePeriod: false });
+    
+    logger.logAudit('PLAN_ASSIGNED', {
+      orgId,
+      planCode,
+      priceCents: plan.priceCents,
+      adminEmail: auth.user?.email || 'unknown',
+    });
+    
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Plan ${plan.name} assigné avec succès`,
+      org: sanitizeOrg(updatedOrg),
+      effectiveBilling: billing,
+    });
+    
+  } catch (err) {
+    logger.logError('ASSIGN_PLAN_ERROR', { orgId, error: err.message });
+    return sendJson(res, err.status || 500, { ok: false, error: err.message });
+  }
+}
+
+/**
+ * POST /internal/orgs/:orgId/apply-coupon - Appliquer un coupon/remise
+ * Body: { couponKey: "FIXED_10" | "PCT_20" | ... }
+ * 
+ * Applique un coupon Stripe sur la subscription du client.
+ * Les coupons doivent exister dans Stripe.
+ */
+async function handleApplyCoupon(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const repos = storage.getRepos();
+  
+  try {
+    const body = await parseBody(req);
+    const { couponKey } = body;
+    
+    // Validate coupon key
+    if (!couponKey || !stripeCoupons.isValidCouponKey(couponKey)) {
+      const available = stripeCoupons.getAvailableCoupons();
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Coupon invalide. Coupons disponibles: ${available.map(c => c.key).join(', ')}`,
+        availableCoupons: available,
+      });
+    }
+    
+    // Get org
+    let org;
+    if (repos) {
+      org = repos.org.getById(orgId);
+    } else {
+      const data = loadData();
+      org = data.orgs[orgId];
+    }
+    
+    if (!org) {
+      return sendJson(res, 404, { ok: false, error: 'Client non trouvé' });
+    }
+    
+    // Get Stripe coupon ID
+    const stripeCouponId = stripeCoupons.getStripeCouponId(couponKey);
+    const subscriptionId = org.billing?.stripeSubscriptionId;
+    
+    // Apply coupon in Stripe (if subscription exists)
+    if (subscriptionId && stripeBilling.stripe) {
+      try {
+        await stripeBilling.stripe.subscriptions.update(subscriptionId, {
+          coupon: stripeCouponId,
+        });
+        logger.logAudit('STRIPE_COUPON_APPLIED', { orgId, subscriptionId, couponKey, stripeCouponId });
+      } catch (stripeErr) {
+        logger.logError('STRIPE_COUPON_ERROR', { orgId, error: stripeErr.message });
+        // Continue anyway to store locally
+      }
+    }
+    
+    // Store coupon in org billing
+    const newBilling = {
+      ...org.billing,
+      stripeCouponId,
+      couponAppliedAt: new Date().toISOString(),
+      couponAppliedBy: auth.user?.email || 'admin',
+    };
+    
+    let updatedOrg;
+    if (repos) {
+      updatedOrg = repos.org.patchBilling(orgId, newBilling);
+    } else {
+      const data = loadData();
+      org.billing = newBilling;
+      saveData(data);
+      updatedOrg = org;
+    }
+    
+    // Compute effective billing for response
+    const billing = effectiveBilling.computeEffectiveBilling({ org: updatedOrg, now: new Date(), repos });
+    
+    logger.logAudit('COUPON_APPLIED', {
+      orgId,
+      couponKey,
+      stripeCouponId,
+      priceEffectiveCents: billing.priceEffectiveCents,
+      adminEmail: auth.user?.email || 'unknown',
+    });
+    
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Coupon ${stripeCouponId} appliqué avec succès`,
+      org: sanitizeOrg(updatedOrg),
+      effectiveBilling: billing,
+    });
+    
+  } catch (err) {
+    logger.logError('APPLY_COUPON_ERROR', { orgId, error: err.message });
+    return sendJson(res, err.status || 500, { ok: false, error: err.message });
+  }
+}
+
+/**
+ * POST /internal/orgs/:orgId/remove-coupon - Retirer le coupon/remise
+ * 
+ * Retire le discount de la subscription Stripe.
+ */
+async function handleRemoveCoupon(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const repos = storage.getRepos();
+  
+  try {
+    // Get org
+    let org;
+    if (repos) {
+      org = repos.org.getById(orgId);
+    } else {
+      const data = loadData();
+      org = data.orgs[orgId];
+    }
+    
+    if (!org) {
+      return sendJson(res, 404, { ok: false, error: 'Client non trouvé' });
+    }
+    
+    const previousCoupon = org.billing?.stripeCouponId;
+    if (!previousCoupon) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: 'Aucun coupon à retirer',
+      });
+    }
+    
+    const subscriptionId = org.billing?.stripeSubscriptionId;
+    
+    // Remove coupon in Stripe (if subscription exists)
+    if (subscriptionId && stripeBilling.stripe) {
+      try {
+        // Setting coupon to empty string removes it
+        await stripeBilling.stripe.subscriptions.update(subscriptionId, {
+          coupon: '',
+        });
+        logger.logAudit('STRIPE_COUPON_REMOVED', { orgId, subscriptionId, previousCoupon });
+      } catch (stripeErr) {
+        logger.logError('STRIPE_REMOVE_COUPON_ERROR', { orgId, error: stripeErr.message });
+        // Continue anyway to update locally
+      }
+    }
+    
+    // Remove coupon from org billing
+    const newBilling = {
+      ...org.billing,
+      stripeCouponId: null,
+      couponRemovedAt: new Date().toISOString(),
+      couponRemovedBy: auth.user?.email || 'admin',
+    };
+    
+    let updatedOrg;
+    if (repos) {
+      updatedOrg = repos.org.patchBilling(orgId, newBilling);
+    } else {
+      const data = loadData();
+      org.billing = newBilling;
+      saveData(data);
+      updatedOrg = org;
+    }
+    
+    // Compute effective billing for response
+    const billing = effectiveBilling.computeEffectiveBilling({ org: updatedOrg, now: new Date(), repos });
+    
+    logger.logAudit('COUPON_REMOVED', {
+      orgId,
+      previousCoupon,
+      priceEffectiveCents: billing.priceEffectiveCents,
+      adminEmail: auth.user?.email || 'unknown',
+    });
+    
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Coupon ${previousCoupon} retiré avec succès`,
+      org: sanitizeOrg(updatedOrg),
+      effectiveBilling: billing,
+    });
+    
+  } catch (err) {
+    logger.logError('REMOVE_COUPON_ERROR', { orgId, error: err.message });
+    return sendJson(res, err.status || 500, { ok: false, error: err.message });
+  }
+}
+
+/**
+ * GET /internal/orgs/:orgId/effective-billing - Obtenir le billing effectif calculé
+ */
+function handleGetEffectiveBilling(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  
+  const repos = storage.getRepos();
+  
+  try {
+    // Get org
+    let org;
+    if (repos) {
+      org = repos.org.getById(orgId);
+    } else {
+      const data = loadData();
+      org = data.orgs[orgId];
+    }
+    
+    if (!org) {
+      return sendJson(res, 404, { ok: false, error: 'Client non trouvé' });
+    }
+    
+    // Compute effective billing
+    const billing = effectiveBilling.computeEffectiveBilling({ org, now: new Date(), repos });
+    
+    return sendJson(res, 200, {
+      ok: true,
+      effectiveBilling: billing,
+    });
+    
+  } catch (err) {
+    logger.logError('GET_EFFECTIVE_BILLING_ERROR', { orgId, error: err.message });
+    return sendJson(res, err.status || 500, { ok: false, error: err.message });
   }
 }
 
@@ -5000,6 +8161,141 @@ const server = http.createServer(async (req, res) => {
     return handleClientGetSettings(req, res);
   }
   
+  // ============ CLIENT INSTALLATIONS ROUTES ============
+  
+  if (method === 'GET' && pathname === '/client/installations') {
+    return handleClientListInstallations(req, res);
+  }
+  
+  if (method === 'POST' && pathname === '/client/installations') {
+    return handleClientCreateInstallation(req, res);
+  }
+  
+  // Revoke installation: /client/installations/:id/revoke
+  const revokeInstallMatch = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/revoke$/);
+  if (revokeInstallMatch && method === 'POST') {
+    return handleClientRevokeInstallation(req, res, revokeInstallMatch[1]);
+  }
+  
+  // Rotate installation token: /client/installations/:id/rotate
+  const rotateInstallMatch = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/rotate$/);
+  if (rotateInstallMatch && method === 'POST') {
+    return handleClientRotateInstallation(req, res, rotateInstallMatch[1]);
+  }
+  
+  // ============ CLIENT SHORTLINKS ROUTES ============
+  
+  if (method === 'GET' && pathname === '/client/shortlinks') {
+    return handleClientListShortlinks(req, res);
+  }
+  
+  if (method === 'POST' && pathname === '/client/shortlinks') {
+    return handleClientCreateShortlink(req, res);
+  }
+  
+  // Get QR code for shortlink: /client/shortlinks/:code/qr
+  const qrShortlinkMatch = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)\/qr$/);
+  if (qrShortlinkMatch && method === 'GET') {
+    return handleClientGetShortlinkQR(req, res, qrShortlinkMatch[1]);
+  }
+  
+  // Delete shortlink: /client/shortlinks/:code
+  const deleteShortlinkMatch = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)$/);
+  if (deleteShortlinkMatch && method === 'DELETE') {
+    return handleClientDeleteShortlink(req, res, deleteShortlinkMatch[1]);
+  }
+  
+  // ============ CLIENT REVIEWS ROUTES (Phase 1A) ============
+  
+  // List reviews with filters and pagination
+  if (method === 'GET' && pathname === '/client/reviews') {
+    return handleClientListReviews(req, res, urlParams);
+  }
+  
+  // Get review stats (KPIs + star distribution)
+  if (method === 'GET' && pathname === '/client/reviews/stats') {
+    return handleClientReviewStats(req, res, urlParams);
+  }
+  
+  // Get review analytics (time series)
+  if (method === 'GET' && pathname === '/client/reviews/analytics') {
+    return handleClientReviewAnalytics(req, res, urlParams);
+  }
+  
+  // Create review (for dev/test/import)
+  if (method === 'POST' && pathname === '/client/reviews') {
+    return handleClientCreateReview(req, res);
+  }
+  
+  // Bulk import reviews
+  if (method === 'POST' && pathname === '/client/reviews/bulk') {
+    return handleClientBulkImportReviews(req, res);
+  }
+  
+  // Get single review by ID
+  const reviewIdMatch = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)$/);
+  if (reviewIdMatch && method === 'GET') {
+    return handleClientGetReview(req, res, reviewIdMatch[1]);
+  }
+  
+  // Reply to a review (idempotent)
+  const reviewReplyMatch = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/reply$/);
+  if (reviewReplyMatch && method === 'POST') {
+    return handleClientReplyReview(req, res, reviewReplyMatch[1]);
+  }
+  
+  // Update review status
+  const reviewStatusMatch = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/status$/);
+  if (reviewStatusMatch && method === 'POST') {
+    return handleClientUpdateReviewStatus(req, res, reviewStatusMatch[1]);
+  }
+  
+  // ============ CLIENT BILLING ROUTES ============
+  
+  // Get billing status
+  if (method === 'GET' && pathname === '/client/billing/status') {
+    return handleBillingStatus(req, res);
+  }
+  
+  // Create checkout session (Stripe)
+  if (method === 'POST' && pathname === '/client/billing/checkout') {
+    return handleBillingCheckout(req, res);
+  }
+  
+  // Create portal session (Stripe)
+  if (method === 'POST' && pathname === '/client/billing/portal') {
+    return handleBillingPortal(req, res);
+  }
+  
+  // Pack checkout (one-time purchase)
+  if (method === 'POST' && pathname === '/client/billing/pack/checkout') {
+    return handlePackCheckout(req, res);
+  }
+  
+  // Multi-pack checkout (cart functionality)
+  if (method === 'POST' && pathname === '/client/billing/pack/multi-checkout') {
+    return handleMultiPackCheckout(req, res);
+  }
+  
+  // SEPA mandate flow (GoCardless) - alias for checkout with provider=gocardless
+  if (method === 'POST' && pathname === '/client/billing/sepa') {
+    // Set provider to gocardless and forward to checkout
+    req._forceProvider = 'gocardless';
+    return handleBillingCheckout(req, res);
+  }
+  
+  // ============ WEBHOOK ROUTES ============
+  
+  // Stripe webhooks
+  if (method === 'POST' && pathname === '/webhooks/stripe') {
+    return handleStripeWebhook(req, res);
+  }
+  
+  // GoCardless webhooks
+  if (method === 'POST' && pathname === '/webhooks/gocardless') {
+    return handleGoCardlessWebhook(req, res);
+  }
+  
   // ============ PUBLIC API ROUTES ============
   
   // Get org by publicKey (public, no auth)
@@ -5072,6 +8368,30 @@ const server = http.createServer(async (req, res) => {
     return handleGetApiToken(req, res, getTokenMatch[1]);
   }
   
+  // Assign plan
+  const assignPlanMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/assign-plan$/);
+  if (assignPlanMatch && method === 'POST') {
+    return handleAssignPlan(req, res, assignPlanMatch[1]);
+  }
+  
+  // Apply coupon
+  const applyCouponMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/apply-coupon$/);
+  if (applyCouponMatch && method === 'POST') {
+    return handleApplyCoupon(req, res, applyCouponMatch[1]);
+  }
+  
+  // Remove coupon
+  const removeCouponMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/remove-coupon$/);
+  if (removeCouponMatch && method === 'POST') {
+    return handleRemoveCoupon(req, res, removeCouponMatch[1]);
+  }
+  
+  // Get effective billing
+  const effectiveBillingMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/effective-billing$/);
+  if (effectiveBillingMatch && method === 'GET') {
+    return handleGetEffectiveBilling(req, res, effectiveBillingMatch[1]);
+  }
+  
   // Org usage
   const usageMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/usage$/);
   if (usageMatch && method === 'GET') {
@@ -5084,7 +8404,26 @@ const server = http.createServer(async (req, res) => {
     return handleGetOrgTelemetry(req, res, telemetryMatch[1], urlParams);
   }
 
-  // Rating page
+  // Shortlink redirect (QR/NFC) - check first with alphanumeric pattern
+  // Shortlinks use base62 codes (letters + numbers), while request IDs are hex only
+  const shortlinkMatch = pathname.match(/^\/r\/([a-zA-Z0-9]+)$/);
+  if (shortlinkMatch && method === 'GET') {
+    const code = shortlinkMatch[1];
+    // If code contains letters (not just hex), it's likely a shortlink
+    if (/[g-zG-Z]/.test(code)) {
+      return handleShortlinkRedirect(req, res, code);
+    }
+    // Otherwise, check if it's a shortlink in DB first
+    const repos = storage.getRepos();
+    if (repos) {
+      const shortlink = repos.shortlink.getByCode(code);
+      if (shortlink) {
+        return handleShortlinkRedirect(req, res, code);
+      }
+    }
+  }
+  
+  // Rating page (feedback form) - hex IDs only
   const ratingMatch = pathname.match(/^\/r\/([a-f0-9]+)$/);
   if (ratingMatch) {
     const requestId = ratingMatch[1];
@@ -5108,6 +8447,7 @@ try {
     const settings = getSettings();
     console.log(`[REPUTY][API] Serveur démarré sur http://localhost:${PORT} (version ${VERSION})`);
     console.log(`[REPUTY][API] Environment: ${NODE_ENV}`);
+    console.log(`[REPUTY][API] Storage: ${storage.USE_SQLITE ? 'SQLite (reputy.db)' : 'data.json (legacy)'}`);
     console.log(`[REPUTY][API] Page de notation: ${REVIEWS_BASE_URL}/r/{id}`);
     console.log(`[REPUTY][API] Cabinet: ${settings.cabinetName}`);
     console.log(`[REPUTY][API] Google Review: ${settings.googleReviewUrl}`);

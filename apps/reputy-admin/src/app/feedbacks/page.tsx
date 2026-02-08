@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { WebsiteWidgetManager } from '@/components/embed'
 
 interface PatientInfo {
-  name: string
+  name?: string
   firstName?: string
   lastName?: string
   email?: string
@@ -34,21 +34,38 @@ interface Feedback {
   requestId: string
   createdAt: string
   rating: number
-  comment: string
-  channel: 'sms' | 'email'
-  patient: PatientInfo
+  comment?: string
+  channel?: 'sms' | 'email'
+  patient?: PatientInfo
+}
+
+// Helper to safely get patient name
+function getPatientName(patient?: PatientInfo): string {
+  if (!patient) return 'Patient anonyme'
+  if (patient.name) return patient.name
+  if (patient.firstName || patient.lastName) {
+    return [patient.firstName, patient.lastName].filter(Boolean).join(' ')
+  }
+  return 'Patient anonyme'
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || 'dev-token'
 
-function getInitials(name: string): string {
+// P0.1: No fallback — must be configured explicitly via environment variable
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN
+if (!API_TOKEN && typeof window !== 'undefined') {
+  console.error('[P0.1] NEXT_PUBLIC_API_TOKEN is not configured. Set it in your .env.local file.')
+}
+
+function getInitials(name?: string | null): string {
+  if (!name || name.trim() === '') return '??'
   return name
     .split(' ')
+    .filter(n => n.length > 0)
     .map((n) => n[0])
     .join('')
     .toUpperCase()
-    .slice(0, 2)
+    .slice(0, 2) || '??'
 }
 
 function formatDate(dateString: string): string {
@@ -263,7 +280,7 @@ export default function FeedbacksPage() {
                           : 'bg-amber-100 text-amber-700'
                       )}
                     >
-                      {getInitials(feedback.patient.name)}
+                      {getInitials(getPatientName(feedback.patient))}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
@@ -271,7 +288,7 @@ export default function FeedbacksPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-foreground">
-                            {feedback.patient.name}
+                            {getPatientName(feedback.patient)}
                           </span>
                           <Badge
                             variant="secondary"
@@ -285,14 +302,16 @@ export default function FeedbacksPage() {
                             <Calendar className="h-3 w-3" />
                             {formatDate(feedback.createdAt)}
                           </span>
-                          <span className="flex items-center gap-1">
-                            {feedback.channel === 'sms' ? (
-                              <Phone className="h-3 w-3" />
-                            ) : (
-                              <Mail className="h-3 w-3" />
-                            )}
-                            {feedback.channel.toUpperCase()}
-                          </span>
+                          {feedback.channel && (
+                            <span className="flex items-center gap-1">
+                              {feedback.channel === 'sms' ? (
+                                <Phone className="h-3 w-3" />
+                              ) : (
+                                <Mail className="h-3 w-3" />
+                              )}
+                              {feedback.channel.toUpperCase()}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -320,13 +339,13 @@ export default function FeedbacksPage() {
                     )}
                     {/* Contact info */}
                     <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-                      {feedback.patient.phone && (
+                      {feedback.patient?.phone && (
                         <span className="flex items-center gap-1">
                           <Phone className="h-3 w-3" />
                           {feedback.patient.phone}
                         </span>
                       )}
-                      {feedback.patient.email && (
+                      {feedback.patient?.email && (
                         <span className="flex items-center gap-1">
                           <Mail className="h-3 w-3" />
                           {feedback.patient.email}
@@ -349,9 +368,9 @@ export default function FeedbacksPage() {
         onOpenChange={setWidgetManagerOpen}
         availableReviews={feedbacks.map((f) => ({
           id: f.requestId,
-          author: f.patient.name,
+          author: getPatientName(f.patient),
           rating: f.rating,
-          content: f.comment,
+          content: f.comment || '',
           date: f.createdAt,
           source: 'reputy' as const,
         }))}

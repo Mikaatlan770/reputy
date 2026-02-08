@@ -1,3 +1,8 @@
+# ============================================================
+# Reputy Monorepo — .gitignore
+# P0.1: Sécurisation secrets & données
+# ============================================================
+
 # Dependencies
 node_modules/
 
@@ -17,9 +22,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Environment (keep .env.example)
+# ========== P0.1: Environment files ==========
+# Keep only .env.example as template
 .env
 .env.*
+.env.local
+.env.production
+.env.staging
 !.env.example
 
 # OS
@@ -27,7 +36,38 @@ yarn-error.log*
 
 # TypeScript build cache
 *.tsbuildinfo
+**/*.tsbuildinfo
 
 # Other lock files (npm package-lock.json MUST be versioned)
 pnpm-lock.yaml
 yarn.lock
+
+# ========== P0.1: Données sensibles ==========
+
+# SQLite databases (patient PII, billing, tokens)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Legacy JSON data (patient PII — NEVER commit)
+apps/backend/data.json
+
+# Debug/temp scripts with hardcoded IDs
+apps/backend/debug-org.js
+apps/backend/check-org-billing.js
+
+# ========== P0.1: Exports & archives ==========
+artifacts/
+exports/
+*.zip
+
+# ========== P0.1: Logs & backups ==========
+logs/
+backups/
+
+# ========== P0.1: IDE ==========
+.cursor/
+.vscode/
+.idea/

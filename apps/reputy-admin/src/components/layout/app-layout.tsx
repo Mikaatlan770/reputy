@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
 import { useAuth } from '@/lib/auth'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 import { cn } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
+import { LOGIN_URL } from '@/lib/constants'
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -15,7 +16,6 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const { sidebarOpen, initialize } = useAppStore()
   const { mode, loading: authLoading } = useAuth()
 
@@ -33,7 +33,9 @@ export function AppLayout({ children }: AppLayoutProps) {
     return <>{children}</>
   }
 
-  // Routes /login ne nécessitent pas de layout
+  // Routes /login - redirection vers le site web (sécurité)
+  // Cette page ne devrait jamais s'afficher sur 3002, mais par sécurité on la laisse passer
+  // car elle redirige immédiatement vers 3001
   if (pathname === '/login') {
     return <>{children}</>
   }
@@ -73,14 +75,13 @@ export function AppLayout({ children }: AppLayoutProps) {
   )
 }
 
-// URL du site principal (reputy-web)
-const REPUTY_WEB_URL = process.env.NEXT_PUBLIC_REPUTY_WEB_URL || 'http://localhost:3001'
-
-// Composant séparé pour la redirection vers reputy-web
+// Composant séparé pour la redirection vers la page de login
+// VERROUILLÉ : Toujours rediriger vers le site web (3001), jamais vers /login local
 function RedirectToLogin() {
   useEffect(() => {
-    // Rediriger vers reputy-web (site principal) au lieu de /login local
-    window.location.href = REPUTY_WEB_URL
+    // Redirection OBLIGATOIRE vers le site web principal
+    // Le reputy-admin (3002) ne gère PAS l'authentification
+    window.location.href = LOGIN_URL
   }, [])
 
   // Page invisible pendant la redirection

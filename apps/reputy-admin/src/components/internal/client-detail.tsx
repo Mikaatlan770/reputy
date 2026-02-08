@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Org, UsageEntry, TelemetryEntry } from '@/lib/internal/fetch-internal'
-import { updateOrg, addCredits, changeStatus, refreshClient, resetPublicKey, getApiToken, rotateApiToken } from '@/lib/internal/actions'
+import { updateOrg, addCredits, changeStatus, refreshClient, resetPublicKey, getApiToken, rotateApiToken, assignPlan, applyCoupon, removeCoupon, getEffectiveBilling, EffectiveBilling } from '@/lib/internal/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -45,6 +45,7 @@ import {
   Play,
   Plug,
   Plus,
+  QrCode,
   RefreshCw,
   RotateCcw,
   Save,
@@ -53,6 +54,7 @@ import {
   Stethoscope,
   Store,
   Utensils,
+  Wifi,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -98,13 +100,15 @@ function formatPrice(cents: number): string {
 }
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const date = new Date(dateStr)
+  // Use fixed format to avoid hydration mismatch between server and client
+  const day = date.getDate()
+  const months = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
+  const month = months[date.getMonth()]
+  const year = date.getFullYear()
+  const hours = date.getHours().toString().padStart(2, '0')
+  const minutes = date.getMinutes().toString().padStart(2, '0')
+  return `${day} ${month} ${year} à ${hours}:${minutes}`
 }
 
 function formatPeriod(startStr: string, endStr: string): string {
@@ -191,9 +195,30 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  // Plan & Coupon states
+  const [assignPlanOpen, setAssignPlanOpen] = useState(false)
+  const [selectedPlan, setSelectedPlan] = useState<'health_bronze' | 'health_argent' | 'health_or' | 'health_platinum'>('health_argent')
+  const [assignPlanLoading, setAssignPlanLoading] = useState(false)
+  const [applyCouponOpen, setApplyCouponOpen] = useState(false)
+  const [selectedCoupon, setSelectedCoupon] = useState<'FIXED_5' | 'FIXED_10' | 'FIXED_20' | 'PCT_10' | 'PCT_20'>('FIXED_10')
+  const [applyCouponLoading, setApplyCouponLoading] = useState(false)
+  const [removeCouponLoading, setRemoveCouponLoading] = useState(false)
+  const [effectiveBillingData, setEffectiveBillingData] = useState<EffectiveBilling | null>(null)
+
   // P1.3: Load API Token info on mount
   useEffect(() => {
     loadApiTokenInfo()
+  }, [org.id])
+
+  // Load effective billing data on mount
+  useEffect(() => {
+    async function loadEffectiveBilling() {
+      const result = await getEffectiveBilling(org.id)
+      if (result.ok && result.effectiveBilling) {
+        setEffectiveBillingData(result.effectiveBilling)
+      }
+    }
+    loadEffectiveBilling()
   }, [org.id])
 
   function handleRefresh() {
@@ -366,6 +391,76 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
     setNewApiToken(null)
   }
 
+  // Plan assignment
+  async function handleAssignPlan() {
+    setAssignPlanLoading(true)
+    setError('')
+
+    const result = await assignPlan({
+      orgId: org.id,
+      planCode: selectedPlan,
+    })
+
+    if (result.ok) {
+      setAssignPlanOpen(false)
+      setSuccess(result.message || `Plan ${selectedPlan} assigné`)
+      if (result.effectiveBilling) {
+        setEffectiveBillingData(result.effectiveBilling)
+      }
+      router.refresh()
+    } else {
+      setError(result.error || 'Erreur lors de l\'assignation du plan')
+    }
+
+    setAssignPlanLoading(false)
+  }
+
+  // Apply coupon
+  async function handleApplyCoupon() {
+    setApplyCouponLoading(true)
+    setError('')
+
+    const result = await applyCoupon({
+      orgId: org.id,
+      couponKey: selectedCoupon,
+    })
+
+    if (result.ok) {
+      setApplyCouponOpen(false)
+      setSuccess(result.message || `Coupon ${selectedCoupon} appliqué`)
+      if (result.effectiveBilling) {
+        setEffectiveBillingData(result.effectiveBilling)
+      }
+      router.refresh()
+    } else {
+      setError(result.error || 'Erreur lors de l\'application du coupon')
+    }
+
+    setApplyCouponLoading(false)
+  }
+
+  // Remove coupon
+  async function handleRemoveCoupon() {
+    setRemoveCouponLoading(true)
+    setError('')
+
+    const result = await removeCoupon({
+      orgId: org.id,
+    })
+
+    if (result.ok) {
+      setSuccess(result.message || 'Coupon retiré')
+      if (result.effectiveBilling) {
+        setEffectiveBillingData(result.effectiveBilling)
+      }
+      router.refresh()
+    } else {
+      setError(result.error || 'Erreur lors du retrait du coupon')
+    }
+
+    setRemoveCouponLoading(false)
+  }
+
   const effectivePrice = org.negotiated?.enabled 
     ? (org.negotiated.customPriceCents || org.plan.basePriceCents)
     : org.plan.basePriceCents
@@ -482,7 +577,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 lg:grid-cols-5 gap-4">
                   <div>
                     <div className="flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-blue-400" />
@@ -548,6 +643,26 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                         + {org.creditsComputed?.subscription.aiGiftMonthly} offerts
                       </p>
                     )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <QrCode className="h-4 w-4 text-cyan-400" />
+                      <span className="text-xs text-slate-500">QR</span>
+                    </div>
+                    <p className="text-xl font-bold text-white">
+                      {org.quotas?.qrIncluded || 0}
+                    </p>
+                    <p className="text-xs text-slate-400">inclus</p>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Wifi className="h-4 w-4 text-teal-400" />
+                      <span className="text-xs text-slate-500">NFC</span>
+                    </div>
+                    <p className="text-xl font-bold text-white">
+                      {org.quotas?.nfcIncluded || 0}
+                    </p>
+                    <p className="text-xs text-slate-400">inclus</p>
                   </div>
                 </div>
               </CardContent>
@@ -658,49 +773,68 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                 <CardTitle className="text-sm text-slate-300 font-medium">Facturation période</CardTitle>
               </CardHeader>
               <CardContent>
-                {org.billingComputed ? (
-                  <>
-                    {org.billingComputed.isNegotiated && org.billingComputed.priceMonthlyFinalCents !== org.billingComputed.priceBaseCents ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 line-through text-sm">
-                          {formatPrice(org.billingComputed.isProrata ? Math.round(org.billingComputed.priceBaseCents * org.billingComputed.ratio) : org.billingComputed.priceBaseCents)}
-                        </span>
-                        <span className="text-2xl font-bold text-amber-400">
-                          {formatPrice(org.billingComputed.priceThisPeriodCents)}
+                {/* Use effectiveBillingData or org.billingComputed - both now have effective pricing */}
+                {(() => {
+                  const billing = effectiveBillingData || org.billingComputed
+                  if (!billing) {
+                    return (
+                      <p className="text-2xl font-bold text-white">
+                        {formatPrice(org.plan.basePriceCents)}
+                      </p>
+                    )
+                  }
+                  
+                  // Check if there's a discount (coupon or negotiated)
+                  const hasDiscount = billing.hasDiscount || 
+                    (billing.isNegotiated && billing.priceMonthlyFinalCents !== billing.priceBaseCents)
+                  const catalogPrice = billing.priceCatalogCents ?? billing.priceBaseCents ?? 0
+                  const effectivePrice = billing.priceEffectiveCents ?? billing.priceMonthlyFinalCents ?? catalogPrice
+                  
+                  return (
+                    <>
+                      {hasDiscount ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 line-through text-sm">
+                            {formatPrice(billing.isProrata ? Math.round(catalogPrice * (billing.ratio || 1)) : catalogPrice)}
+                          </span>
+                          <span className="text-2xl font-bold text-emerald-400">
+                            {formatPrice(billing.isProrata ? Math.round(effectivePrice * (billing.ratio || 1)) : effectivePrice)}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-2xl font-bold text-white">
+                          {formatPrice(billing.isProrata ? Math.round(effectivePrice * (billing.ratio || 1)) : effectivePrice)}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        {billing.hasDiscount && billing.discount?.label && (
+                          <Badge className="bg-emerald-500/20 text-emerald-400 text-[10px]">
+                            {billing.discount.label}
+                          </Badge>
+                        )}
+                        {billing.discountPercent && !billing.hasDiscount && (
+                          <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+                            -{billing.discountPercent}%
+                          </Badge>
+                        )}
+                        {billing.isProrata && (
+                          <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
+                            prorata
+                          </Badge>
+                        )}
+                        <span className="text-xs text-slate-500">
+                          {!billing.isProrata && '/mois'}
+                          {billing.isNegotiated && !billing.isProrata && !billing.hasDiscount && ' (négocié)'}
                         </span>
                       </div>
-                    ) : (
-                      <p className="text-2xl font-bold text-white">
-                        {formatPrice(org.billingComputed.priceThisPeriodCents)}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-1 mt-1">
-                      {org.billingComputed.discountPercent && (
-                        <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
-                          -{org.billingComputed.discountPercent}%
-                        </Badge>
+                      {billing.isProrata && (
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          Base mensuelle: {formatPrice(effectivePrice)}/mois
+                        </p>
                       )}
-                      {org.billingComputed.isProrata && (
-                        <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
-                          prorata
-                        </Badge>
-                      )}
-                      <span className="text-xs text-slate-500">
-                        {!org.billingComputed.isProrata && '/mois'}
-                        {org.billingComputed.isNegotiated && !org.billingComputed.isProrata && ' (négocié)'}
-                      </span>
-                    </div>
-                    {org.billingComputed.isProrata && (
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        Base mensuelle: {formatPrice(org.billingComputed.priceMonthlyFinalCents)}/mois
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-2xl font-bold text-white">
-                    {formatPrice(org.plan.basePriceCents)}
-                  </p>
-                )}
+                    </>
+                  )
+                })()}
               </CardContent>
             </Card>
           </div>
@@ -1014,9 +1148,266 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
         {/* Commercial Tab */}
         <TabsContent value="commercial" className="space-y-4">
+          {/* Plan Assignment Card */}
+          <Card className="bg-slate-800/50 border-amber-500/30">
+            <CardHeader>
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-amber-400" />
+                Assigner un Plan
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Mise à jour atomique : plan + prix + quotas + crédits
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-500">Plan actuel</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className={
+                      org.plan.code.includes('platinum') ? 'bg-purple-500/20 text-purple-400' :
+                      org.plan.code.includes('or') || org.plan.code.includes('gold') ? 'bg-amber-500/20 text-amber-400' :
+                      org.plan.code.includes('argent') || org.plan.code.includes('silver') ? 'bg-slate-500/20 text-slate-300' :
+                      'bg-orange-500/20 text-orange-400'
+                    }>
+                      {org.plan.code}
+                    </Badge>
+                    <span className="text-white">{formatPrice(org.plan.basePriceCents)}/mois</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-500">Prix catalogue</label>
+                  <p className="text-white mt-1">
+                    {effectiveBillingData?.priceCatalogFormatted || formatPrice(org.plan.basePriceCents)}/mois
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-slate-700">
+                <div>
+                  <p className="text-sm text-slate-300">Changer de plan</p>
+                  <p className="text-xs text-slate-500">Met à jour le prix et les quotas selon le catalogue</p>
+                </div>
+                <Dialog open={assignPlanOpen} onOpenChange={setAssignPlanOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-amber-500 hover:bg-amber-600">
+                      <Edit2 className="h-4 w-4 mr-2" />
+                      Assigner un plan
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <CreditCard className="h-5 w-5 text-amber-400" />
+                        Assigner un plan
+                      </DialogTitle>
+                      <DialogDescription className="text-slate-400">
+                        Cette action met à jour le plan, le prix, les quotas et reset les crédits mensuels.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm text-slate-400">Nouveau plan</label>
+                        <Select value={selectedPlan} onValueChange={(v: typeof selectedPlan) => setSelectedPlan(v)}>
+                          <SelectTrigger className="bg-slate-700 border-slate-600 mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-slate-700">
+                            <SelectItem value="health_bronze">
+                              <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-orange-400"></span>
+                                Bronze - Gratuit (0€)
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="health_argent">
+                              <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-slate-400"></span>
+                                Argent - 59€/mois
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="health_or">
+                              <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-amber-400"></span>
+                                Or - 99€/mois
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="health_platinum">
+                              <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full bg-purple-400"></span>
+                                Platinum - 129€/mois
+                              </div>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="p-3 bg-slate-700/50 rounded-lg text-sm">
+                        <p className="text-slate-300 font-medium mb-2">Quotas du plan sélectionné :</p>
+                        {selectedPlan === 'health_bronze' && (
+                          <p className="text-slate-400">SMS: 0 | Email: 0 | IA: 0 | QR: 1</p>
+                        )}
+                        {selectedPlan === 'health_argent' && (
+                          <p className="text-slate-400">SMS: 100 | Email: 500 | IA: 0 | QR: 3 | NFC: 1</p>
+                        )}
+                        {selectedPlan === 'health_or' && (
+                          <p className="text-slate-400">SMS: 200 | Email: 1000 | IA: 75 | QR: 10 | NFC: 3</p>
+                        )}
+                        {selectedPlan === 'health_platinum' && (
+                          <p className="text-slate-400">SMS: 400 | Email: 2000 | IA: 150 | QR: 10 | NFC: 3</p>
+                        )}
+                      </div>
+
+                      <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                        <p className="text-sm text-amber-300">
+                          ⚠️ Les crédits mensuels seront réinitialisés selon le nouveau plan.
+                        </p>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setAssignPlanOpen(false)} className="border-slate-600">
+                        Annuler
+                      </Button>
+                      <Button
+                        onClick={handleAssignPlan}
+                        disabled={assignPlanLoading}
+                        className="bg-amber-500 hover:bg-amber-600"
+                      >
+                        {assignPlanLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Assigner ce plan'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Coupon/Discount Card */}
+          <Card className="bg-slate-800/50 border-emerald-500/30">
+            <CardHeader>
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-emerald-400" />
+                Remise Stripe (Coupon)
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Appliquer ou retirer une remise sur l&apos;abonnement Stripe
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Current discount status */}
+              <div className="p-4 rounded-lg border border-slate-700 bg-slate-700/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-400">Remise actuelle</p>
+                    {org.billing?.stripeCouponId ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge className="bg-emerald-500/20 text-emerald-400">
+                          {org.billing.stripeCouponId}
+                        </Badge>
+                        <span className="text-emerald-400 font-medium">
+                          {effectiveBillingData?.discount?.label || ''}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-slate-500 mt-1">Aucune remise appliquée</p>
+                    )}
+                  </div>
+                  {org.billing?.stripeCouponId && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRemoveCoupon}
+                      disabled={removeCouponLoading}
+                      className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                    >
+                      {removeCouponLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Retirer'}
+                    </Button>
+                  )}
+                </div>
+
+                {/* Price comparison */}
+                {org.billing?.stripeCouponId && effectiveBillingData && (
+                  <div className="mt-3 pt-3 border-t border-slate-600 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400">Prix catalogue:</span>
+                      <span className="text-slate-300 line-through">{effectiveBillingData.priceCatalogFormatted}</span>
+                      <span className="text-emerald-400">→</span>
+                      <span className="text-emerald-400 font-bold">{effectiveBillingData.priceEffectiveFormatted}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Apply coupon button */}
+              <div className="flex items-center justify-between pt-2">
+                <div>
+                  <p className="text-sm text-slate-300">Appliquer une remise</p>
+                  <p className="text-xs text-slate-500">Les coupons sont gérés via Stripe</p>
+                </div>
+                <Dialog open={applyCouponOpen} onOpenChange={setApplyCouponOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="bg-emerald-500 hover:bg-emerald-600">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Appliquer un coupon
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5 text-emerald-400" />
+                        Appliquer un coupon
+                      </DialogTitle>
+                      <DialogDescription className="text-slate-400">
+                        Sélectionnez un coupon de remise à appliquer sur l&apos;abonnement.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm text-slate-400">Coupon</label>
+                        <Select value={selectedCoupon} onValueChange={(v: typeof selectedCoupon) => setSelectedCoupon(v)}>
+                          <SelectTrigger className="bg-slate-700 border-slate-600 mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-slate-700">
+                            <SelectItem value="FIXED_5">-5€ (remise fixe)</SelectItem>
+                            <SelectItem value="FIXED_10">-10€ (remise fixe)</SelectItem>
+                            <SelectItem value="FIXED_20">-20€ (remise fixe)</SelectItem>
+                            <SelectItem value="PCT_10">-10% (pourcentage)</SelectItem>
+                            <SelectItem value="PCT_20">-20% (pourcentage)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-sm">
+                        <p className="text-emerald-300">
+                          💡 Le coupon sera appliqué sur la subscription Stripe du client.
+                        </p>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setApplyCouponOpen(false)} className="border-slate-600">
+                        Annuler
+                      </Button>
+                      <Button
+                        onClick={handleApplyCoupon}
+                        disabled={applyCouponLoading}
+                        className="bg-emerald-500 hover:bg-emerald-600"
+                      >
+                        {applyCouponLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Appliquer'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Existing Plan & Tarification Card */}
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-base text-white">Plan & Tarification</CardTitle>
+              <CardTitle className="text-base text-white">Détails du plan (legacy)</CardTitle>
+              <CardDescription className="text-slate-400">
+                Champs bruts stockés en base (utilisez &quot;Assigner un plan&quot; pour modifier)
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">

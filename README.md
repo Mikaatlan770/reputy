@@ -97,8 +97,8 @@ PORT=8787
 REVIEWS_BASE_URL=http://localhost:8787
 
 # === SECRETS (voir section Sécurité ci-dessous) ===
-CABINET_API_TOKEN=dev-token              # Token extension (DEV only)
-INTERNAL_ADMIN_TOKEN=super-admin-secret  # Token backoffice (DEV only)
+CABINET_API_TOKEN=<GÉNÉRER_AVEC_openssl_rand_base64_24>
+INTERNAL_ADMIN_TOKEN=<GÉNÉRER_AVEC_openssl_rand_base64_24>
 JWT_SECRET=your-jwt-secret               # Secret JWT sessions
 ADMIN_COOKIE_SECRET=your-cookie-secret   # Secret cookie admin
 ```
@@ -117,12 +117,14 @@ npm run dev    # http://localhost:3000
 **Variables d'environnement :**
 ```env
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8787
-NEXT_PUBLIC_API_TOKEN=dev-token
+NEXT_PUBLIC_API_TOKEN=<VOTRE_TOKEN_API>
 
 # Pour le backoffice Super Admin (ne pas exposer au client!)
 BACKEND_URL=http://localhost:8787
-INTERNAL_ADMIN_TOKEN=super-admin-secret
+INTERNAL_ADMIN_TOKEN=<VOTRE_TOKEN_ADMIN>
 ```
+
+> ⚠️ **P0.1 Sécurité** : Ne jamais commiter de vrais tokens. Copiez `apps/backend/env.example` vers `apps/backend/.env` et configurez vos propres valeurs.
 
 #### Backoffice Super Admin
 
@@ -271,12 +273,12 @@ En mode **production** (`NODE_ENV=production`), le serveur backend **refuse de d
 
 #### Variables requises
 
-| Variable | Description | Fallback DEV (interdit en prod) |
-|----------|-------------|--------------------------------|
-| `INTERNAL_ADMIN_TOKEN` | Token API super-admin | `super-admin-secret` |
-| `JWT_SECRET` | Secret signature sessions client | `reputy-mvp-secret-change-in-production` |
-| `CABINET_API_TOKEN` | Token API extension Chrome | `dev-token` |
-| `ADMIN_COOKIE_SECRET` | Secret HMAC cookie admin UI | `dev-admin-cookie-secret` |
+| Variable | Description | Comment générer |
+|----------|-------------|----------------|
+| `INTERNAL_ADMIN_TOKEN` | Token API super-admin | `openssl rand -base64 24` |
+| `JWT_SECRET` | Secret signature sessions client | `openssl rand -base64 32` |
+| `CABINET_API_TOKEN` | Token API extension Chrome | `openssl rand -base64 24` |
+| `ADMIN_COOKIE_SECRET` | Secret HMAC cookie admin UI | `openssl rand -base64 32` |
 
 #### Règles de validation
 

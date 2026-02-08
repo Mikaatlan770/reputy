@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
-import { reviews as allReviews } from '@/lib/mock-data'
+import { useReviews, useReplyReview, useUpdateReviewStatus, Review } from '@/lib/reviews'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -32,51 +33,121 @@ import {
   Clock,
   AlertTriangle,
   Globe,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  XCircle,
 } from 'lucide-react'
 import { cn, formatDate, getInitials } from '@/lib/utils'
-import type { Review } from '@/types'
 import { AiReplyAssistant } from '@/components/ai/AiReplyAssistant'
 import { WebsiteWidgetManager } from '@/components/embed'
 
+const PAGE_SIZE = 20
+
 export default function ReviewsPage() {
   const { currentLocation } = useAppStore()
-  const [selectedReview, setSelectedReview] = useState<Review | null>(null)
+  
+  // Filters state
   const [filterRating, setFilterRating] = useState<string>('all')
-  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterStatus, setFilterStatus] = useState<'pending' | 'replied' | 'ignored' | 'all'>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(0)
+  
+  // Dialog state
+  const [selectedReview, setSelectedReview] = useState<Review | null>(null)
   const [responseText, setResponseText] = useState('')
   const [selectedTone, setSelectedTone] = useState<string>('professional')
   const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
 
-  // Filter reviews
-  const reviews = allReviews
-    .filter((r) => !currentLocation || r.locationId === currentLocation.id)
-    .filter((r) => filterRating === 'all' || r.rating === parseInt(filterRating))
-    .filter((r) => {
-      if (filterStatus === 'all') return true
-      if (filterStatus === 'replied') return r.responded
-      if (filterStatus === 'unreplied') return !r.responded
-      return true
-    })
-    .filter(
-      (r) =>
-        searchQuery === '' ||
-        r.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.content.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  // API hooks
+  const { data, loading, error, refetch } = useReviews(
+    {
+      status: filterStatus,
+      rating: filterRating !== 'all' ? parseInt(filterRating) : undefined,
+      search: searchQuery || undefined,
+    },
+    {
+      sort: 'reviewed_at',
+      order: 'desc',
+      limit: PAGE_SIZE,
+      offset: currentPage * PAGE_SIZE,
+    }
+  )
 
-  // Utiliser une suggestion IA
-  const handleSelectAiSuggestion = (text: string) => {
+  const { submitReply, loading: submittingReply, error: replyError } = useReplyReview()
+  const { updateStatus, loading: updatingStatus } = useUpdateReviewStatus()
+
+  const reviews = data?.reviews || []
+  const totalReviews = data?.total || 0
+  const hasMore = data?.hasMore || false
+  const totalPages = Math.ceil(totalReviews / PAGE_SIZE)
+
+  // Count pending reviews
+  const pendingCount = useMemo(() => {
+    return reviews.filter(r => r.status === 'pending').length
+  }, [reviews])
+
+  // Handle filter changes - reset to first page
+  const handleFilterChange = useCallback((type: 'rating' | 'status' | 'search', value: string) => {
+    setCurrentPage(0)
+    if (type === 'rating') setFilterRating(value)
+    if (type === 'status') setFilterStatus(value as 'pending' | 'replied' | 'ignored' | 'all')
+    if (type === 'search') setSearchQuery(value)
+  }, [])
+
+  // AI suggestion handler
+  const handleSelectAiSuggestion = useCallback((text: string) => {
     setResponseText(text)
-  }
+  }, [])
 
-  const handleSendResponse = () => {
-    // Mock: would send response
-    console.log('Sending response:', responseText)
-    setSelectedReview(null)
-    setResponseText('')
-  }
+  // Send response handler
+  const handleSendResponse = useCallback(async () => {
+    if (!selectedReview || !responseText.trim()) return
+
+    const result = await submitReply(selectedReview.id, responseText)
+    if (result) {
+      setSelectedReview(null)
+      setResponseText('')
+      refetch()
+    }
+  }, [selectedReview, responseText, submitReply, refetch])
+
+  // Ignore review handler
+  const handleIgnoreReview = useCallback(async () => {
+    if (!selectedReview) return
+
+    const result = await updateStatus(selectedReview.id, 'ignored')
+    if (result) {
+      setSelectedReview(null)
+      refetch()
+    }
+  }, [selectedReview, updateStatus, refetch])
+
+  // Convert Review to legacy format for AiReplyAssistant
+  const selectedReviewForAi = selectedReview ? {
+    id: selectedReview.id,
+    locationId: 'current',
+    platform: selectedReview.provider as 'google' | 'doctolib' | 'facebook',
+    rating: selectedReview.rating,
+    author: selectedReview.authorName,
+    date: selectedReview.reviewedAt,
+    content: selectedReview.comment || '',
+    responded: selectedReview.status === 'replied',
+    responseText: selectedReview.replyText || undefined,
+    responseDate: selectedReview.replySentAt || undefined,
+    tags: selectedReview.tags,
+    sentiment: selectedReview.sentiment || undefined,
+  } : null
+
+  // Convert reviews for widget manager
+  const reviewsForWidget = reviews.map((r) => ({
+    id: r.id,
+    author: r.authorName,
+    rating: r.rating,
+    content: r.comment || '',
+    date: r.reviewedAt,
+    source: 'google' as const,
+  }))
 
   return (
     <div className="space-y-6">
@@ -89,9 +160,15 @@ export default function ReviewsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="px-3 py-1.5">
-            {reviews.filter((r) => !r.responded).length} non répondus
-          </Badge>
+          {filterStatus === 'pending' ? (
+            <Badge variant="secondary" className="px-3 py-1.5">
+              {totalReviews} à traiter
+            </Badge>
+          ) : (
+            <Badge variant="secondary" className="px-3 py-1.5">
+              {totalReviews} avis au total
+            </Badge>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -113,12 +190,12 @@ export default function ReviewsPage() {
               <Input
                 placeholder="Rechercher par auteur ou contenu..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
                 className="pl-9"
               />
             </div>
             <div className="flex gap-2">
-              <Select value={filterRating} onValueChange={setFilterRating}>
+              <Select value={filterRating} onValueChange={(v) => handleFilterChange('rating', v)}>
                 <SelectTrigger className="w-[140px]">
                   <Star className="h-4 w-4 mr-2 text-amber-500" />
                   <SelectValue placeholder="Note" />
@@ -132,15 +209,16 @@ export default function ReviewsPage() {
                   <SelectItem value="1">1 étoile</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <Select value={filterStatus} onValueChange={(v) => handleFilterChange('status', v)}>
                 <SelectTrigger className="w-[160px]">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue placeholder="Statut" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Tous les avis</SelectItem>
-                  <SelectItem value="unreplied">Non répondus</SelectItem>
+                  <SelectItem value="pending">Non répondus</SelectItem>
                   <SelectItem value="replied">Répondus</SelectItem>
+                  <SelectItem value="ignored">Ignorés</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -148,108 +226,180 @@ export default function ReviewsPage() {
         </CardContent>
       </Card>
 
-      {/* Reviews List */}
-      <div className="space-y-4">
-        {reviews.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="font-semibold text-foreground">Aucun avis trouvé</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Modifiez vos filtres ou attendez de nouveaux avis.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          reviews.map((review) => (
-            <Card
-              key={review.id}
-              className={cn(
-                'hover:shadow-card-hover transition-shadow cursor-pointer',
-                !review.responded && 'border-l-4 border-l-primary'
-              )}
-              onClick={() => setSelectedReview(review)}
-            >
+      {/* Loading State */}
+      {loading && (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i}>
               <CardContent className="p-5">
                 <div className="flex items-start gap-4">
-                  <Avatar className="h-11 w-11">
-                    <AvatarFallback className="bg-primary/10 text-primary">
-                      {getInitials(review.author)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground">
-                            {review.author}
-                          </span>
-                          <Badge variant="google" className="text-[10px]">
-                            Google
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <div className="flex">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <Star
-                                key={star}
-                                className={cn(
-                                  'h-4 w-4',
-                                  star <= review.rating
-                                    ? 'fill-amber-400 text-amber-400'
-                                    : 'text-gray-300'
-                                )}
-                              />
-                            ))}
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDate(review.date)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {review.responded ? (
-                          <Badge variant="success" className="gap-1">
-                            <CheckCircle className="h-3 w-3" />
-                            Répondu
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="gap-1">
-                            <Clock className="h-3 w-3" />
-                            En attente
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <p className="mt-3 text-sm text-foreground leading-relaxed">
-                      {review.content}
-                    </p>
-                    {review.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-3">
-                        {review.tags.map((tag) => (
-                          <Badge key={tag} variant="outline" className="text-xs">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    {review.responded && review.responseText && (
-                      <div className="mt-4 p-3 bg-muted/50 rounded-lg border-l-2 border-primary">
-                        <p className="text-xs font-medium text-muted-foreground mb-1">
-                          Votre réponse • {formatDate(review.responseDate!)}
-                        </p>
-                        <p className="text-sm text-foreground">
-                          {review.responseText}
-                        </p>
-                      </div>
-                    )}
+                  <Skeleton className="h-11 w-11 rounded-full" />
+                  <div className="flex-1 space-y-3">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-3/4" />
                   </div>
                 </div>
               </CardContent>
             </Card>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+            <h3 className="font-semibold text-foreground">Erreur de chargement</h3>
+            <p className="text-sm text-muted-foreground mt-1">{error}</p>
+            <Button variant="outline" onClick={() => refetch()} className="mt-4">
+              Réessayer
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reviews List */}
+      {!loading && !error && (
+        <div className="space-y-4">
+          {reviews.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+                <h3 className="font-semibold text-foreground">Aucun avis trouvé</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Modifiez vos filtres ou attendez de nouveaux avis.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            reviews.map((review) => (
+              <Card
+                key={review.id}
+                className={cn(
+                  'hover:shadow-card-hover transition-shadow cursor-pointer',
+                  review.status === 'pending' && 'border-l-4 border-l-primary'
+                )}
+                onClick={() => setSelectedReview(review)}
+              >
+                <CardContent className="p-5">
+                  <div className="flex items-start gap-4">
+                    <Avatar className="h-11 w-11">
+                      <AvatarFallback className="bg-primary/10 text-primary">
+                        {getInitials(review.authorName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground">
+                              {review.authorName}
+                            </span>
+                            <Badge variant="google" className="text-[10px]">
+                              Google
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="flex">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  className={cn(
+                                    'h-4 w-4',
+                                    star <= review.rating
+                                      ? 'fill-amber-400 text-amber-400'
+                                      : 'text-gray-300'
+                                  )}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(review.reviewedAt)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {review.status === 'replied' ? (
+                            <Badge variant="success" className="gap-1">
+                              <CheckCircle className="h-3 w-3" />
+                              Répondu
+                            </Badge>
+                          ) : review.status === 'ignored' ? (
+                            <Badge variant="outline" className="gap-1 text-muted-foreground">
+                              <XCircle className="h-3 w-3" />
+                              Ignoré
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="gap-1">
+                              <Clock className="h-3 w-3" />
+                              En attente
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <p className="mt-3 text-sm text-foreground leading-relaxed">
+                        {review.comment || <em className="text-muted-foreground">Pas de commentaire</em>}
+                      </p>
+                      {review.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-3">
+                          {review.tags.map((tag) => (
+                            <Badge key={tag} variant="outline" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      {review.status === 'replied' && review.replyText && (
+                        <div className="mt-4 p-3 bg-muted/50 rounded-lg border-l-2 border-primary">
+                          <p className="text-xs font-medium text-muted-foreground mb-1">
+                            Votre réponse {review.replySentAt && `• ${formatDate(review.replySentAt)}`}
+                            {review.replyStatus === 'queued' && ' • En attente d\'envoi'}
+                            {review.replyStatus === 'failed' && ' • Échec d\'envoi'}
+                          </p>
+                          <p className="text-sm text-foreground">
+                            {review.replyText}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <p className="text-sm text-muted-foreground">
+                Page {currentPage + 1} sur {totalPages} ({totalReviews} avis)
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                  disabled={currentPage === 0}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Précédent
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  disabled={!hasMore}
+                >
+                  Suivant
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Response Dialog */}
       <Dialog open={!!selectedReview} onOpenChange={() => setSelectedReview(null)}>
@@ -273,11 +423,11 @@ export default function ReviewsPage() {
                 <div className="flex items-center gap-3 mb-2">
                   <Avatar className="h-9 w-9">
                     <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                      {getInitials(selectedReview.author)}
+                      {getInitials(selectedReview.authorName)}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-medium">{selectedReview.author}</p>
+                    <p className="font-medium">{selectedReview.authorName}</p>
                     <div className="flex items-center gap-1">
                       {[1, 2, 3, 4, 5].map((star) => (
                         <Star
@@ -291,12 +441,12 @@ export default function ReviewsPage() {
                         />
                       ))}
                       <span className="text-xs text-muted-foreground ml-1">
-                        • {formatDate(selectedReview.date)}
+                        • {formatDate(selectedReview.reviewedAt)}
                       </span>
                     </div>
                   </div>
                 </div>
-                <p className="text-sm">{selectedReview.content}</p>
+                <p className="text-sm">{selectedReview.comment || 'Pas de commentaire'}</p>
               </div>
 
               {/* Health Mode Warning */}
@@ -308,56 +458,94 @@ export default function ReviewsPage() {
                 </div>
               )}
 
-              {/* Tone Selector + AI Button */}
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Ton :</span>
-                  <div className="flex gap-1">
-                    {['professional', 'warm', 'short'].map((tone) => (
-                      <Button
-                        key={tone}
-                        variant={selectedTone === tone ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSelectedTone(tone)}
-                      >
-                        {tone === 'professional' && 'Professionnel'}
-                        {tone === 'warm' && 'Chaleureux'}
-                        {tone === 'short' && 'Court'}
-                      </Button>
-                    ))}
+              {/* Reply Error */}
+              {replyError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                  <strong>Erreur :</strong> {replyError}
+                </div>
+              )}
+
+              {/* Already replied or in queue */}
+              {selectedReview.replyStatus === 'queued' && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                  <strong>ℹ️ Info :</strong> Une réponse est déjà en attente d&apos;envoi.
+                </div>
+              )}
+
+              {selectedReview.status !== 'replied' && selectedReview.replyStatus !== 'queued' && (
+                <>
+                  {/* Tone Selector + AI Button */}
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">Ton :</span>
+                      <div className="flex gap-1">
+                        {['professional', 'warm', 'short'].map((tone) => (
+                          <Button
+                            key={tone}
+                            variant={selectedTone === tone ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setSelectedTone(tone)}
+                          >
+                            {tone === 'professional' && 'Professionnel'}
+                            {tone === 'warm' && 'Chaleureux'}
+                            {tone === 'short' && 'Court'}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Bouton Assistant IA */}
+                    {selectedReviewForAi && (
+                      <div className="ml-auto">
+                        <AiReplyAssistant
+                          review={selectedReviewForAi}
+                          healthMode={currentLocation?.healthMode ?? false}
+                          onSelectSuggestion={handleSelectAiSuggestion}
+                        />
+                      </div>
+                    )}
                   </div>
-                </div>
-                
-                {/* Bouton Assistant IA */}
-                <div className="ml-auto">
-                  <AiReplyAssistant
-                    review={selectedReview}
-                    healthMode={currentLocation?.healthMode ?? false}
-                    onSelectSuggestion={handleSelectAiSuggestion}
+
+                  {/* Response Textarea */}
+                  <textarea
+                    className="w-full min-h-[150px] p-3 rounded-lg border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="Écrivez votre réponse..."
+                    value={responseText}
+                    onChange={(e) => setResponseText(e.target.value)}
+                    disabled={submittingReply}
                   />
-                </div>
-              </div>
+                </>
+              )}
 
-              {/* Response Textarea */}
-              <textarea
-                className="w-full min-h-[150px] p-3 rounded-lg border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="Écrivez votre réponse..."
-                value={responseText}
-                onChange={(e) => setResponseText(e.target.value)}
-              />
-
-              <DialogFooter>
+              <DialogFooter className="gap-2 sm:gap-0">
+                {selectedReview.status === 'pending' && selectedReview.replyStatus !== 'queued' && (
+                  <Button 
+                    variant="ghost" 
+                    onClick={handleIgnoreReview}
+                    disabled={updatingStatus}
+                    className="text-muted-foreground"
+                  >
+                    <XCircle className="h-4 w-4 mr-1" />
+                    Ignorer
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => setSelectedReview(null)}>
-                  Annuler
+                  Fermer
                 </Button>
-                <Button
-                  onClick={handleSendResponse}
-                  disabled={!responseText.trim()}
-                  className="gap-1"
-                >
-                  <Send className="h-4 w-4" />
-                  Publier la réponse
-                </Button>
+                {selectedReview.status !== 'replied' && selectedReview.replyStatus !== 'queued' && (
+                  <Button
+                    onClick={handleSendResponse}
+                    disabled={!responseText.trim() || submittingReply}
+                    className="gap-1"
+                  >
+                    {submittingReply ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                    Publier la réponse
+                  </Button>
+                )}
               </DialogFooter>
             </div>
           )}
@@ -371,14 +559,7 @@ export default function ReviewsPage() {
           locationName={currentLocation.name}
           open={widgetManagerOpen}
           onOpenChange={setWidgetManagerOpen}
-          availableReviews={reviews.map((r) => ({
-            id: r.id,
-            author: r.author,
-            rating: r.rating,
-            content: r.content,
-            date: r.date,
-            source: 'google' as const,
-          }))}
+          availableReviews={reviewsForWidget}
         />
       )}
     </div>

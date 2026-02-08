@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,6 +18,14 @@ const navigation = [
   { name: 'Clients', href: '/internal/clients', icon: Users },
 ]
 
+const planFilters = [
+  { id: 'all', label: 'Tous les plans', color: 'text-slate-400' },
+  { id: 'bronze', label: '🥉 Bronze', color: 'text-amber-400' },
+  { id: 'argent', label: '🥈 Argent', color: 'text-slate-300' },
+  { id: 'or', label: '🥇 Or', color: 'text-yellow-400' },
+  { id: 'platinum', label: '💎 Platinum', color: 'text-purple-400' },
+]
+
 interface BackofficeLayoutProps {
   children: React.ReactNode
 }
@@ -25,7 +33,19 @@ interface BackofficeLayoutProps {
 export function BackofficeLayout({ children }: BackofficeLayoutProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const currentPlanFilter = searchParams.get('plan') || 'all'
+
+  function handlePlanFilter(planId: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (planId === 'all') {
+      params.delete('plan')
+    } else {
+      params.set('plan', planId)
+    }
+    router.push(`${pathname}?${params.toString()}`)
+  }
 
   async function handleLogout() {
     await fetch('/internal/api/auth', { method: 'DELETE' })
@@ -84,6 +104,34 @@ export function BackofficeLayout({ children }: BackofficeLayoutProps) {
             )
           })}
         </nav>
+
+        {/* Plan Filters - Show only on clients page */}
+        {pathname.startsWith('/internal/clients') && (
+          <div className="px-4 mt-2">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">
+              Filtrer par plan
+            </p>
+            <div className="space-y-1">
+              {planFilters.map((filter) => (
+                <button
+                  key={filter.id}
+                  onClick={() => handlePlanFilter(filter.id)}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                    currentPlanFilter === filter.id
+                      ? 'bg-slate-700 text-white ring-2 ring-amber-500/50'
+                      : 'text-slate-400 hover:bg-slate-700/50 hover:text-white'
+                  )}
+                >
+                  <span className={filter.color}>{filter.label}</span>
+                  {currentPlanFilter === filter.id && (
+                    <span className="ml-auto text-amber-400 text-xs">●</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-700">
           <Button

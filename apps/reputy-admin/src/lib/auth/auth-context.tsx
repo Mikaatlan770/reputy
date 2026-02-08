@@ -25,6 +25,14 @@ export interface ClientOrg {
   status: 'active' | 'pending' | 'suspended' | 'cancelled'
   publicKey: string
   vertical: 'health' | 'food' | 'business'
+  billing?: {
+    periodStart?: string
+    periodEnd?: string
+    provider?: string
+    stripeCustomerId?: string
+    stripeSubscriptionId?: string
+    stripeCouponId?: string
+  }
   plan: {
     code: string
     basePriceCents: number
@@ -49,17 +57,56 @@ export interface ClientOrg {
       emailUsed: number
       smsTotal: number
       emailTotal: number
+      aiTotal?: number
+      aiUsed?: number
+      aiRemaining?: number
+      smsGiftMonthly?: number
+      emailGiftMonthly?: number
+      aiGiftMonthly?: number
     }
     pack: {
       smsRemaining: number
       emailRemaining: number
+      aiRemaining?: number
     }
     total: {
       smsRemaining: number
       emailRemaining: number
+      aiRemaining?: number
     }
     canSend: boolean
     subscriptionActive: boolean
+  }
+  billingComputed?: {
+    periodStart?: string
+    periodEnd?: string
+    periodEndFormatted?: string
+    // Legacy pricing
+    priceBaseCents: number
+    priceMonthlyFinalCents: number
+    discountPercent?: number
+    isNegotiated?: boolean
+    currency?: string
+    // New effective billing
+    priceCatalogCents?: number
+    priceEffectiveCents?: number
+    priceCatalogFormatted?: string
+    priceEffectiveFormatted?: string
+    hasDiscount?: boolean
+    stripeCouponId?: string | null
+    discount?: {
+      type: string | null
+      value: number | null
+      label: string | null
+    } | null
+    couponInfo?: {
+      id: string
+      label: string
+      description: string
+    } | null
+    // Prorata
+    isProrata?: boolean
+    ratio?: number
   }
 }
 

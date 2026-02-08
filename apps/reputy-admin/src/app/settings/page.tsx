@@ -33,7 +33,12 @@ import {
 import { WebsiteWidgetManager } from '@/components/embed'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || 'dev-token'
+
+// Get session token from localStorage (client auth)
+const getAuthToken = () => {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem('reputy_client_token')
+}
 
 export default function SettingsPage() {
   const { currentLocation, orgSettings } = useAppStore()
@@ -63,9 +68,15 @@ export default function SettingsPage() {
   }, [])
 
   const fetchSettings = async () => {
+    const token = getAuthToken()
+    if (!token) {
+      setLoadingSettings(false)
+      return
+    }
+    
     try {
       const response = await fetch(`${BACKEND_URL}/api/settings`, {
-        headers: { Authorization: `Bearer ${API_TOKEN}` },
+        headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
         const data = await response.json()
@@ -80,6 +91,9 @@ export default function SettingsPage() {
   }
 
   const saveSettings = async () => {
+    const token = getAuthToken()
+    if (!token) return
+    
     setSaving(true)
     setSaveSuccess(false)
     try {
@@ -87,7 +101,7 @@ export default function SettingsPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${API_TOKEN}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ googleReviewUrl, cabinetName }),
       })
@@ -103,9 +117,15 @@ export default function SettingsPage() {
   }
 
   const fetchReviewRouting = async () => {
+    const token = getAuthToken()
+    if (!token) {
+      setLoadingRouting(false)
+      return
+    }
+    
     try {
       const response = await fetch(`${BACKEND_URL}/api/settings/review-routing`, {
-        headers: { Authorization: `Bearer ${API_TOKEN}` },
+        headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
         const data = await response.json()
@@ -123,6 +143,9 @@ export default function SettingsPage() {
   }
 
   const saveReviewRouting = async () => {
+    const token = getAuthToken()
+    if (!token) return
+    
     setSavingRouting(true)
     setRoutingSaveSuccess(false)
     try {
@@ -130,7 +153,7 @@ export default function SettingsPage() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${API_TOKEN}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(reviewRouting),
       })

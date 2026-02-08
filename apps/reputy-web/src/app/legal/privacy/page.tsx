@@ -128,7 +128,8 @@ export default function PrivacyPage() {
               <ul className="list-none text-gray-600 space-y-1">
                 <li><strong>Email :</strong> privacy@reputy.fr</li>
                 <li><strong>DPO :</strong> dpo@reputy.fr</li>
-                <li><strong>Adresse :</strong> Reputy SAS, [Adresse à compléter]</li>
+                <li><strong>Adresse :</strong> Reputy, 6 Allée Gustave Eiffel, 92130 Issy-les-Moulineaux</li>
+                <li><strong>SIRET :</strong> 809 760 168 00017 – RCS Nanterre</li>
               </ul>
             </section>
 
