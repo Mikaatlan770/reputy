@@ -201,7 +201,10 @@ const JWT_SECRET = process.env.JWT_SECRET || DEV_FALLBACKS.JWT_SECRET;
 const SESSION_EXPIRY_DAYS = 7;
 const VERIFICATION_CODE_EXPIRY_MINUTES = 15;
 const BCRYPT_ROUNDS = 10;
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3001,http://localhost:3000,http://127.0.0.1:3001').split(',');
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001,http://localhost:3002,http://127.0.0.1:3001')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
 
 // ============ P0.4: RATE LIMITING (Anti brute-force) ============
 // Simple in-memory rate limiter, reset on restart
@@ -324,6 +327,96 @@ setInterval(cleanupRateLimitStore, AUTH_RATE_LIMIT_CLEANUP_INTERVAL_MS);
 // Legacy rate limit constants (for verification codes)
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+// ============ P0.3: CORS + SECURITY HEADERS ============
+
+/**
+ * P0.3: Apply CORS headers based on ALLOWED_ORIGINS.
+ * - No Origin header (curl / server-to-server): pass through, no CORS headers.
+ * - Origin in ALLOWED_ORIGINS: set Allow-Origin to that origin.
+ * - Origin present but NOT allowed: respond 403.
+ * 
+ * Uses statusCode + setHeader (not writeHead with object) to preserve
+ * security headers already set by applySecurityHeaders().
+ * 
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse} res
+ * @returns {'pass'|'preflight'|'blocked'}
+ */
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+
+  // No Origin → server-to-server / curl → skip CORS headers
+  if (!origin) return 'pass';
+
+  const isAllowed = ALLOWED_ORIGINS.includes(origin);
+
+  if (!isAllowed) {
+    if (IS_PRODUCTION) {
+      logger.logError('CORS_BLOCKED', { origin, url: req.url, method: req.method });
+    }
+    // Use statusCode + setHeader to preserve security headers
+    res.statusCode = 403;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'Origin not allowed' }));
+    return 'blocked';
+  }
+
+  // Allowed origin → set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Requested-With, x-admin-token, x-api-token, x-public-key, X-Internal-Admin-Token, X-Cabinet-Api-Token, X-Public-Key'
+  );
+  // Credentials: true — needed for admin-cookie cross-origin (reputy-admin ↔ backend)
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24h preflight cache
+
+  // Preflight → respond 204 immediately
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end();
+    return 'preflight';
+  }
+
+  return 'pass';
+}
+
+/**
+ * P0.3: Apply security headers to every response.
+ * Safe for JSON APIs. HTML pages get a more permissive CSP for inline JS/CSS.
+ * HSTS only in production.
+ * 
+ * @param {http.ServerResponse} res
+ * @param {object} [options]
+ * @param {boolean} [options.isHtml=false] - If true, use a more permissive CSP for HTML pages
+ */
+function applySecurityHeaders(res, { isHtml = false } = {}) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+
+  if (isHtml) {
+    // Permissive CSP for patient rating pages (inline JS/CSS)
+    res.setHeader('Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
+    );
+  } else {
+    // Strict CSP for API responses (JSON)
+    res.setHeader('Content-Security-Policy',
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+    );
+  }
+
+  if (IS_PRODUCTION) {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
+}
+
+// ============ END P0.3 ============
 
 // ============ P0.1: FAIL-FAST SECRETS VALIDATION ============
 /**
@@ -2304,18 +2397,18 @@ function saveData(data) {
 
 function sendJson(res, status, data) {
   res.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
+    'Content-Type': 'application/json'
+    // P0.3: CORS headers are now set globally by applyCors()
   });
   res.end(JSON.stringify(data));
 }
 
 function sendHtml(res, status, html) {
+  // P0.3: Override CSP for HTML pages (inline JS/CSS in patient rating pages)
+  applySecurityHeaders(res, { isHtml: true });
   res.writeHead(status, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Access-Control-Allow-Origin': '*'
+    'Content-Type': 'text/html; charset=utf-8'
+    // P0.3: CORS headers are now set globally by applyCors()
   });
   res.end(html);
 }
@@ -5977,12 +6070,12 @@ async function handleClientGetShortlinkQR(req, res, code) {
         }
       });
       
+      // P0.3: QR images may be embedded cross-site
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       res.writeHead(200, {
         'Content-Type': 'image/svg+xml',
         'Content-Disposition': `inline; filename="qr-${code}.svg"`,
-        'Cache-Control': 'private, max-age=3600',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type'
+        'Cache-Control': 'private, max-age=3600'
       });
       res.end(svgString);
     } else {
@@ -5997,12 +6090,12 @@ async function handleClientGetShortlinkQR(req, res, code) {
         }
       });
       
+      // P0.3: QR images may be embedded cross-site
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       res.writeHead(200, {
         'Content-Type': 'image/png',
         'Content-Disposition': `inline; filename="qr-${code}.png"`,
-        'Cache-Control': 'private, max-age=3600',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type'
+        'Cache-Control': 'private, max-age=3600'
       });
       res.end(pngBuffer);
     }
@@ -8181,9 +8274,12 @@ function recordTelemetry(data, orgId, level, code, message, extra = {}) {
 const server = http.createServer(async (req, res) => {
   const { method, url } = req;
 
-  if (method === 'OPTIONS') {
-    return sendJson(res, 204, {});
-  }
+  // ── P0.3: Security headers (default: API-safe strict CSP) ──
+  applySecurityHeaders(res);
+
+  // ── P0.3: CORS (must run before any route) ──
+  const corsResult = applyCors(req, res);
+  if (corsResult === 'blocked' || corsResult === 'preflight') return;
 
   // Health check
   if (method === 'GET' && url === '/health') {
