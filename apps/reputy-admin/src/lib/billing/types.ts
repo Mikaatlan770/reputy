@@ -12,6 +12,8 @@ export interface Plan {
   description: string
   priceMonthly: number // en centimes HT
   stripePriceId?: string
+  stripePriceIdMonthly?: string
+  stripePriceIdYearly?: string
   features: string[]
   quotas: {
     sms: number

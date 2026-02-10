@@ -1,4 +1,9 @@
 // Backend Reputy - Extension Chrome Doctolib
+//
+// Priority labels used in comments:
+//   P4 = purge historique git + force push + rotation secrets (opération humaine)
+//   P5 = legacy auth (validateAuth, legacyAuth, kill-switch, instrumentation)
+//
 // Endpoints :
 //  - GET  /health                      -> statut du serveur
 //  - POST /api/send-review-request     -> crée une demande d'avis
@@ -21,6 +26,8 @@
 //  - POST   /internal/orgs/:orgId/reset-public-key -> régénérer publicKey
 //  - POST   /internal/orgs/:orgId/rotate-api-token -> rotation token API (P1.3)
 //  - GET    /internal/orgs/:orgId/api-token        -> info token API masqué (P1.3)
+//  - GET    /internal/admin/feedbacks              -> feedbacks admin (P5)
+//  - GET    /internal/admin/legacy-auth-stats      -> stats legacy auth (P5)
 //  - POST   /telemetry/extension       -> log depuis extension
 //
 // Public API (lecture seule, pas d'auth):
@@ -35,7 +42,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { randomBytes, createHash, createHmac } = require('crypto');
+const { randomBytes, createHash, createHmac, timingSafeEqual } = require('crypto');
 const bcrypt = require('bcryptjs');
 
 // Load environment variables from .env file
@@ -188,10 +195,20 @@ const DEV_FALLBACKS = {
 // ============ SECRETS CONFIGURATION ============
 const PORT = process.env.PORT || 8787;
 const CABINET_API_TOKEN = process.env.CABINET_API_TOKEN || DEV_FALLBACKS.CABINET_API_TOKEN;
+// P5: Legacy grace period token (optional — set during rotation window, remove after 24–48h)
+const CABINET_API_TOKEN_OLD = process.env.CABINET_API_TOKEN_OLD || '';
 const INTERNAL_ADMIN_TOKEN = process.env.INTERNAL_ADMIN_TOKEN || DEV_FALLBACKS.INTERNAL_ADMIN_TOKEN;
 const ADMIN_COOKIE_SECRET = process.env.ADMIN_COOKIE_SECRET || DEV_FALLBACKS.ADMIN_COOKIE_SECRET;
 const REVIEWS_BASE_URL = process.env.REVIEWS_BASE_URL || `http://127.0.0.1:${PORT}`;
 const VERSION = '0.7.0'; // SQLite migration
+
+// P5: Pre-computed hashes — avoids SHA256 on every request (constant-time compare)
+const CABINET_API_TOKEN_HASH = CABINET_API_TOKEN
+  ? createHash('sha256').update(CABINET_API_TOKEN).digest('hex')
+  : '';
+const CABINET_API_TOKEN_OLD_HASH = CABINET_API_TOKEN_OLD
+  ? createHash('sha256').update(CABINET_API_TOKEN_OLD).digest('hex')
+  : '';
 
 // P1.4: Set version in logger
 logger.setVersion(VERSION);
@@ -2226,19 +2243,119 @@ function loadData() {
 
 // ============ AUTH MIDDLEWARES ============
 
+// ============ P5: Legacy auth instrumentation + kill-switch + grace period ============
+
 /**
- * LEGACY: Validate global cabinet token (deprecated, kept for backward compat)
+ * Kill-switch: read at each call (PM2 restart applies env changes).
+ * DISABLE_LEGACY_AUTH=1 → legacyAuth() always returns ok=false.
  */
-function validateAuth(req) {
+function isLegacyAuthDisabled() {
+  return (process.env.DISABLE_LEGACY_AUTH || '0') === '1';
+}
+
+// In-memory counters for legacy auth hits (best-effort, resets on restart)
+const legacyAuthCounters = {};
+let legacyAuthTotalHits = 0;
+let _legacyHitOldCount = 0;
+
+/**
+ * Get legacy auth stats summary (for admin endpoint).
+ */
+function getLegacyAuthStats() {
+  const entries = Object.entries(legacyAuthCounters);
+  // Top 5 routes by hit count
+  const topRoutes = entries
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([route, count]) => ({ route, count }));
+  return {
+    totalHits: legacyAuthTotalHits,
+    oldTokenHits: _legacyHitOldCount,
+    topRoutes,
+    disabled: isLegacyAuthDisabled(),
+  };
+}
+
+/**
+ * P5 LEGACY AUTH — instrumented, constant-time, with grace period.
+ *
+ * - Pre-computed SHA256 hashes (CABINET_API_TOKEN_HASH / _OLD_HASH) — no per-request
+ *   crypto overhead on the secrets themselves; only the incoming token is hashed once.
+ * - Constant-time comparison via timingSafeEqual (consistent with P1.3).
+ * - Sampled logging: 1 log per 100 hits per token type (anti log-flood).
+ * - Supports CABINET_API_TOKEN_OLD for grace period during rotation (24–48h window).
+ * - Kill-switch: if DISABLE_LEGACY_AUTH=1, returns ok=false immediately.
+ * - Defense-in-depth: rejects if CABINET_API_TOKEN missing in production.
+ * - NEVER logs the token value.
+ *
+ * REMOVE BY: v1.1 — once all clients confirmed on P1.3 per-org tokens.
+ *
+ * @param {object} req - HTTP request
+ * @param {string} routeName - e.g. '/api/feedbacks'
+ * @returns {{ ok: boolean, error?: string }}
+ */
+function legacyAuth(req, routeName) {
+  // Kill-switch check
+  if (isLegacyAuthDisabled()) {
+    return { ok: false, error: 'legacy_auth_disabled' };
+  }
+
+  // P5: Defense-in-depth — never accept legacy auth on a misconfigured prod
+  // (validateProductionSecrets() already prevents boot, but belt-and-suspenders)
+  if (IS_PRODUCTION && !process.env.CABINET_API_TOKEN) {
+    return { ok: false, error: 'CABINET_API_TOKEN not configured' };
+  }
+
   const header = req.headers['authorization'] || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) {
     return { ok: false, error: 'Token manquant' };
   }
-  if (token !== CABINET_API_TOKEN) {
-    return { ok: false, error: 'Token invalide' };
+
+  // Hash the incoming token ONCE (only per-request hash needed)
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+
+  // Check current token (pre-computed hash, constant-time)
+  if (CABINET_API_TOKEN_HASH &&
+      tokenHash.length === CABINET_API_TOKEN_HASH.length &&
+      timingSafeEqual(Buffer.from(tokenHash), Buffer.from(CABINET_API_TOKEN_HASH))) {
+    // Instrumentation: count + sampled log (1/100 hits)
+    legacyAuthTotalHits++;
+    legacyAuthCounters[routeName] = (legacyAuthCounters[routeName] || 0) + 1;
+    if (legacyAuthTotalHits % 100 === 1) {
+      logger.logWarn('LEGACY_AUTH_HIT', `Legacy CABINET_API_TOKEN used (current) — hit #${legacyAuthTotalHits}`, {
+        route: routeName,
+        method: req.method,
+      });
+    }
+    return { ok: true };
   }
-  return { ok: true };
+
+  // P5: Grace period — accept old token during rotation window
+  if (CABINET_API_TOKEN_OLD_HASH &&
+      tokenHash.length === CABINET_API_TOKEN_OLD_HASH.length &&
+      timingSafeEqual(Buffer.from(tokenHash), Buffer.from(CABINET_API_TOKEN_OLD_HASH))) {
+    _legacyHitOldCount++;
+    legacyAuthCounters[routeName + ':OLD'] = (legacyAuthCounters[routeName + ':OLD'] || 0) + 1;
+    if (_legacyHitOldCount % 100 === 1) {
+      logger.logWarn('LEGACY_AUTH_HIT_OLD', `Legacy CABINET_API_TOKEN_OLD used (grace period) — hit #${_legacyHitOldCount}`, {
+        route: routeName,
+        method: req.method,
+      });
+    }
+    return { ok: true };
+  }
+
+  return { ok: false, error: 'Token invalide' };
+}
+
+/**
+ * DEPRECATED: validateAuth — kept as alias during migration.
+ * All call-sites should use legacyAuth(req, routeName) instead.
+ * Will be removed when DISABLE_LEGACY_AUTH=1 is stable.
+ */
+function validateAuth(req) {
+  return legacyAuth(req, '_unknown');
 }
 
 /**
@@ -2350,12 +2467,27 @@ function validateExtensionAuth(req, publicKey) {
   return { ok: false, error: 'UNAUTHORIZED', message: 'Token invalide' };
 }
 
+// ============ P0.3: Constant-time token comparison ============
+function safeTokenCompare(a, b) {
+  if (!a || !b) return false;
+  try {
+    const maxLen = Math.max(a.length, b.length);
+    const bufA = Buffer.alloc(maxLen, 0);
+    const bufB = Buffer.alloc(maxLen, 0);
+    Buffer.from(a).copy(bufA);
+    Buffer.from(b).copy(bufB);
+    return a.length === b.length && timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
 function requireAdmin(req) {
   const token = req.headers['x-admin-token'] || '';
   if (!token) {
     return { ok: false, error: 'Admin token manquant', status: 401 };
   }
-  if (token !== INTERNAL_ADMIN_TOKEN) {
+  if (!safeTokenCompare(token, INTERNAL_ADMIN_TOKEN)) {
     return { ok: false, error: 'Admin token invalide', status: 401 };
   }
   return { ok: true };
@@ -3632,12 +3764,32 @@ async function handleSubmitFeedback(requestId, req, res) {
 }
 
 function handleGetFeedbacks(req, res) {
-  const auth = validateAuth(req);
+  const data = loadData();
+
+  // P5: Try session auth first (org-scoped, secure)
+  const sessionAuth = getAuthUser(req, data);
+  if (sessionAuth && sessionAuth.org) {
+    const repos = storage.getRepos();
+    if (repos && repos.feedback) {
+      const feedbacks = repos.feedback.listByOrg(sessionAuth.org.id);
+      return sendJson(res, 200, { feedbacks });
+    }
+    // JSON mode fallback: filter by orgId
+    const feedbacks = Object.values(data.feedbacks)
+      .filter(f => {
+        const request = data.requests?.[f.requestId];
+        return request && request.orgId === sessionAuth.org.id;
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return sendJson(res, 200, { feedbacks });
+  }
+
+  // P5: Legacy fallback with instrumentation + kill-switch
+  const auth = legacyAuth(req, '/api/feedbacks');
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
   }
   
-  const data = loadData();
   const feedbacks = Object.values(data.feedbacks).sort(
     (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
   );
@@ -3648,51 +3800,67 @@ function handleGetFeedbacks(req, res) {
 // ============ REQUESTS API (Traçabilité) ============
 
 function handleGetRequests(req, res) {
-  const auth = validateAuth(req);
+  const data = loadData();
+
+  // P5: Try session auth first (org-scoped, secure)
+  const sessionAuth = getAuthUser(req, data);
+  
+  // Helper: enrich requests with feedback status
+  function enrichRequests(rawRequests) {
+    return rawRequests.map(request => {
+      const feedback = data.feedbacks?.[request.id];
+      const isExpired = isRequestExpired(request);
+      let status = 'pending';
+      if (feedback) status = 'completed';
+      else if (isExpired) status = 'expired';
+      return {
+        ...request,
+        status,
+        feedback: feedback ? {
+          rating: feedback.rating,
+          comment: feedback.comment,
+          submittedAt: feedback.submittedAt || feedback.createdAt,
+          routing: feedback.routing
+        } : null,
+        isExpired
+      };
+    }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  function buildStats(requests) {
+    return {
+      total: requests.length,
+      pending: requests.filter(r => r.status === 'pending').length,
+      completed: requests.filter(r => r.status === 'completed').length,
+      expired: requests.filter(r => r.status === 'expired').length,
+      conversionRate: requests.length > 0 
+        ? Math.round((requests.filter(r => r.status === 'completed').length / requests.length) * 100) 
+        : 0
+    };
+  }
+
+  if (sessionAuth && sessionAuth.org) {
+    const repos = storage.getRepos();
+    let rawRequests;
+    if (repos && repos.request) {
+      rawRequests = repos.request.listByOrg(sessionAuth.org.id);
+    } else {
+      // JSON mode fallback: filter by orgId
+      rawRequests = Object.values(data.requests || {})
+        .filter(r => r.orgId === sessionAuth.org.id);
+    }
+    const requests = enrichRequests(rawRequests);
+    return sendJson(res, 200, { requests, stats: buildStats(requests) });
+  }
+
+  // P5: Legacy fallback with instrumentation + kill-switch
+  const auth = legacyAuth(req, '/api/requests');
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
   }
   
-  const data = loadData();
-  
-  // Enrichir chaque request avec son statut de feedback
-  const requests = Object.values(data.requests || {}).map(request => {
-    const feedback = data.feedbacks?.[request.id];
-    const isExpired = isRequestExpired(request);
-    
-    // Déterminer le statut
-    let status = 'pending'; // En attente de réponse
-    if (feedback) {
-      status = 'completed'; // Feedback reçu
-    } else if (isExpired) {
-      status = 'expired'; // Expiré sans réponse
-    }
-    
-    return {
-      ...request,
-      status,
-      feedback: feedback ? {
-        rating: feedback.rating,
-        comment: feedback.comment,
-        submittedAt: feedback.submittedAt || feedback.createdAt,
-        routing: feedback.routing
-      } : null,
-      isExpired
-    };
-  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  
-  // Stats globales
-  const stats = {
-    total: requests.length,
-    pending: requests.filter(r => r.status === 'pending').length,
-    completed: requests.filter(r => r.status === 'completed').length,
-    expired: requests.filter(r => r.status === 'expired').length,
-    conversionRate: requests.length > 0 
-      ? Math.round((requests.filter(r => r.status === 'completed').length / requests.length) * 100) 
-      : 0
-  };
-  
-  return sendJson(res, 200, { requests, stats });
+  const requests = enrichRequests(Object.values(data.requests || {}));
+  return sendJson(res, 200, { requests, stats: buildStats(requests) });
 }
 
 function handleGetSettings(req, res) {
@@ -3710,8 +3878,8 @@ function handleGetSettings(req, res) {
     });
   }
   
-  // Fallback to legacy API token auth (for backward compatibility)
-  const auth = validateAuth(req);
+  // P5: Legacy fallback with instrumentation + kill-switch
+  const auth = legacyAuth(req, '/api/settings:GET');
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
   }
@@ -3774,8 +3942,8 @@ async function handleSaveSettings(req, res) {
     return sendJson(res, 500, { error: 'Base de données non disponible' });
   }
   
-  // Fallback to legacy API token auth
-  const auth = validateAuth(req);
+  // P5: Legacy fallback with instrumentation + kill-switch
+  const auth = legacyAuth(req, '/api/settings:POST');
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
   }
@@ -3809,8 +3977,8 @@ function handleGetReviewRouting(req, res) {
     return sendJson(res, 200, org.options?.reviewRouting || DEFAULT_SETTINGS.reviewRouting);
   }
   
-  // Fallback to legacy API token auth
-  const auth = validateAuth(req);
+  // P5: Legacy fallback with instrumentation + kill-switch
+  const auth = legacyAuth(req, '/api/settings/review-routing:GET');
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
   }
@@ -3870,8 +4038,8 @@ async function handleSaveReviewRouting(req, res) {
     return sendJson(res, 500, { error: 'Base de données non disponible' });
   }
   
-  // Fallback to legacy API token auth
-  const auth = validateAuth(req);
+  // P5: Legacy fallback with instrumentation + kill-switch
+  const auth = legacyAuth(req, '/api/settings/review-routing:PUT');
   if (!auth.ok) {
     return sendJson(res, 401, { error: auth.error });
   }
@@ -3892,6 +4060,45 @@ async function handleSaveReviewRouting(req, res) {
 }
 
 // ============ INTERNAL BACKOFFICE API (Super Admin) ============
+
+/**
+ * P5: GET /internal/admin/feedbacks — All feedbacks (admin-only, no legacy token).
+ * Replaces the legacy path through /api/feedbacks + CABINET_API_TOKEN.
+ * Protected by requireAdmin (constant-time x-admin-token check).
+ */
+function handleAdminGetFeedbacks(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  const repos = storage.getRepos();
+  if (repos && repos.feedback) {
+    const feedbacks = repos.feedback.listAll();
+    res.setHeader('Cache-Control', 'no-store');
+    return sendJson(res, 200, { feedbacks });
+  }
+
+  // JSON mode fallback
+  const data = loadData();
+  const feedbacks = Object.values(data.feedbacks)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.setHeader('Cache-Control', 'no-store');
+  return sendJson(res, 200, { feedbacks });
+}
+
+/**
+ * P5: GET /internal/admin/legacy-auth-stats — Monitor legacy auth usage.
+ * Protected by requireAdmin (constant-time x-admin-token check).
+ */
+function handleLegacyAuthStats(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return sendJson(res, 200, getLegacyAuthStats());
+}
 
 /**
  * GET /internal/orgs - Liste tous les clients
@@ -8533,6 +8740,16 @@ const server = http.createServer(async (req, res) => {
   // Extension telemetry (public endpoint, no admin token)
   if (method === 'POST' && pathname === '/telemetry/extension') {
     return handleExtensionTelemetry(req, res);
+  }
+  
+  // P5: Admin feedbacks (replaces legacy /api/feedbacks + CABINET_API_TOKEN)
+  if (method === 'GET' && pathname === '/internal/admin/feedbacks') {
+    return handleAdminGetFeedbacks(req, res);
+  }
+  
+  // P5: Legacy auth stats (monitoring kill-switch migration)
+  if (method === 'GET' && pathname === '/internal/admin/legacy-auth-stats') {
+    return handleLegacyAuthStats(req, res);
   }
   
   // List packs catalog

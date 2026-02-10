@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Org, UsageEntry, TelemetryEntry } from '@/lib/internal/fetch-internal'
 import { updateOrg, addCredits, changeStatus, refreshClient, resetPublicKey, getApiToken, rotateApiToken, assignPlan, applyCoupon, removeCoupon, getEffectiveBilling, EffectiveBilling } from '@/lib/internal/actions'
+import { toBillingUI, displayPrice } from '@/lib/internal/billing-ui'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -773,63 +774,61 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                 <CardTitle className="text-sm text-slate-300 font-medium">Facturation période</CardTitle>
               </CardHeader>
               <CardContent>
-                {/* Use effectiveBillingData or org.billingComputed - both now have effective pricing */}
+                {/* Pricing — source unique BillingUI */}
                 {(() => {
-                  const billing = effectiveBillingData || org.billingComputed
-                  if (!billing) {
+                  const raw = effectiveBillingData || org.billingComputed
+                  if (!raw) {
                     return (
                       <p className="text-2xl font-bold text-white">
                         {formatPrice(org.plan.basePriceCents)}
                       </p>
                     )
                   }
-                  
-                  // Check if there's a discount (coupon or negotiated)
-                  const hasDiscount = billing.hasDiscount || 
-                    (billing.isNegotiated && billing.priceMonthlyFinalCents !== billing.priceBaseCents)
-                  const catalogPrice = billing.priceCatalogCents ?? billing.priceBaseCents ?? 0
-                  const effectivePrice = billing.priceEffectiveCents ?? billing.priceMonthlyFinalCents ?? catalogPrice
-                  
+
+                  const b = toBillingUI(raw)
+                  const catalog = displayPrice(b, b.priceCatalogCents)
+                  const effective = displayPrice(b, b.priceEffectiveCents)
+
                   return (
                     <>
-                      {hasDiscount ? (
+                      {b.hasDiscount ? (
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500 line-through text-sm">
-                            {formatPrice(billing.isProrata ? Math.round(catalogPrice * (billing.ratio || 1)) : catalogPrice)}
+                            {formatPrice(catalog)}
                           </span>
                           <span className="text-2xl font-bold text-emerald-400">
-                            {formatPrice(billing.isProrata ? Math.round(effectivePrice * (billing.ratio || 1)) : effectivePrice)}
+                            {formatPrice(effective)}
                           </span>
                         </div>
                       ) : (
                         <p className="text-2xl font-bold text-white">
-                          {formatPrice(billing.isProrata ? Math.round(effectivePrice * (billing.ratio || 1)) : effectivePrice)}
+                          {formatPrice(effective)}
                         </p>
                       )}
                       <div className="flex flex-wrap items-center gap-1 mt-1">
-                        {billing.hasDiscount && billing.discount?.label && (
+                        {b.hasDiscount && b.discountLabel && (
                           <Badge className="bg-emerald-500/20 text-emerald-400 text-[10px]">
-                            {billing.discount.label}
+                            {b.discountLabel}
                           </Badge>
                         )}
-                        {billing.discountPercent && !billing.hasDiscount && (
+                        {b.hasDiscount && !b.discountLabel && b.discountPercent != null && (
                           <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
-                            -{billing.discountPercent}%
+                            -{b.discountPercent}%
                           </Badge>
                         )}
-                        {billing.isProrata && (
+                        {b.isProrata && (
                           <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
                             prorata
                           </Badge>
                         )}
                         <span className="text-xs text-slate-500">
-                          {!billing.isProrata && '/mois'}
-                          {billing.isNegotiated && !billing.isProrata && !billing.hasDiscount && ' (négocié)'}
+                          {!b.isProrata && '/mois'}
+                          {b.isNegotiated && !b.isProrata && !b.hasDiscount && ' (négocié)'}
                         </span>
                       </div>
-                      {billing.isProrata && (
+                      {b.isProrata && (
                         <p className="text-[10px] text-slate-500 mt-1">
-                          Base mensuelle: {formatPrice(effectivePrice)}/mois
+                          Base mensuelle: {formatPrice(b.priceEffectiveCents)}/mois
                         </p>
                       )}
                     </>

@@ -6,22 +6,29 @@
  */
 
 import { createHmac, timingSafeEqual } from 'crypto'
+import { IS_PRODUCTION, IS_RUNTIME_PRODUCTION } from '@/lib/env'
 
 // ============ CONFIGURATION ============
 
 const COOKIE_NAME = 'reputy_admin'
 const SESSION_DURATION_HOURS = 12
 const TOKEN_VERSION = 1
-const IS_PRODUCTION = process.env.NODE_ENV === 'production'
-
-// ============ FAIL-FAST: Secret requis en production ============
-if (IS_PRODUCTION && !process.env.ADMIN_COOKIE_SECRET) {
-  console.error('[ADMIN-COOKIE][FATAL] ADMIN_COOKIE_SECRET is not defined in production!')
-}
 
 // En dev: fallback autorisé. En prod: doit être défini explicitement.
 const ADMIN_COOKIE_SECRET = process.env.ADMIN_COOKIE_SECRET || 
   (IS_PRODUCTION ? '' : 'dev-admin-cookie-secret')
+
+// ============ FAIL-FAST (lazy, runtime-only) ============
+
+/** Vérifie que le secret est configuré. Appelé au premier usage, pas au build. */
+function assertSecretConfigured(): void {
+  if (IS_RUNTIME_PRODUCTION && !process.env.ADMIN_COOKIE_SECRET) {
+    throw new Error(
+      '[ADMIN-COOKIE] Missing ADMIN_COOKIE_SECRET at runtime. ' +
+      'Set ADMIN_COOKIE_SECRET in the production environment and redeploy.'
+    )
+  }
+}
 
 // ============ TYPES ============
 
@@ -76,6 +83,7 @@ function safeCompare(a: Buffer, b: Buffer): boolean {
  * @throws Error si ADMIN_COOKIE_SECRET n'est pas configuré
  */
 export function signAdminSession(): string {
+  assertSecretConfigured()
   if (!ADMIN_COOKIE_SECRET) {
     throw new Error('Cannot sign session: ADMIN_COOKIE_SECRET not configured')
   }
@@ -100,6 +108,7 @@ export function signAdminSession(): string {
  * Vérifie et décode un token signé
  */
 export function verifyAdminSession(token: string): VerifyResult {
+  assertSecretConfigured()
   if (!ADMIN_COOKIE_SECRET) {
     return { ok: false, error: 'ADMIN_COOKIE_SECRET not configured' }
   }

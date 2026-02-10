@@ -107,6 +107,7 @@ const PLANS = {
       '1 QR code (50 scans)',
       'Module Doctolib',
     ],
+    popular: false,
   },
   argent: {
     id: 'argent',
@@ -121,6 +122,7 @@ const PLANS = {
       'Module Doctolib',
       'Support prioritaire',
     ],
+    popular: false,
   },
   or: {
     id: 'or',
@@ -154,6 +156,7 @@ const PLANS = {
       'Support prioritaire',
       'Account manager dédié',
     ],
+    popular: false,
   },
 }
 

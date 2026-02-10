@@ -1,0 +1,2 @@
+# P0.1 — Guard: empêche le commit de fichiers sensibles
+npm run guard:secrets

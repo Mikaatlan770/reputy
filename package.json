@@ -26,7 +26,10 @@
     "pm2:logs": "pm2 logs reputy-backend --lines 100",
     "pm2:stop": "pm2 stop reputy-backend",
     "pm2:restart": "pm2 restart reputy-backend",
-    "pm2:status": "pm2 status"
+    "pm2:status": "pm2 status",
+    "db:backup": "node scripts/db-backup.js",
+    "db:restore": "node scripts/db-restore.js",
+    "db:backup:verify": "node scripts/db-backup-verify.js"
   }
 }
 

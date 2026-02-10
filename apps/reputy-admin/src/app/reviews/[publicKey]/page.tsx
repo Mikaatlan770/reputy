@@ -1,17 +1,9 @@
 // ===== PAGE PUBLIQUE SSR: /reviews/[publicKey] =====
 // Page SEO-friendly avec les avis d'un établissement
+// Server-only — aucun token exposé au client
 
 import { notFound } from 'next/navigation'
-import { getEmbedConfigByPublicKey } from '@/lib/embed/store'
-import { 
-  googleReviewToEmbedItem,
-  reputyFeedbackToEmbedItem,
-  filterAndSortReviews,
-  selectManualReviews,
-  calculateStats,
-} from '@/lib/embed/utils'
-import type { EmbedReviewItem } from '@/lib/embed/types'
-import { reviews as mockGoogleReviews, locations } from '@/lib/mock-data'
+import { fetchReviewsByPublicKey, getReviewsMetadata } from '@/lib/internal/reviews-actions'
 import { Star } from 'lucide-react'
 
 interface PageProps {
@@ -24,80 +16,7 @@ export const dynamic = 'force-dynamic'
 // Métadonnées SEO
 export async function generateMetadata({ params }: PageProps) {
   const { publicKey } = await params
-  const config = await getEmbedConfigByPublicKey(publicKey)
-  
-  if (!config) {
-    return { title: 'Avis non trouvés' }
-  }
-  
-  const location = locations.find(l => l.id === config.locationId)
-  const locationName = location?.name || 'Établissement'
-  
-  return {
-    title: `Avis clients - ${locationName}`,
-    description: `Découvrez les avis clients de ${locationName}. Notes et témoignages vérifiés.`,
-    openGraph: {
-      title: `Avis clients - ${locationName}`,
-      description: `Découvrez les avis clients de ${locationName}`,
-      type: 'website',
-    },
-  }
-}
-
-async function getReviewsData(publicKey: string) {
-  const config = await getEmbedConfigByPublicKey(publicKey)
-  
-  if (!config) {
-    return null
-  }
-  
-  // Récupérer les avis Google (mock)
-  const googleItems: EmbedReviewItem[] = mockGoogleReviews
-    .filter(r => r.locationId === config.locationId)
-    .map(googleReviewToEmbedItem)
-  
-  // Récupérer les feedbacks Reputy
-  let reputyItems: EmbedReviewItem[] = []
-  try {
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-    // P0.1: No fallback — must be configured explicitly
-    const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN
-    if (!API_TOKEN) {
-      console.warn('[P0.1] NEXT_PUBLIC_API_TOKEN not configured, skipping Reputy feedbacks fetch')
-      return
-    }
-    
-    const res = await fetch(`${BACKEND_URL}/api/feedbacks`, {
-      headers: { Authorization: `Bearer ${API_TOKEN}` },
-      cache: 'no-store',
-    })
-    if (res.ok) {
-      const data = await res.json()
-      reputyItems = (data.feedbacks || []).map(reputyFeedbackToEmbedItem)
-    }
-  } catch (err) {
-    console.warn('[SSR] Feedbacks Reputy non disponibles')
-  }
-  
-  const allItems = [...googleItems, ...reputyItems]
-  
-  let selectedItems: EmbedReviewItem[]
-  if (config.mode === 'MANUAL') {
-    selectedItems = selectManualReviews(allItems, config.manualSelectedReviewIds)
-  } else {
-    selectedItems = filterAndSortReviews(allItems, config)
-  }
-  
-  const stats = calculateStats(selectedItems)
-  const location = locations.find(l => l.id === config.locationId)
-  
-  return {
-    items: selectedItems,
-    locationName: location?.name || 'Établissement',
-    averageRating: stats.average,
-    totalCount: stats.total,
-    config: config.displayOptions,
-  }
+  return getReviewsMetadata(publicKey)
 }
 
 function StarRating({ rating, size = 20 }: { rating: number; size?: number }) {
@@ -128,7 +47,7 @@ function formatDate(dateStr: string): string {
 
 export default async function PublicReviewsPage({ params }: PageProps) {
   const { publicKey } = await params
-  const data = await getReviewsData(publicKey)
+  const data = await fetchReviewsByPublicKey(publicKey)
   
   if (!data) {
     notFound()

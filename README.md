@@ -117,7 +117,9 @@ npm run dev    # http://localhost:3000
 **Variables d'environnement :**
 ```env
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8787
-NEXT_PUBLIC_API_TOKEN=<VOTRE_TOKEN_API>
+
+# Server-only tokens (JAMAIS de prefix NEXT_PUBLIC_ pour les secrets)
+CABINET_API_TOKEN=<VOTRE_TOKEN_API>
 
 # Pour le backoffice Super Admin (ne pas exposer au client!)
 BACKEND_URL=http://localhost:8787

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Org } from '@/lib/internal/fetch-internal'
 import { createOrg, refreshClients } from '@/lib/internal/actions'
+import { toBillingUI, displayPrice } from '@/lib/internal/billing-ui'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -366,18 +367,12 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         ) : (
           filteredOrgs.map((org) => {
             const VerticalIcon = verticalIcons[org.vertical]
-            // Use billingComputed for period-based pricing
+            // Billing normalisé via BillingUI
             const bc = org.billingComputed
-            // NEW: Use effective billing prices (with coupons)
-            const catalogPrice = bc?.priceCatalogCents ?? bc?.priceBaseCents ?? org.plan.basePriceCents
-            const effectivePrice = bc?.priceEffectiveCents ?? bc?.priceMonthlyFinalCents ?? catalogPrice
-            const periodPrice = bc?.isProrata ? Math.round(effectivePrice * (bc?.ratio || 1)) : effectivePrice
-            // Check for discount (coupon or negotiated)
-            const hasCouponDiscount = bc?.hasDiscount === true
-            const hasNegotiatedDiscount = bc?.isNegotiated && bc.priceMonthlyFinalCents !== bc.priceBaseCents
-            const hasDiscount = hasCouponDiscount || hasNegotiatedDiscount
-            const discountLabel = bc?.discount?.label || (bc?.discountPercent ? `-${bc.discountPercent}%` : null)
-            const isProrata = bc?.isProrata || false
+            const b = bc ? toBillingUI(bc) : null
+            const catalogPrice = b ? displayPrice(b, b.priceCatalogCents) : org.plan.basePriceCents
+            const effectivePrice = b ? displayPrice(b, b.priceEffectiveCents) : org.plan.basePriceCents
+            const periodPrice = effectivePrice
             const orgPlanType = getPlanType(org)
             const isFilteredPlan = filterPlan !== 'all' && orgPlanType === filterPlan
             
@@ -404,7 +399,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                           <Badge variant="outline" className={planColors[getPlanType(org) as keyof typeof planColors]}>
                             {planLabels[getPlanType(org) as keyof typeof planLabels]}
                           </Badge>
-                          {isProrata && (
+                          {b?.isProrata && (
                             <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
                               prorata
                             </Badge>
@@ -477,38 +472,38 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
 
                       {/* Price with discount & prorata */}
                       <div className="hidden md:block text-right min-w-[110px]">
-                        {hasDiscount ? (
+                        {b?.hasDiscount ? (
                           <>
                             <div className="flex items-center justify-end gap-1">
                               <span className="text-slate-500 line-through text-xs">
-                                {formatPrice(isProrata ? Math.round(catalogPrice * (bc?.ratio || 1)) : catalogPrice)}
+                                {formatPrice(catalogPrice)}
                               </span>
                               <span className="font-bold text-red-400">
                                 {formatPrice(periodPrice)}
                               </span>
                             </div>
                             <div className="flex items-center justify-end gap-1 flex-wrap">
-                              {discountLabel && (
+                              {b.discountLabel && (
                                 <Badge className="bg-red-500/20 text-red-400 text-[10px] px-1.5 font-medium">
-                                  {discountLabel}
+                                  {b.discountLabel}
                                 </Badge>
                               )}
-                              {isProrata && (
+                              {b.isProrata && (
                                 <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1">
-                                  {Math.round((bc?.ratio || 1) * 100)}%
+                                  {Math.round(b.ratio * 100)}%
                                 </Badge>
                               )}
                             </div>
                             <p className="text-[10px] text-slate-600">/mois</p>
                           </>
-                        ) : isProrata ? (
+                        ) : b?.isProrata ? (
                           <>
                             <p className="font-medium text-white">
                               {formatPrice(periodPrice)}
                             </p>
                             <div className="flex items-center justify-end gap-1">
                               <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1">
-                                prorata {Math.round((bc?.ratio || 1) * 100)}%
+                                prorata {Math.round(b.ratio * 100)}%
                               </Badge>
                             </div>
                           </>

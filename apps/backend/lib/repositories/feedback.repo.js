@@ -32,6 +32,15 @@ function getByRequestDbId(requestDbId) {
 }
 
 /**
+ * P5: List ALL feedbacks across all orgs (admin-only use).
+ * @returns {array}
+ */
+function listAll() {
+  const rows = db.all('SELECT * FROM feedbacks ORDER BY created_at DESC');
+  return rows.map(parseFeedbackRow);
+}
+
+/**
  * List feedbacks for an organization
  * @param {string} orgId - Organization ID
  * @param {object} options - { minRating, maxRating, limit, offset, since }
@@ -213,6 +222,7 @@ function parseFeedbackRow(row) {
 module.exports = {
   getById,
   getByRequestDbId,
+  listAll,
   listByOrg,
   getStats,
   create,

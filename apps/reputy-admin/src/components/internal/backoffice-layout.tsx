@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   Building2,
   LogOut,
+  Mail,
   Menu,
   Shield,
   Users,
@@ -16,6 +17,7 @@ import { useState } from 'react'
 
 const navigation = [
   { name: 'Clients', href: '/internal/clients', icon: Users },
+  { name: 'Email Health', href: '/internal/email/health', icon: Mail },
 ]
 
 const planFilters = [

@@ -284,7 +284,7 @@ export default function CollectPage() {
     nfc: { clicks: 0, reviewsGenerated: nfcLinks.length, conversionRate: nfcLinks.length > 0 ? 0.12 : 0 },
     sms: { sent: 0, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
     email: { sent: 0, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
-    doctolib: { reviewsGenerated: 0, conversionRate: 0 },
+    doctolib: { clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
   }
 
   return (

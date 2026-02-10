@@ -6,16 +6,17 @@ import 'server-only'
  * Le token INTERNAL_ADMIN_TOKEN n'est JAMAIS exposé au navigateur
  */
 
+import { IS_PRODUCTION } from '@/lib/env'
+
 const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:8787'
 
-// P0.2: Production guard — same fail-fast pattern as admin-cookie.ts
-const IS_PRODUCTION = process.env.NODE_ENV === 'production'
+// P0.2: Production guard — en prod, token vide = fail-fast au premier appel
 const INTERNAL_ADMIN_TOKEN = process.env.INTERNAL_ADMIN_TOKEN || 
   (IS_PRODUCTION ? '' : 'super-admin-secret')
 
 export interface FetchInternalOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
-  body?: Record<string, unknown>
+  body?: Record<string, unknown> | object
   revalidate?: number | false
 }
 
@@ -101,6 +102,7 @@ export interface Org {
     provider: 'none' | 'stripe' | 'gocardless'
     stripeCustomerId?: string | null
     gocardlessMandateId?: string | null
+    stripeCouponId?: string | null
     // Calendar billing fields
     startedAt?: string
     status?: 'pending' | 'active' | 'suspended' | 'cancelled'
@@ -132,6 +134,8 @@ export interface Org {
     smsIncluded: number
     emailIncluded: number
     aiIncluded: number
+    qrIncluded?: number
+    nfcIncluded?: number
   }
   balances: {
     smsExtra: number
@@ -241,6 +245,9 @@ export interface Org {
     emailUsed: number
     emailAllocated: number
     emailRemaining: number
+    aiUsed?: number
+    aiAllocated?: number
+    aiRemaining?: number
     
     // Monthly base values
     smsIncludedMonthly: number

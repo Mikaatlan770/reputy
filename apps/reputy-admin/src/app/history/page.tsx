@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -71,12 +72,6 @@ interface Stats {
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-
-// P0.1: No fallback — must be configured explicitly via environment variable
-const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN
-if (!API_TOKEN && typeof window !== 'undefined') {
-  console.error('[P0.1] NEXT_PUBLIC_API_TOKEN is not configured. Set it in your .env.local file.')
-}
 
 function getInitials(name: string): string {
   return name
@@ -151,34 +146,47 @@ function getChannelConfig(channel: string) {
 }
 
 export default function HistoryPage() {
+  const { getClientToken } = useAuth()
   const [requests, setRequests] = useState<Request[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [filterChannel, setFilterChannel] = useState<string>('all')
 
-  useEffect(() => {
-    fetchRequests()
-  }, [])
-
-  const fetchRequests = async () => {
+  const fetchRequests = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
+      const token = getClientToken()
+      if (!token) {
+        setError('Authentification requise.')
+        setLoading(false)
+        return
+      }
+
       const response = await fetch(`${BACKEND_URL}/api/requests`, {
-        headers: { Authorization: `Bearer ${API_TOKEN}` },
+        headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
         const data = await response.json()
         setRequests(data.requests || [])
         setStats(data.stats || null)
+      } else {
+        throw new Error(`HTTP ${response.status}`)
       }
     } catch (err) {
       console.error('Failed to load requests:', err)
+      setError('Impossible de charger l\'historique. Vérifiez que le backend est lancé.')
     } finally {
       setLoading(false)
     }
-  }
+  }, [getClientToken])
+
+  useEffect(() => {
+    fetchRequests()
+  }, [fetchRequests])
 
   // Filtrage
   const filteredRequests = requests.filter((request) => {

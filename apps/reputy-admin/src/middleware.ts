@@ -7,12 +7,12 @@ import type { NextRequest } from 'next/server'
 
 const COOKIE_NAME = 'reputy_admin'
 const TOKEN_VERSION = 1
-const IS_PRODUCTION = process.env.NODE_ENV === 'production'
 
-// ============ FAIL-FAST: Secret requis en production ============
-if (IS_PRODUCTION && !process.env.ADMIN_COOKIE_SECRET) {
-  console.error('[MIDDLEWARE][FATAL] ADMIN_COOKIE_SECRET is not defined in production!')
-}
+// Détection d'environnement (inline car Edge Runtime — pas d'import Node)
+const IS_PRODUCTION = process.env.NODE_ENV === 'production'
+const IS_RUNTIME_PRODUCTION =
+  process.env.NODE_ENV === 'production' &&
+  process.env.NEXT_PHASE !== 'phase-production-build'
 
 // En dev: fallback autorisé. En prod: doit être défini explicitement.
 const ADMIN_COOKIE_SECRET = process.env.ADMIN_COOKIE_SECRET || 
@@ -150,9 +150,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Fail-fast si secret non configuré en production
-  if (!ADMIN_COOKIE_SECRET) {
-    console.error('[Middleware] Access denied: ADMIN_COOKIE_SECRET not configured in production')
+  // Fail-fast runtime only (pas au build)
+  if (IS_RUNTIME_PRODUCTION && !process.env.ADMIN_COOKIE_SECRET) {
+    console.error('[Middleware] Missing ADMIN_COOKIE_SECRET — blocking /internal access')
     const loginUrl = new URL('/internal/login', request.url)
     loginUrl.searchParams.set('error', 'config')
     return NextResponse.redirect(loginUrl)

@@ -8,6 +8,7 @@ import { KpiCard } from '@/components/dashboard/kpi-card'
 import { ReviewsChart } from '@/components/dashboard/reviews-chart'
 import { PendingReviews } from '@/components/dashboard/pending-reviews'
 import { QuickActions } from '@/components/dashboard/quick-actions'
+import { toBillingUIFromClient, displayPrice } from '@/lib/internal/billing-ui'
 import { StarDistribution } from '@/components/dashboard/star-distribution'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -74,44 +75,41 @@ function CreditsSection() {
       ? new Date(clientOrg.billing.periodEnd).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
       : 'fin du mois')
 
+  // Normalise billing via BillingUI (source unique, testée)
+  const b = billing ? toBillingUIFromClient(billing) : null
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-foreground">Mes crédits</h2>
-        {billing && (
+        {b && (
           <div className="flex items-center gap-2">
-            {/* Show discount badge if has coupon/discount */}
-            {billing.hasDiscount && billing.discount?.label && (
+            {/* Badge discount : label si dispo, sinon -% si percent, sinon rien */}
+            {b.hasDiscount && b.discountLabel && (
               <Badge className="bg-green-500/20 text-green-600">
-                {billing.discount.label}
+                {b.discountLabel}
               </Badge>
             )}
-            {billing.isNegotiated && billing.discountPercent && !billing.hasDiscount && (
+            {b.hasDiscount && !b.discountLabel && b.discountPercent != null && (
               <Badge className="bg-amber-500/20 text-amber-600">
-                -{billing.discountPercent}%
+                -{b.discountPercent}%
               </Badge>
             )}
-            {billing.isProrata && (
+            {b.isProrata && (
               <Badge className="bg-purple-500/20 text-purple-600">
                 Prorata
               </Badge>
             )}
             <span className="text-sm text-muted-foreground">
-              {/* Use effective billing prices if available */}
-              {billing.hasDiscount && billing.priceCatalogCents && billing.priceEffectiveCents ? (
+              {b.hasDiscount ? (
                 <>
-                  <span className="line-through mr-1">{formatPrice(billing.priceCatalogCents)}</span>
-                  <span className="font-semibold text-green-600">{formatPrice(billing.priceEffectiveCents)}</span>
-                  <span className="text-xs">/mois</span>
-                </>
-              ) : billing.priceEffectiveCents !== undefined ? (
-                <>
-                  <span className="font-semibold text-foreground">{formatPrice(billing.priceEffectiveCents)}</span>
+                  <span className="line-through mr-1">{formatPrice(displayPrice(b, b.priceCatalogCents))}</span>
+                  <span className="font-semibold text-green-600">{formatPrice(displayPrice(b, b.priceEffectiveCents))}</span>
                   <span className="text-xs">/mois</span>
                 </>
               ) : (
                 <>
-                  <span className="font-semibold text-foreground">{formatPrice(billing?.priceMonthlyFinalCents || 0)}</span>
+                  <span className="font-semibold text-foreground">{formatPrice(displayPrice(b, b.priceEffectiveCents))}</span>
                   <span className="text-xs">/mois</span>
                 </>
               )}

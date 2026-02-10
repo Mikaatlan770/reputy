@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@/lib/auth'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,12 +52,6 @@ function getPatientName(patient?: PatientInfo): string {
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
 
-// P0.1: No fallback — must be configured explicitly via environment variable
-const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN
-if (!API_TOKEN && typeof window !== 'undefined') {
-  console.error('[P0.1] NEXT_PUBLIC_API_TOKEN is not configured. Set it in your .env.local file.')
-}
-
 function getInitials(name?: string | null): string {
   if (!name || name.trim() === '') return '??'
   return name
@@ -94,18 +89,25 @@ function getRatingLabel(rating: number): string {
 }
 
 export default function FeedbacksPage() {
+  const { getClientToken } = useAuth()
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
 
-  const fetchFeedbacks = async () => {
+  const fetchFeedbacks = useCallback(async () => {
+    const token = getClientToken()
+    if (!token) {
+      setError('Session expirée. Reconnectez-vous.')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
       const response = await fetch(`${BACKEND_URL}/api/feedbacks`, {
         headers: {
-          Authorization: `Bearer ${API_TOKEN}`,
+          Authorization: `Bearer ${token}`,
         },
       })
       if (!response.ok) {
@@ -119,11 +121,11 @@ export default function FeedbacksPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [getClientToken])
 
   useEffect(() => {
     fetchFeedbacks()
-  }, [])
+  }, [fetchFeedbacks])
 
   // Stats
   const stats = {

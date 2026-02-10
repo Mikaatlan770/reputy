@@ -38,7 +38,7 @@ export interface Location {
 export interface Review {
   id: string
   locationId: string
-  platform: 'google' | 'facebook' | 'tripadvisor'
+  platform: 'google' | 'facebook' | 'tripadvisor' | 'doctolib'
   rating: number
   author: string
   authorAvatar?: string
