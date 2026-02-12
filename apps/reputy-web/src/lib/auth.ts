@@ -32,6 +32,13 @@ export interface AuthResponse {
   message?: string
   next?: string
   email?: string
+  // PR-8e: Multi-org login
+  requireOrgSelection?: boolean
+  pendingToken?: string
+  orgs?: Array<{ orgId: string; orgName: string; role: string }>
+  membership?: { orgId: string; role: string }
+  mustChangePassword?: boolean
+  orgName?: string
 }
 
 /**
@@ -141,6 +148,8 @@ export async function resendCode(email: string): Promise<{ ok: boolean; message?
 
 /**
  * Login
+ * PR-8e: If multi-org (requireOrgSelection), do NOT store token (no session yet).
+ * Token is only stored for direct login (1 org) for legacy /app compat.
  */
 export async function login(email: string, password: string): Promise<AuthResponse> {
   const response = await apiCall<AuthResponse>('/auth/login', {
@@ -148,11 +157,39 @@ export async function login(email: string, password: string): Promise<AuthRespon
     body: JSON.stringify({ email, password }),
   })
   
-  if (response.ok && response.token) {
+  // Store token ONLY for direct login (not multi-org selection)
+  if (response.ok && response.token && !response.requireOrgSelection) {
     setToken(response.token)
   }
   
   return response
+}
+
+/**
+ * Select org (multi-org login flow step 2)
+ * PR-8e: No setToken — token is passed via URL to 3002/auth/callback
+ */
+export async function selectOrg(pendingToken: string, orgId: string): Promise<AuthResponse> {
+  return apiCall<AuthResponse>('/auth/select-org', {
+    method: 'POST',
+    body: JSON.stringify({ pendingToken, orgId }),
+  })
+}
+
+/**
+ * Accept invitation via invite token
+ * PR-8e: No setToken — token is passed via URL to 3002/auth/callback
+ */
+export async function acceptInvite(
+  token: string,
+  newPassword?: string
+): Promise<AuthResponse> {
+  const body: Record<string, string> = { token }
+  if (newPassword) body.newPassword = newPassword
+  return apiCall<AuthResponse>('/auth/accept-invite', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
 
 /**

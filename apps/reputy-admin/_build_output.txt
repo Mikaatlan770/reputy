@@ -1,0 +1,22 @@
+/Users/mikaatlan/Desktop/avis-doctolib/node_modules/.bin/next
+  ▲ Next.js 14.2.35
+  - Environments: .env
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+Failed to compile.
+
+./src/app/billing/page.tsx:589:33
+Type error: Property 'popular' does not exist on type '{ id: string; name: string; description: string; priceMonthly: number; features: string[]; } | { id: string; name: string; description: string; priceMonthly: number; features: string[]; } | { id: string; ... 4 more ...; popular: boolean; } | { ...; }'.
+  Property 'popular' does not exist on type '{ id: string; name: string; description: string; priceMonthly: number; features: string[]; }'.
+
+[0m [90m 587 |[39m                 [33m<[39m[33mdiv[39m className[33m=[39m[32m"flex items-baseline gap-2"[39m[33m>[39m[0m
+[0m [90m 588 |[39m                   [33m<[39m[33mspan[39m className[33m=[39m[32m"text-3xl font-bold"[39m[33m>[39m{billing[33m.[39mplanLabel [33m||[39m billing[33m.[39mplanName}[33m<[39m[33m/[39m[33mspan[39m[33m>[39m[0m
+[0m[31m[1m>[22m[39m[90m 589 |[39m                   {currentPlan[33m?[39m[33m.[39mpopular [33m&&[39m ([0m
+[0m [90m     |[39m                                 [31m[1m^[22m[39m[0m
+[0m [90m 590 |[39m                     [33m<[39m[33mBadge[39m className[33m=[39m[32m"bg-primary"[39m[33m>[39m[33mPopulaire[39m[33m<[39m[33m/[39m[33mBadge[39m[33m>[39m[0m
+[0m [90m 591 |[39m                   )}[0m
+[0m [90m 592 |[39m                 [33m<[39m[33m/[39m[33mdiv[39m[33m>[39m[0m
+Next.js build worker exited with code: 1 and signal: null
+EXIT_CODE=1

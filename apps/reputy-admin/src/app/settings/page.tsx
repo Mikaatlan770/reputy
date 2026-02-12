@@ -531,7 +531,9 @@ export default function SettingsPage() {
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Réinitialisation le {new Date(orgSettings.aiQuota.resetDate).toLocaleDateString('fr-FR')}
+                    {orgSettings.aiQuota.resetDate
+                      ? `Réinitialisation le ${new Date(orgSettings.aiQuota.resetDate).toLocaleDateString('fr-FR')}`
+                      : 'Réinitialisation en fin de période'}
                   </p>
                 </div>
 

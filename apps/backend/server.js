@@ -368,8 +368,20 @@ function cleanupRateLimitStore() {
   }
 }
 
-// Start periodic cleanup
-setInterval(cleanupRateLimitStore, AUTH_RATE_LIMIT_CLEANUP_INTERVAL_MS);
+// Start periodic cleanup (rate limit + expired login_pending tokens)
+setInterval(() => {
+  cleanupRateLimitStore();
+  // Cleanup expired login_pending tokens (multi-org login flow)
+  try {
+    const repos = storage.getRepos();
+    if (repos && repos.membership) {
+      const cleaned = repos.membership.cleanupLoginPending();
+      if (cleaned > 0 && !IS_PRODUCTION) {
+        console.log(`[LoginPending] Cleaned ${cleaned} expired tokens`);
+      }
+    }
+  } catch (_) { /* ignore if table doesn't exist yet */ }
+}, AUTH_RATE_LIMIT_CLEANUP_INTERVAL_MS);
 
 // Legacy rate limit constants (for verification codes)
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
@@ -6215,14 +6227,54 @@ async function handleLogin(req, res) {
   // Create session - use repository in SQLite mode
   let session;
   const repos = storage.getRepos();
+  let loginOrgId = user.orgId; // Default: legacy user.orgId
+  let loginMembershipRole = user.role; // Default: legacy user.role
+
+  // PR-8b: Multi-org login flow
+  if (repos && repos.membership) {
+    const activeMemberships = repos.membership.getActiveByUserId(user.id);
+
+    if (activeMemberships.length >= 2) {
+      // Multi-org user: return pending token + org list for selection
+      const pending = repos.membership.createLoginPending(user.id);
+      repos.user.updateLastLogin(user.id);
+
+      logger.logAuth('LOGIN_MULTI_ORG', true, req, {
+        requestId, email, userId: user.id,
+        orgCount: activeMemberships.length,
+        durationMs: Date.now() - startTime, status: 200
+      });
+      try { writeAudit({ actorUserId: user.id, action: 'auth.login_multi_org', targetType: 'user', targetId: user.id, meta: { email, orgCount: activeMemberships.length }, req }); } catch (_) { /* non-fatal */ }
+
+      return sendJson(res, 200, {
+        ok: true,
+        requireOrgSelection: true,
+        pendingToken: pending.token,
+        orgs: activeMemberships.map(m => ({
+          orgId: m.orgId,
+          orgName: m.orgName,
+          role: m.role,
+        })),
+        mustChangePassword: !!user.mustChangePassword,
+      });
+    }
+
+    if (activeMemberships.length === 1) {
+      // Single membership: use membership orgId (may differ from user.orgId)
+      loginOrgId = activeMemberships[0].orgId;
+      loginMembershipRole = activeMemberships[0].role;
+    }
+    // activeMemberships.length === 0: fallback to legacy user.orgId
+  }
+
   if (repos && repos.session) {
     // SQLite mode: use session repository
-    session = repos.session.createSession(user.id, user.orgId);
+    session = repos.session.createSession(user.id, loginOrgId);
     // Update user last login in SQLite
     repos.user.updateLastLogin(user.id);
   } else {
     // Legacy JSON mode
-    session = createSession(data, user.id, user.orgId);
+    session = createSession(data, user.id, loginOrgId);
     saveData(data);
   }
   
@@ -6231,24 +6283,29 @@ async function handleLogin(req, res) {
     requestId,
     email,
     userId: user.id,
-    orgId: user.orgId,
+    orgId: loginOrgId,
     durationMs: Date.now() - startTime,
     status: 200
   });
   
   // Audit log: login success
-  try { writeAudit({ orgId: user.orgId, actorUserId: user.id, action: 'auth.login', targetType: 'user', targetId: user.id, meta: { email }, req }); } catch (_) { /* non-fatal */ }
+  try { writeAudit({ orgId: loginOrgId, actorUserId: user.id, action: 'auth.login', targetType: 'user', targetId: user.id, meta: { email }, req }); } catch (_) { /* non-fatal */ }
   
   return sendJson(res, 200, {
     ok: true,
     token: session.token,
-    orgId: user.orgId,
+    orgId: loginOrgId,
     user: {
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role, // Legacy compat
       name: user.name
-    }
+    },
+    membership: {
+      orgId: loginOrgId,
+      role: loginMembershipRole,
+    },
+    mustChangePassword: !!user.mustChangePassword,
   });
 }
 
@@ -6311,6 +6368,654 @@ function handleGetMe(req, res) {
       vertical: org.vertical
     } : null
   });
+}
+
+// ============ CLIENT MEMBERSHIPS ENDPOINTS ============
+
+/**
+ * GET /client/memberships - List all orgs the user belongs to
+ * Returns active memberships with org info (for org-picker / topbar)
+ */
+function handleClientGetMemberships(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+  if (!repos || !repos.membership) {
+    // Fallback: return current org only (pre-membership migration)
+    const org = auth.org;
+    return sendJson(res, 200, {
+      ok: true,
+      currentOrgId: org ? org.id : null,
+      memberships: org ? [{
+        id: null,
+        orgId: org.id,
+        orgName: org.name,
+        orgStatus: org.status,
+        orgVertical: org.vertical,
+        orgPlan: org.plan,
+        role: auth.user.role || 'owner',
+        status: 'active',
+        acceptedAt: auth.user.createdAt
+      }] : []
+    });
+  }
+
+  const memberships = repos.membership.getActiveByUserId(auth.user.id);
+
+  return sendJson(res, 200, {
+    ok: true,
+    currentOrgId: auth.org ? auth.org.id : null,
+    memberships: memberships.map(m => ({
+      id: m.id,
+      orgId: m.orgId,
+      orgName: m.orgName,
+      orgStatus: m.orgStatus,
+      orgVertical: m.orgVertical,
+      orgPlan: m.orgPlan,
+      role: m.role,
+      status: m.status,
+      acceptedAt: m.acceptedAt
+    }))
+  });
+}
+
+// ============ PR-8b: MULTI-ESTABLISHMENT HELPER ============
+
+/**
+ * Check if user has an active membership with allowed role on an org.
+ * Returns the membership object if OK, or null (and sends 403) if not.
+ * Use this for membership-based RBAC (not user.role).
+ */
+function requireMembershipRole(repos, userId, orgId, allowedRoles, res) {
+  if (!repos || !repos.membership) {
+    sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Membership service unavailable' });
+    return null;
+  }
+  const m = repos.membership.getByUserAndOrg(userId, orgId);
+  if (!m || m.status !== 'active') {
+    sendJson(res, 403, { ok: false, error: 'FORBIDDEN', message: 'Vous n\'avez pas accès à cet établissement' });
+    return null;
+  }
+  if (!allowedRoles.includes(m.role)) {
+    sendJson(res, 403, {
+      ok: false,
+      error: 'FORBIDDEN',
+      message: `Rôle "${m.role}" non autorisé pour cette action`,
+      requiredRoles: allowedRoles,
+    });
+    return null;
+  }
+  return m;
+}
+
+// ============ PR-8b: POST /auth/select-org ============
+
+/**
+ * POST /auth/select-org — Multi-org login: user picks an org after auth
+ * Body: { pendingToken, orgId }
+ */
+async function handleAuthSelectOrg(req, res) {
+  let body;
+  try { body = await parseBody(req); } catch (_) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+  }
+
+  const v = validateBody(schemas.selectOrg, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { pendingToken, orgId } = v.data;
+
+  const repos = storage.getRepos();
+  if (!repos || !repos.membership) {
+    return sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Service indisponible' });
+  }
+
+  // Validate & consume pending token (single-use)
+  const pending = repos.membership.validateLoginPending(pendingToken);
+  if (!pending) {
+    return sendJson(res, 401, { ok: false, error: 'INVALID_TOKEN', message: 'Token invalide ou expiré. Veuillez vous reconnecter.' });
+  }
+
+  // Check user has active membership on requested org
+  const membership = repos.membership.getByUserAndOrg(pending.userId, orgId);
+  if (!membership || membership.status !== 'active') {
+    return sendJson(res, 403, { ok: false, error: 'FORBIDDEN', message: 'Vous n\'avez pas accès à cet établissement' });
+  }
+
+  // Create session on chosen org
+  const session = repos.session.createSession(pending.userId, orgId);
+  const user = repos.user.getById(pending.userId);
+
+  // Audit
+  try { writeAudit({ orgId, actorUserId: pending.userId, action: 'auth.select_org', targetType: 'org', targetId: orgId, meta: { membershipRole: membership.role }, req }); } catch (_) { /* non-fatal */ }
+
+  return sendJson(res, 200, {
+    ok: true,
+    token: session.token,
+    orgId,
+    user: { id: user.id, email: user.email, name: user.name },
+    membership: { orgId, role: membership.role },
+    mustChangePassword: !!user.mustChangePassword,
+  });
+}
+
+// ============ PR-8e: POST /auth/accept-invite ============
+
+/**
+ * POST /auth/accept-invite — Accept an invitation via invite token
+ * Body: { token, newPassword? }
+ * Flow:
+ *   1. Validate invite token → find pending membership
+ *   2. If must_change_password and no newPassword → 400 PASSWORD_REQUIRED
+ *   3. Transaction: update password + activate membership + create session
+ *   4. Return session token for redirect to 3002
+ */
+async function handleAuthAcceptInvite(req, res) {
+  let body;
+  try { body = await parseBody(req); } catch (_) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+  }
+
+  const v = validateBody(schemas.acceptInvite, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { token: inviteToken, newPassword } = v.data;
+
+  const repos = storage.getRepos();
+  if (!repos || !repos.membership) {
+    return sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Service indisponible' });
+  }
+
+  // Find membership by invite token
+  const membership = repos.membership.getByInviteToken(inviteToken);
+  if (!membership) {
+    return sendJson(res, 404, { ok: false, error: 'INVITE_NOT_FOUND', message: 'Invitation invalide ou expirée' });
+  }
+  if (membership.status !== 'pending') {
+    return sendJson(res, 409, { ok: false, error: 'INVITE_ALREADY_USED', message: 'Cette invitation a déjà été acceptée' });
+  }
+
+  // Get user
+  const user = repos.user.getById(membership.userId);
+  if (!user) {
+    return sendJson(res, 404, { ok: false, error: 'USER_NOT_FOUND', message: 'Utilisateur introuvable' });
+  }
+
+  // Check if password is required (new user with temp password)
+  if (user.mustChangePassword && !newPassword) {
+    return sendJson(res, 400, { ok: false, error: 'PASSWORD_REQUIRED', message: 'Vous devez définir un mot de passe' });
+  }
+
+  // Hash password BEFORE transaction (hashPassword is async, transaction is sync)
+  let hashedPassword = null;
+  if (user.mustChangePassword && newPassword) {
+    hashedPassword = await hashPassword(newPassword);
+  }
+
+  // CRITICAL: Transaction for atomicity (password + membership + session)
+  const dbModule = storage.getDb();
+  let session;
+  dbModule.transaction(() => {
+    // 1. Update password if must_change_password
+    if (hashedPassword) {
+      dbModule.prepare('UPDATE users SET password_hash = $hash, must_change_password = 0 WHERE id = $id')
+        .run({ hash: hashedPassword, id: user.id });
+    }
+    // 2. Activate membership (clears inviteToken + sets acceptedAt)
+    repos.membership.updateStatus(membership.id, 'active');
+    // 3. Create session on the org of the invitation
+    session = repos.session.createSession(user.id, membership.orgId);
+  });
+
+  // Audit (non-fatal, outside transaction)
+  try {
+    writeAudit({
+      orgId: membership.orgId,
+      actorUserId: user.id,
+      action: 'auth.accept_invite',
+      targetType: 'membership',
+      targetId: membership.id,
+      meta: { role: membership.role },
+      req
+    });
+  } catch (_) { /* non-fatal */ }
+
+  return sendJson(res, 200, {
+    ok: true,
+    token: session.token,
+    orgId: membership.orgId,
+    user: { id: user.id, email: user.email, name: user.name },
+    membership: { orgId: membership.orgId, role: membership.role },
+    orgName: membership.orgName,
+  });
+}
+
+// ============ PR-8b: POST /client/orgs/switch ============
+
+/**
+ * POST /client/orgs/switch — Switch to another establishment (new session)
+ * Body: { orgId }
+ * CRITICAL: create new session BEFORE deleting old one (no lock-out)
+ */
+async function handleClientSwitchOrg(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  let body;
+  try { body = await parseBody(req); } catch (_) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+  }
+
+  const v = validateBody(schemas.switchOrg, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { orgId: targetOrgId } = v.data;
+
+  const repos = storage.getRepos();
+
+  // Verify membership on target org
+  const membership = requireMembershipRole(repos, auth.user.id, targetOrgId, ['owner', 'admin', 'agent'], res);
+  if (!membership) return; // 403 already sent
+
+  // Create new session FIRST (safety: old session still valid if this fails)
+  const newSession = repos.session.createSession(auth.user.id, targetOrgId);
+
+  // Delete old session (best effort)
+  try { repos.session.deleteSession(auth.session.token); } catch (_) { /* best effort */ }
+
+  // Audit
+  try { writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.switch', targetType: 'org', targetId: targetOrgId, meta: { fromOrgId: auth.org?.id, toOrgId: targetOrgId }, req }); } catch (_) { /* non-fatal */ }
+
+  return sendJson(res, 200, {
+    ok: true,
+    token: newSession.token,
+    orgId: targetOrgId,
+    membership: { orgId: targetOrgId, role: membership.role },
+  });
+}
+
+// ============ PR-8b: POST /client/orgs (create establishment) ============
+
+/**
+ * POST /client/orgs — Create a new establishment (org)
+ * Body: { name, email?, vertical? }
+ */
+async function handleClientCreateOrg(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+
+  // Membership RBAC: only owner/admin of current org can create new establishments
+  const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
+  if (!currentMembership) return;
+
+  let body;
+  try { body = await parseBody(req); } catch (_) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+  }
+
+  const v = validateBody(schemas.createOrg, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { name, email, vertical } = v.data;
+
+  let newOrg;
+  let newMembership;
+
+  const dbModule = storage.getDb();
+  dbModule.transaction(() => {
+    // Create new org (status: 'active')
+    // TODO: PR-billing — status should be 'pending_payment' if no plan selected
+    newOrg = repos.org.create({
+      name,
+      email: email || null,
+      vertical: vertical || 'health',
+      status: 'active',
+    });
+
+    // Create owner membership for current user on new org
+    newMembership = repos.membership.create({
+      userId: auth.user.id,
+      orgId: newOrg.id,
+      role: 'owner',
+      status: 'active',
+    });
+  });
+
+  // Audit
+  try { writeAudit({ orgId: newOrg.id, actorUserId: auth.user.id, action: 'org.create', targetType: 'org', targetId: newOrg.id, meta: { parentOrgId: auth.org.id, name, vertical }, req }); } catch (_) { /* non-fatal */ }
+
+  return sendJson(res, 201, {
+    ok: true,
+    org: { id: newOrg.id, name: newOrg.name, vertical: newOrg.vertical, status: newOrg.status },
+    membership: { id: newMembership.id, orgId: newOrg.id, role: 'owner' },
+  });
+}
+
+// ============ PR-8b: GET /client/team ============
+
+/**
+ * GET /client/team — List team members of current org
+ * Query: ?includeRevoked=true (optional, admin+ only)
+ */
+function handleClientGetTeam(req, res, urlParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+
+  // Membership RBAC: owner/admin can see team
+  const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
+  if (!currentMembership) return;
+
+  // Get all memberships for this org
+  const allMembers = repos.membership.getByOrgId(auth.org.id);
+
+  // Filter: by default active+pending only, includeRevoked if admin+ requested
+  const includeRevoked = urlParams && urlParams.get('includeRevoked') === 'true';
+  const filtered = allMembers.filter(m => {
+    if (m.status === 'active' || m.status === 'pending') return true;
+    if (m.status === 'revoked' && includeRevoked) return true;
+    return false;
+  });
+
+  return sendJson(res, 200, {
+    ok: true,
+    team: filtered.map(m => ({
+      membershipId: m.id,
+      userId: m.userId,
+      email: m.userEmail,
+      name: m.userName,
+      role: m.role,
+      status: m.status,
+      invitedAt: m.invitedAt,
+      acceptedAt: m.acceptedAt,
+      revokedAt: m.revokedAt || null,
+      // Never expose inviteToken
+    })),
+  });
+}
+
+// ============ PR-8b: POST /client/team/invite ============
+
+/**
+ * POST /client/team/invite — Invite someone to current org
+ * Body: { email, role, name? }
+ */
+async function handleClientTeamInvite(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+
+  // Membership RBAC: owner/admin can invite
+  const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
+  if (!currentMembership) return;
+
+  let body;
+  try { body = await parseBody(req); } catch (_) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+  }
+
+  const v = validateBody(schemas.teamInvite, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { email, role, name } = v.data;
+
+  // Check if user already exists
+  let targetUser = repos.user.getByEmail(email);
+  let tempPasswordGenerated = false;
+
+  let reactivatedMembership = null;
+
+  if (targetUser) {
+    // Check if already a member of this org
+    const existingMembership = repos.membership.getByUserAndOrg(targetUser.id, auth.org.id);
+    if (existingMembership && existingMembership.status === 'active') {
+      return sendJson(res, 409, { ok: false, error: 'ALREADY_MEMBER', message: 'Cet utilisateur est déjà membre de cet établissement' });
+    }
+    if (existingMembership && existingMembership.status === 'pending') {
+      return sendJson(res, 409, { ok: false, error: 'ALREADY_INVITED', message: 'Cet utilisateur a déjà été invité (invitation en attente)' });
+    }
+    // If revoked: reactivate the existing membership instead of creating a new one
+    if (existingMembership && existingMembership.status === 'revoked') {
+      repos.membership.updateRole(existingMembership.id, role);
+      reactivatedMembership = repos.membership.updateStatus(existingMembership.id, 'pending');
+    }
+  } else {
+    // Create new user with temporary password (kept in DB as fallback for direct login)
+    const tempPassword = require('crypto').randomBytes(8).toString('base64url').slice(0, 12);
+    const passwordHash = await hashPassword(tempPassword);
+
+    targetUser = repos.user.create({
+      orgId: auth.org.id, // Legacy field — user "belongs" to inviting org initially
+      email: email,
+      passwordHash: passwordHash,
+      role: role, // Legacy user.role
+      name: name || null,
+      emailVerified: true, // Verified via invite
+    });
+
+    // Set must_change_password flag
+    try {
+      const dbModule = storage.getDb();
+      dbModule.prepare('UPDATE users SET must_change_password = 1 WHERE id = $id').run({ id: targetUser.id });
+    } catch (_) { /* ignore if column doesn't exist yet */ }
+
+    tempPasswordGenerated = true;
+    // NOTE: tempPassword stays in DB (hashed) but is NEVER sent in email (PR-8e security)
+  }
+
+  // PR-8e: Create membership BEFORE sending email (need inviteToken for the accept link)
+  let newMembership;
+  let inviteToken = null;
+  if (reactivatedMembership) {
+    newMembership = reactivatedMembership;
+    // Reactivated memberships: generate a fresh invite token
+    inviteToken = repos.membership.generateInviteToken();
+    try {
+      const dbModule = storage.getDb();
+      dbModule.prepare('UPDATE memberships SET invite_token = $inviteToken WHERE id = $id')
+        .run({ inviteToken, id: newMembership.id });
+    } catch (_) { /* non-fatal */ }
+  } else {
+    inviteToken = repos.membership.generateInviteToken();
+    newMembership = repos.membership.create({
+      userId: targetUser.id,
+      orgId: auth.org.id,
+      role: role,
+      status: 'pending',
+      invitedBy: auth.user.id,
+      inviteToken: inviteToken,
+    });
+  }
+
+  // PR-8e: Send invite email with secure accept link (no password in email)
+  const REPUTY_WEB_URL = process.env.REPUTY_WEB_URL || process.env.NEXT_PUBLIC_REPUTY_WEB_URL || 'http://localhost:3001';
+  const acceptLink = `${REPUTY_WEB_URL}/invite/accept?token=${inviteToken}`;
+  const orgName = auth.org.name || 'Reputy';
+  const inviterName = auth.user.name || auth.user.email;
+  const emailSubject = `Vous êtes invité à rejoindre ${orgName} sur Reputy`;
+
+  if (tempPasswordGenerated) {
+    // New user: invite with accept link to set password
+    const emailText = [
+      `Bonjour${name ? ` ${name}` : ''},`,
+      '',
+      `${inviterName} vous invite à rejoindre l'établissement "${orgName}" sur ReputyBoard.`,
+      '',
+      `Pour accepter l'invitation et créer votre mot de passe :`,
+      `${acceptLink}`,
+      '',
+      `Cordialement,`,
+      `L'équipe Reputy`,
+    ].join('\n');
+    const emailHtml = `
+      <p>Bonjour${name ? ` ${name}` : ''},</p>
+      <p><strong>${inviterName}</strong> vous invite à rejoindre l'établissement <strong>"${orgName}"</strong> sur ReputyBoard.</p>
+      <p>Pour accepter l'invitation et créer votre mot de passe :</p>
+      <p><a href="${acceptLink}" style="display:inline-block;padding:12px 24px;background:#242c34;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Accepter l'invitation</a></p>
+      <p style="color:#666;font-size:13px;">Ou copiez ce lien : ${acceptLink}</p>
+      <p>Cordialement,<br/>L'équipe Reputy</p>
+    `.trim();
+    sendEmail(data, email, emailSubject, emailText, emailHtml);
+  } else {
+    // Existing user: invite with accept link
+    const emailText = [
+      `Bonjour,`,
+      '',
+      `${inviterName} vous invite à rejoindre l'établissement "${orgName}" sur ReputyBoard.`,
+      '',
+      `Pour accepter l'invitation :`,
+      `${acceptLink}`,
+      '',
+      `Ou connectez-vous directement sur ReputyBoard.`,
+      '',
+      `Cordialement,`,
+      `L'équipe Reputy`,
+    ].join('\n');
+    const emailHtml = `
+      <p>Bonjour,</p>
+      <p><strong>${inviterName}</strong> vous invite à rejoindre l'établissement <strong>"${orgName}"</strong> sur ReputyBoard.</p>
+      <p><a href="${acceptLink}" style="display:inline-block;padding:12px 24px;background:#242c34;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Accepter l'invitation</a></p>
+      <p>Ou connectez-vous directement sur ReputyBoard.</p>
+      <p>Cordialement,<br/>L'équipe Reputy</p>
+    `.trim();
+    sendEmail(data, email, emailSubject, emailText, emailHtml);
+  }
+
+  // Audit (NO tempPassword in meta!)
+  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.invite', targetType: 'user', targetId: targetUser.id, meta: { email, role, isNewUser: tempPasswordGenerated }, req }); } catch (_) { /* non-fatal */ }
+
+  return sendJson(res, 201, {
+    ok: true,
+    membership: {
+      id: newMembership.id,
+      userId: targetUser.id,
+      email: email,
+      role: role,
+      status: 'pending',
+    },
+  });
+}
+
+// ============ PR-8b: PUT /client/team/:membershipId ============
+
+/**
+ * PUT /client/team/:membershipId — Update a member's role
+ * Body: { role }
+ * Only owner can change roles.
+ */
+async function handleClientTeamUpdateRole(req, res, membershipId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+
+  // Only owner can update roles
+  const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner'], res);
+  if (!currentMembership) return;
+
+  let body;
+  try { body = await parseBody(req); } catch (_) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+  }
+
+  const v = validateBody(schemas.teamUpdateRole, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { role: newRole } = v.data;
+
+  // Get target membership
+  const targetMembership = repos.membership.getById(membershipId);
+  if (!targetMembership || targetMembership.orgId !== auth.org.id) {
+    return sendJson(res, 404, { ok: false, error: 'NOT_FOUND', message: 'Membre non trouvé' });
+  }
+
+  // Cannot modify self
+  if (targetMembership.userId === auth.user.id) {
+    return sendJson(res, 400, { ok: false, error: 'CANNOT_MODIFY_SELF', message: 'Vous ne pouvez pas modifier votre propre rôle' });
+  }
+
+  // Cannot modify or promote to owner
+  if (targetMembership.role === 'owner') {
+    return sendJson(res, 400, { ok: false, error: 'CANNOT_MODIFY_OWNER', message: 'Impossible de modifier le rôle du propriétaire' });
+  }
+
+  const updated = repos.membership.updateRole(membershipId, newRole);
+
+  // Audit
+  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.update_role', targetType: 'membership', targetId: membershipId, meta: { previousRole: targetMembership.role, newRole }, req }); } catch (_) { /* non-fatal */ }
+
+  return sendJson(res, 200, {
+    ok: true,
+    membership: { id: updated.id, role: updated.role, status: updated.status },
+  });
+}
+
+// ============ PR-8b: DELETE /client/team/:membershipId ============
+
+/**
+ * DELETE /client/team/:membershipId — Revoke a member's access
+ * Soft delete: sets status to 'revoked'.
+ */
+function handleClientTeamRevoke(req, res, membershipId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+
+  // Owner/admin can revoke
+  const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
+  if (!currentMembership) return;
+
+  // Get target membership
+  const targetMembership = repos.membership.getById(membershipId);
+  if (!targetMembership || targetMembership.orgId !== auth.org.id) {
+    return sendJson(res, 404, { ok: false, error: 'NOT_FOUND', message: 'Membre non trouvé' });
+  }
+
+  // Cannot revoke self
+  if (targetMembership.userId === auth.user.id) {
+    return sendJson(res, 400, { ok: false, error: 'CANNOT_REVOKE_SELF', message: 'Vous ne pouvez pas révoquer votre propre accès' });
+  }
+
+  // Admin cannot revoke owner
+  if (currentMembership.role !== 'owner' && targetMembership.role === 'owner') {
+    return sendJson(res, 403, { ok: false, error: 'FORBIDDEN', message: 'Seul le propriétaire peut révoquer un autre propriétaire' });
+  }
+
+  // Admin cannot revoke another admin (only owner can)
+  if (currentMembership.role === 'admin' && targetMembership.role === 'admin') {
+    return sendJson(res, 403, { ok: false, error: 'FORBIDDEN', message: 'Un admin ne peut pas révoquer un autre admin' });
+  }
+
+  repos.membership.updateStatus(membershipId, 'revoked');
+
+  // TODO: also revoke active sessions for this user on this org
+
+  // Audit
+  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.revoke', targetType: 'membership', targetId: membershipId, meta: { revokedUserId: targetMembership.userId, revokedRole: targetMembership.role }, req }); } catch (_) { /* non-fatal */ }
+
+  return sendJson(res, 200, { ok: true });
 }
 
 // ============ CLIENT DASHBOARD ENDPOINTS ============
@@ -9545,6 +10250,18 @@ const server = http.createServer(async (req, res) => {
     return handleLogin(req, res);
   }
   
+  // PR-8b: Multi-org login selection
+  if (method === 'POST' && url === '/auth/select-org') {
+    if (applyAuthRateLimit(req, res, '/auth/select-org')) return;
+    return handleAuthSelectOrg(req, res);
+  }
+
+  // PR-8e: Accept invitation via invite token
+  if (method === 'POST' && url === '/auth/accept-invite') {
+    if (applyAuthRateLimit(req, res, '/auth/accept-invite')) return;
+    return handleAuthAcceptInvite(req, res);
+  }
+
   if (method === 'POST' && url === '/auth/logout') {
     return handleLogout(req, res);
   }
@@ -9562,6 +10279,36 @@ const server = http.createServer(async (req, res) => {
   
   // ============ CLIENT DASHBOARD ROUTES (Authenticated Users) ============
   
+  if (method === 'GET' && pathname === '/client/memberships') {
+    return handleClientGetMemberships(req, res);
+  }
+
+  // PR-8b: Multi-establishment routes
+  if (method === 'POST' && pathname === '/client/orgs/switch') {
+    return handleClientSwitchOrg(req, res);
+  }
+  
+  if (method === 'POST' && pathname === '/client/orgs') {
+    return handleClientCreateOrg(req, res);
+  }
+
+  if (method === 'GET' && pathname === '/client/team') {
+    return handleClientGetTeam(req, res, urlParams);
+  }
+
+  if (method === 'POST' && pathname === '/client/team/invite') {
+    return handleClientTeamInvite(req, res);
+  }
+
+  // PUT/DELETE /client/team/:membershipId
+  const teamMemberMatch = pathname.match(/^\/client\/team\/([a-zA-Z0-9_-]+)$/);
+  if (teamMemberMatch && method === 'PUT') {
+    return handleClientTeamUpdateRole(req, res, teamMemberMatch[1]);
+  }
+  if (teamMemberMatch && method === 'DELETE') {
+    return handleClientTeamRevoke(req, res, teamMemberMatch[1]);
+  }
+
   if (method === 'GET' && pathname === '/client/org') {
     return handleClientGetOrg(req, res);
   }

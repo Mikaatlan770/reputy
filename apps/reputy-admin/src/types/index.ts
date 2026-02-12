@@ -370,6 +370,46 @@ export interface SepaMandate {
   revokedAt?: string
 }
 
+// ===== TYPES MULTI-ÉTABLISSEMENT (PR-8c) =====
+
+export type MembershipRole = 'owner' | 'admin' | 'agent'
+export type MembershipStatus = 'active' | 'pending' | 'revoked'
+
+/** Membership retourné par GET /client/memberships */
+export interface Membership {
+  id: string
+  orgId: string
+  orgName: string
+  orgStatus: string
+  orgVertical: string
+  orgPlan: Record<string, unknown>
+  role: MembershipRole
+  status: MembershipStatus
+  acceptedAt: string | null
+}
+
+/** Type léger pour topbar org-picker + /locations (pas le type Location mock) */
+export interface OrgSummary {
+  orgId: string
+  orgName: string
+  orgStatus: string
+  orgVertical: string
+  role: MembershipRole
+}
+
+/** Membre d'équipe retourné par GET /client/team */
+export interface TeamMember {
+  membershipId: string
+  userId: string
+  email: string
+  name: string | null
+  role: MembershipRole
+  status: MembershipStatus
+  invitedAt: string | null
+  acceptedAt: string | null
+  revokedAt: string | null
+}
+
 // ===== TYPES SÉCURITÉ =====
 
 export interface SecurityEvent {

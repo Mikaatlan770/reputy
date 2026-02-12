@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import type { Membership, MembershipRole } from '@/types'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
 const TOKEN_KEY = 'reputy_client_token'
@@ -12,6 +13,7 @@ export type AuthMode = 'SUPER_ADMIN' | 'CLIENT' | 'NONE'
 export interface ClientUser {
   id: string
   email: string
+  /** @deprecated Use currentMembershipRole instead for RBAC */
   role: 'owner' | 'admin'
   name: string
   emailVerified: boolean
@@ -119,6 +121,9 @@ export interface AuthState {
   clientToken: string | null
   // Super admin (detected via cookie, managed elsewhere)
   isSuperAdmin: boolean
+  // PR-8c: Multi-establishment
+  memberships: Membership[]
+  currentMembershipRole: MembershipRole | null
 }
 
 export interface AuthContextValue extends AuthState {
@@ -126,6 +131,9 @@ export interface AuthContextValue extends AuthState {
   loginClient: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
   logoutClient: () => Promise<void>
   refreshClientSession: () => Promise<void>
+  // PR-8c: Multi-establishment actions
+  switchOrg: (orgId: string) => Promise<{ ok: boolean; error?: string }>
+  fetchMemberships: () => Promise<void>
   // Helpers
   getClientToken: () => string | null
 }
@@ -170,17 +178,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     clientOrg: null,
     clientToken: null,
     isSuperAdmin: false,
+    memberships: [],
+    currentMembershipRole: null,
   })
 
-  // Fetch client session from /me
+  // Fetch client session from /me + /client/org + /client/memberships
   const fetchClientSession = useCallback(async (token: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${BACKEND_URL}/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      })
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      }
+
+      const response = await fetch(`${BACKEND_URL}/me`, { headers })
 
       if (!response.ok) {
         return false
@@ -188,18 +198,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const data = await response.json()
       
-      // Also fetch full org details from /client/org
-      const orgResponse = await fetch(`${BACKEND_URL}/client/org`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      })
+      // Fetch full org details from /client/org
+      const orgResponse = await fetch(`${BACKEND_URL}/client/org`, { headers })
 
       let fullOrg = data.org
       if (orgResponse.ok) {
         const orgData = await orgResponse.json()
         fullOrg = orgData.org
+      }
+
+      // PR-8c: Fetch memberships
+      let memberships: Membership[] = []
+      let currentMembershipRole: MembershipRole | null = null
+      try {
+        const membershipsResponse = await fetch(`${BACKEND_URL}/client/memberships`, { headers })
+        if (membershipsResponse.ok) {
+          const membershipsData = await membershipsResponse.json()
+          memberships = membershipsData.memberships || []
+          // Extract role for current org
+          const currentOrgId = fullOrg?.id || data.org?.id
+          const currentMembership = memberships.find(
+            (m: Membership) => m.orgId === currentOrgId && m.status === 'active'
+          )
+          currentMembershipRole = currentMembership?.role || null
+        }
+      } catch {
+        // Non-fatal: memberships endpoint may not be available
+        console.warn('[AuthContext] Failed to fetch memberships')
       }
 
       setState(prev => ({
@@ -210,6 +235,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         clientOrg: fullOrg,
         clientToken: token,
         isSuperAdmin: false,
+        memberships,
+        currentMembershipRole,
       }))
 
       return true
@@ -312,7 +339,80 @@ export function AuthProvider({ children }: AuthProviderProps) {
       clientOrg: null,
       clientToken: null,
       isSuperAdmin: false,
+      memberships: [],
+      currentMembershipRole: null,
     })
+  }, [])
+
+  // PR-8c: Switch to another organization
+  const switchOrg = useCallback(async (orgId: string): Promise<{ ok: boolean; error?: string }> => {
+    const token = getStoredToken()
+    if (!token) {
+      return { ok: false, error: 'Non authentifié' }
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/orgs/switch`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ orgId }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        return { ok: false, error: data.message || 'Erreur lors du changement' }
+      }
+
+      if (data.ok && data.token) {
+        // Store new token, then full page reload to reset all state
+        setStoredToken(data.token)
+        window.location.href = '/'
+        return { ok: true }
+      }
+
+      return { ok: false, error: 'Réponse inattendue du serveur' }
+    } catch (err) {
+      console.error('[AuthContext] Switch org error:', err)
+      return { ok: false, error: 'Erreur de connexion au serveur' }
+    }
+  }, [])
+
+  // PR-8c: Fetch memberships list
+  const fetchMemberships = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) return
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/memberships`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const memberships: Membership[] = data.memberships || []
+        
+        setState(prev => {
+          const currentOrgId = prev.clientOrg?.id
+          const currentMembership = memberships.find(
+            m => m.orgId === currentOrgId && m.status === 'active'
+          )
+          return {
+            ...prev,
+            memberships,
+            currentMembershipRole: currentMembership?.role || prev.currentMembershipRole,
+          }
+        })
+      }
+    } catch (err) {
+      console.error('[AuthContext] Failed to fetch memberships:', err)
+    }
   }, [])
 
   // Refresh client session
@@ -328,6 +428,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           clientUser: null,
           clientOrg: null,
           clientToken: null,
+          memberships: [],
+          currentMembershipRole: null,
         }))
       }
     }
@@ -343,6 +445,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     loginClient,
     logoutClient,
     refreshClientSession,
+    switchOrg,
+    fetchMemberships,
     getClientToken,
   }
 

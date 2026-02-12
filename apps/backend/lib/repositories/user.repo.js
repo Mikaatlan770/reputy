@@ -177,6 +177,7 @@ function parseUserRow(row) {
     role: row.role,
     name: row.name,
     emailVerified: row.email_verified === 1,
+    mustChangePassword: row.must_change_password === 1,
     lastLoginAt: row.last_login_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at

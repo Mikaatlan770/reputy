@@ -276,7 +276,8 @@ function getTableCounts() {
     'telemetry_events', 'email_verifications',
     'installations', 'shortlinks', 'migrations',
     'mrr_snapshots',
-    'audit_log'
+    'audit_log',
+    'memberships', 'login_pending'
   ];
   
   const counts = {};

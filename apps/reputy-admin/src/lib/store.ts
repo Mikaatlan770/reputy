@@ -1,34 +1,22 @@
 import { create } from 'zustand'
-import type { Location, User, OrgSettings, AiQuota } from '@/types'
-import { locations, users } from './mock-data'
-
-// ===== MOCK ORG SETTINGS =====
-const mockOrgSettings: OrgSettings = {
-  id: 'org-1',
-  name: 'Cabinet Dr. Atlan',
-  plan: 'pro',
-  aiEnabled: true,
-  aiQuota: {
-    monthlyLimit: 100,
-    usedThisMonth: 23,
-    resetDate: '2026-02-01',
-  },
-  healthModeDefault: true,
-  createdAt: '2024-01-15',
-}
+import type { Location, User, OrgSettings, AiQuota, Membership } from '@/types'
 
 interface AppState {
   // Current user
   currentUser: User | null
   setCurrentUser: (user: User | null) => void
   
-  // Current location
+  // Current location (mapped from membership for rétrocompat)
   currentLocation: Location | null
   setCurrentLocation: (location: Location | null) => void
   
-  // All locations for the user
+  // All locations for the user (mapped from memberships for rétrocompat)
   userLocations: Location[]
   setUserLocations: (locations: Location[]) => void
+  
+  // PR-8c: Memberships (real data from backend)
+  memberships: Membership[]
+  setMemberships: (memberships: Membership[]) => void
   
   // Sidebar state
   sidebarOpen: boolean
@@ -43,11 +31,11 @@ interface AppState {
   updateAiQuota: (quota: Partial<AiQuota>) => void
   incrementAiUsage: () => void
   
-  // Initialize
+  // Initialize (no longer loads mocks — data comes from auth-context via app-layout)
   initialize: () => void
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set) => ({
   currentUser: null,
   setCurrentUser: (user) => set({ currentUser: user }),
   
@@ -56,6 +44,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   userLocations: [],
   setUserLocations: (locations) => set({ userLocations: locations }),
+  
+  memberships: [],
+  setMemberships: (memberships) => set({ memberships }),
   
   sidebarOpen: true,
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -86,15 +77,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   }),
   
+  // PR-8c: initialize no longer loads mocks.
+  // Real data is hydrated from auth-context in app-layout.tsx useEffect.
   initialize: () => {
-    // Mock: set first user and their locations
-    const user = users[0]
-    const userLocs = locations.filter((l) => user.locationIds.includes(l.id))
-    set({
-      currentUser: user,
-      userLocations: userLocs,
-      currentLocation: userLocs[0] || null,
-      orgSettings: mockOrgSettings,
-    })
+    // No-op: data comes from auth-context
   },
 }))

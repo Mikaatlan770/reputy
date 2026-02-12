@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/lib/store'
 import { useAuth, useIsClient } from '@/lib/auth'
+import type { MembershipRole } from '@/types'
 import {
   LayoutDashboard,
   Star,
@@ -32,11 +33,18 @@ interface NavItem {
   href: string
   icon: LucideIcon
   clientOnly?: boolean  // Visible uniquement pour les clients
+  /** PR-8d: rôles membership autorisés. Si absent = visible pour tous. */
+  allowedRoles?: MembershipRole[]
 }
 
+// PR-8d: role-based menu visibility
+// - Équipe : owner + admin
+// - Paramètres : owner + admin
+// - Facturation : owner uniquement
+// - Tout le reste : visible pour tous
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Installation', href: '/installation', icon: Download, clientOnly: true }, // CLIENT ONLY
+  { name: 'Installation', href: '/installation', icon: Download, clientOnly: true },
   { name: 'Avis', href: '/reviews', icon: Star },
   { name: 'Feedbacks', href: '/feedbacks', icon: ThumbsUp },
   { name: 'Historique', href: '/history', icon: History },
@@ -46,23 +54,31 @@ const navigation: NavItem[] = [
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Concurrence', href: '/competitors', icon: Swords },
   { name: 'Établissements', href: '/locations', icon: Building2 },
-  { name: 'Équipe', href: '/team', icon: Users2 },
-  { name: 'Facturation', href: '/billing', icon: CreditCard },
-  { name: 'Paramètres', href: '/settings', icon: Settings },
+  { name: 'Équipe', href: '/team', icon: Users2, allowedRoles: ['owner', 'admin'] },
+  { name: 'Facturation', href: '/billing', icon: CreditCard, allowedRoles: ['owner'] },
+  { name: 'Paramètres', href: '/settings', icon: Settings, allowedRoles: ['owner', 'admin'] },
   { name: 'Aide', href: '/help', icon: HelpCircle },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
   const { sidebarOpen, toggleSidebar } = useAppStore()
-  const { mode, clientOrg } = useAuth()
+  const { currentMembershipRole } = useAuth()
   const isClient = useIsClient()
 
-  // Filtrer la navigation selon le mode
+  // Filtrer la navigation selon le mode + rôle membership
   const filteredNavigation = navigation.filter(item => {
     // Si l'item est clientOnly, ne l'afficher que pour les clients
     if (item.clientOnly && !isClient) {
       return false
+    }
+    // PR-8d: role-based filtering
+    // Si allowedRoles défini ET le rôle est connu → vérifier l'inclusion
+    // Si currentMembershipRole est null (chargement) → afficher tout (anti-flicker)
+    if (item.allowedRoles && currentMembershipRole) {
+      if (!item.allowedRoles.includes(currentMembershipRole)) {
+        return false
+      }
     }
     return true
   })
@@ -127,4 +143,3 @@ export function Sidebar() {
     </aside>
   )
 }
-

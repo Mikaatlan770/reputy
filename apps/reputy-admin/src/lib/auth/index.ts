@@ -19,3 +19,6 @@ export {
   type ClientUser,
   type ClientOrg,
 } from './auth-context'
+
+// Re-export multi-establishment types from @/types for convenience
+export type { Membership, OrgSummary, TeamMember, MembershipRole } from '@/types'

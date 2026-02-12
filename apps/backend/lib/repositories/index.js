@@ -18,6 +18,7 @@ const shortlinkRepo = require('./shortlink.repo');
 const reviewRepo = require('./review.repo');
 const emailOutboxRepo = require('./email-outbox.repo');
 const mrrSnapshotRepo = require('./mrr-snapshots.repo');
+const membershipRepo = require('./membership.repo');
 
 module.exports = {
   org: orgRepo,
@@ -33,5 +34,6 @@ module.exports = {
   shortlink: shortlinkRepo,
   review: reviewRepo,
   emailOutbox: emailOutboxRepo,
-  mrrSnapshot: mrrSnapshotRepo
+  mrrSnapshot: mrrSnapshotRepo,
+  membership: membershipRepo
 };

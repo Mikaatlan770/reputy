@@ -105,6 +105,66 @@ const schemas = {
     googleReviewUrl: z.string().max(500, 'URL trop longue').optional(),
     cabinetName: z.string().max(200, 'Nom trop long (max 200 caractères)').optional(),
   }).passthrough(), // Allow extra fields (legacy compat)
+
+  // ============ PR-8b: Multi-establishment schemas ============
+
+  /**
+   * POST /auth/select-org (multi-org login flow)
+   */
+  selectOrg: z.object({
+    pendingToken: z.string({ required_error: 'Token requis' }).min(1, 'Token requis'),
+    orgId: z.string({ required_error: 'orgId requis' }).min(1, 'orgId requis'),
+  }),
+
+  /**
+   * POST /client/orgs/switch
+   */
+  switchOrg: z.object({
+    orgId: z.string({ required_error: 'orgId requis' }).min(1, 'orgId requis'),
+  }),
+
+  /**
+   * POST /client/orgs (create establishment)
+   */
+  createOrg: z.object({
+    name: z.string({ required_error: 'Nom requis' })
+      .min(2, 'Nom requis (min 2 caractères)')
+      .max(200, 'Nom trop long (max 200 caractères)'),
+    email: z.string().email('Email invalide').optional(),
+    vertical: z.enum(['health', 'beauty', 'legal', 'restaurant', 'other']).optional().default('health'),
+  }),
+
+  /**
+   * POST /client/team/invite
+   */
+  teamInvite: z.object({
+    email: z.string({ required_error: 'Email requis' }).email('Email invalide'),
+    role: z.enum(['admin', 'agent'], {
+      required_error: 'Rôle requis',
+      invalid_type_error: 'Rôle invalide (admin ou agent)',
+    }),
+    name: z.string().max(100, 'Nom trop long').optional(),
+  }),
+
+  /**
+   * PUT /client/team/:membershipId
+   */
+  teamUpdateRole: z.object({
+    role: z.enum(['admin', 'agent'], {
+      required_error: 'Rôle requis',
+      invalid_type_error: 'Rôle invalide (admin ou agent)',
+    }),
+  }),
+
+  // ============ PR-8e: Accept invite ============
+
+  /**
+   * POST /auth/accept-invite
+   */
+  acceptInvite: z.object({
+    token: z.string({ required_error: 'Token requis' }).min(1, 'Token requis'),
+    newPassword: z.string().min(8, 'Mot de passe min 8 caractères').optional(),
+  }),
 };
 
 // ============ EXPORTS ============
