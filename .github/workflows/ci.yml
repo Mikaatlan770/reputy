@@ -1,0 +1,121 @@
+# ============================================================
+# PR-7 — CI minimal : lint + syntax check + tests existants
+#
+# 3 jobs parallèles :
+#   1) backend-check  : node --check (syntax) + tests unitaires email
+#   2) admin-lint-build : ESLint + TypeScript + Next.js build
+#   3) guard-secrets   : scan anti-secrets (repris de guard-secrets.yml)
+# ============================================================
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────
+  # Job 1 — Backend: syntax check + unit tests
+  # ────────────────────────────────────────────
+  backend-check:
+    name: 🔧 Backend check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: cd apps/backend && npm ci
+
+      - name: Syntax check (node --check)
+        run: |
+          echo "=== Checking server.js ==="
+          node --check apps/backend/server.js
+
+          echo "=== Checking lib/ modules ==="
+          find apps/backend/lib -name '*.js' ! -path '*/node_modules/*' ! -path '*/__tests__/*' | while read f; do
+            node --check "$f" || exit 1
+          done
+
+      - name: Run backend unit tests (email)
+        run: |
+          cd apps/backend
+          for testfile in lib/email/__tests__/*.test.js; do
+            echo "--- Running $testfile ---"
+            node "$testfile"
+          done
+
+  # ────────────────────────────────────────────
+  # Job 2 — Admin: lint + typecheck + build
+  # ────────────────────────────────────────────
+  admin-lint-build:
+    name: 🎨 Admin lint & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/reputy-admin/package-lock.json
+
+      - name: Install admin dependencies
+        run: cd apps/reputy-admin && npm ci
+
+      - name: ESLint
+        run: cd apps/reputy-admin && npm run lint
+
+      - name: TypeScript check
+        run: cd apps/reputy-admin && npx tsc --noEmit
+
+      - name: Next.js build
+        run: cd apps/reputy-admin && npm run build
+        env:
+          # Build needs these to avoid errors on missing env vars
+          NEXT_PUBLIC_BACKEND_URL: http://localhost:8787
+          NEXT_PUBLIC_APP_URL: http://localhost:3002
+
+  # ────────────────────────────────────────────
+  # Job 3 — Guard: no secrets in git
+  # (exact same logic as guard-secrets.yml)
+  # ────────────────────────────────────────────
+  guard-secrets:
+    name: 🔒 Check no secrets in git
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run guard:secrets
+        run: npm run guard:secrets
