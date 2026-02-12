@@ -96,6 +96,7 @@ export interface Org {
   email?: string | null  // Email principal du client
   vertical: 'health' | 'food' | 'business'
   status: 'active' | 'suspended' | 'cancelled'
+  activatedAt?: string | null  // First review_request sent_at (null = not activated)
   createdAt: string
   updatedAt: string
   billing: {
@@ -323,6 +324,27 @@ export interface TelemetryEntry {
 
 export interface ListOrgsResponse {
   orgs: Org[]
+  total: number
+}
+
+export interface AtRiskOrg {
+  id: string
+  name: string
+  email: string | null
+  vertical: string
+  status: string
+  planCode: string | null
+  billingStatus: string | null
+  activatedAt: string | null
+  createdAt: string
+  lastLogin: string | null
+  lastSentAt: string | null
+  daysSinceLastLogin: number | null
+}
+
+export interface AtRiskOrgsResponse {
+  ok: boolean
+  orgs: AtRiskOrg[]
   total: number
 }
 

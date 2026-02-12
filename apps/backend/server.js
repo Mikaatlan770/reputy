@@ -26,8 +26,11 @@
 //  - POST   /internal/orgs/:orgId/reset-public-key -> régénérer publicKey
 //  - POST   /internal/orgs/:orgId/rotate-api-token -> rotation token API (P1.3)
 //  - GET    /internal/orgs/:orgId/api-token        -> info token API masqué (P1.3)
+//  - GET    /internal/admin/health                  -> health check riche (P1.1)
+//  - GET    /internal/admin/metrics                 -> business metrics (P1.2)
 //  - GET    /internal/admin/feedbacks              -> feedbacks admin (P5)
 //  - GET    /internal/admin/legacy-auth-stats      -> stats legacy auth (P5)
+//  - GET    /internal/admin/mrr-history            -> MRR snapshots history (P2)
 //  - POST   /telemetry/extension       -> log depuis extension
 //
 // Public API (lecture seule, pas d'auth):
@@ -66,6 +69,21 @@ const planCatalog = require('./lib/billing/plan-catalog');
 const stripeCoupons = require('./lib/billing/stripe-coupons');
 const periodRollover = require('./lib/billing/period-rollover');
 const effectiveBilling = require('./lib/billing/effective-billing');
+
+// Audit log
+const { writeAudit } = require('./lib/audit-log');
+
+// RBAC (session-auth endpoints only)
+const { checkRole } = require('./lib/rbac');
+
+// AI provider (PR-3)
+const { suggestReply: aiSuggestReply } = require('./lib/ai/openai-provider');
+
+// Sentry — optional error tracking (PR-5, no-op if SENTRY_DSN absent)
+const sentry = require('./lib/sentry');
+
+// Zod validation helper (PR-5)
+const { validateBody, schemas } = require('./lib/validate-body');
 
 // ============ ENVIRONMENT ============
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -116,7 +134,15 @@ function gracefulShutdown(reason, err = null) {
     console.error('[REPUTY][SHUTDOWN] Error closing DB:', e.message);
   }
 
-  // 3) Force exit after timeout (in case server.close() hangs on open connections)
+  // 3) Flush Sentry events best-effort before exiting
+  const flushAndExit = async () => {
+    try {
+      await sentry.flush(2000);
+    } catch (_) { /* best-effort */ }
+    process.exit(exitCode);
+  };
+
+  // 4) Force exit after timeout (in case server.close() hangs on open connections)
   const SHUTDOWN_TIMEOUT_MS = 5000;
   const forceExitTimer = setTimeout(() => {
     console.error(`[REPUTY][SHUTDOWN] Forced exit after ${SHUTDOWN_TIMEOUT_MS}ms timeout`);
@@ -124,9 +150,9 @@ function gracefulShutdown(reason, err = null) {
   }, SHUTDOWN_TIMEOUT_MS);
   forceExitTimer.unref(); // Don't keep process alive just for this timer
 
-  // 4) Attempt immediate exit (the timeout above is a safety net)
+  // 5) Attempt exit after Sentry flush (the timeout above is a safety net)
   setImmediate(() => {
-    process.exit(exitCode);
+    flushAndExit();
   });
 }
 
@@ -142,6 +168,7 @@ process.on('uncaughtException', (err) => {
     // Logger itself might be broken — fall back to raw stderr
     console.error('[FATAL] uncaughtException:', err);
   }
+  sentry.captureException(err, { fatal: true, source: 'uncaughtException' });
   gracefulShutdown('uncaughtException', err);
 });
 
@@ -159,7 +186,9 @@ process.on('unhandledRejection', (reason, promise) => {
   } catch (_) {
     console.error('[FATAL] unhandledRejection:', reason);
   }
-  gracefulShutdown('unhandledRejection', reason instanceof Error ? reason : new Error(errMessage));
+  const errObj = reason instanceof Error ? reason : new Error(errMessage);
+  sentry.captureException(errObj, { fatal: true, source: 'unhandledRejection' });
+  gracefulShutdown('unhandledRejection', errObj);
 });
 
 // --- SIGTERM: sent by PM2 / Docker / systemd for graceful stop ---
@@ -2964,6 +2993,10 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
     const commentSection = document.getElementById('commentSection');
     const submitBtn = document.getElementById('submitBtn');
     const googleBtn = document.getElementById('googleBtn');
+    // Track Google redirect click (lifecycle: → public_redirected)
+    googleBtn.addEventListener('click', function() {
+      try { navigator.sendBeacon('/r/${requestId}/redirected'); } catch(e) {}
+    });
     
     stars.forEach(star => {
       star.addEventListener('click', () => {
@@ -3489,8 +3522,28 @@ async function handleSendReview(req, res) {
       }
     });
     
-    // Create message entry (queued for future sending)
+    // ---- Lifecycle: created → queued (email_outbox + review_requests) ----
     const recipient = channel === 'email' ? body.patientEmail : body.patientPhone;
+
+    if (channel === 'email' && body.patientEmail) {
+      const dbModule = storage.getDb();
+      dbModule.transaction(() => {
+        repos.emailOutbox.createOutbox({
+          orgId: orgId,
+          toEmail: body.patientEmail,
+          templateKey: 'review_request',
+          payload: {
+            patientName: body.patientName,
+            patientFirstName: body.patientFirstName || '',
+            requestId: dbRequest.idempotencyKey,
+          },
+          requestDbId: dbRequest.id,
+        });
+        repos.request.setLifecycleStatus(dbRequest.id, 'queued');
+      });
+    }
+
+    // Legacy message tracking (backward compat)
     repos.message.create({
       requestDbId: dbRequest.id,
       channel: channel,
@@ -3715,8 +3768,53 @@ async function handleSubmitFeedback(requestId, req, res) {
   if (!rating || rating < 1 || rating > 5) {
     return sendJson(res, 400, { ok: false, error: 'INVALID_RATING' });
   }
-  
-  // ============ ENREGISTRER LE FEEDBACK ============
+
+  // ============ SQLITE MODE: feedback + lifecycle in transaction ============
+  if (storage.USE_SQLITE) {
+    const repos = storage.getRepos();
+    const dbModule = storage.getDb();
+    const dbId = request._dbId;
+
+    if (!dbId) {
+      console.error('[REPUTY][FEEDBACK] Missing _dbId for request', { requestId });
+      return sendJson(res, 500, { ok: false, error: 'INTERNAL_ERROR' });
+    }
+
+    // Anti-doublon SQLite (precise, repo-based)
+    const existingFb = repos.feedback.getByRequestDbId(dbId);
+    if (existingFb) {
+      return sendJson(res, 409, { ok: false, error: 'ALREADY_SUBMITTED' });
+    }
+
+    // Transaction: insert feedback + update lifecycle (sent → feedback_received)
+    dbModule.transaction(() => {
+      repos.feedback.create({
+        requestDbId: dbId,
+        orgId: request.orgId,
+        rating: rating,
+        comment: (body.comment || '').trim(),
+        source: request.channel || 'web',
+      });
+      repos.request.setLifecycleStatus(dbId, 'feedback_received');
+    });
+
+    console.log('[REPUTY][FEEDBACK] Nouveau feedback (SQLite)', {
+      requestId, dbId, rating, hasComment: !!body.comment
+    });
+
+    const routing = determineReviewRouting(rating);
+    const settings = getSettings();
+
+    return sendJson(res, 200, {
+      ok: true,
+      success: true,
+      routing: routing,
+      redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
+      googleUrl: routing.redirectUrl || settings.googleReviewUrl
+    });
+  }
+
+  // ============ JSON MODE (legacy): ENREGISTRER LE FEEDBACK ============
   // NOTE: Pour migration DB, créer UNIQUE INDEX sur requestId dans feedbacks
   const now = new Date().toISOString();
   
@@ -3761,6 +3859,27 @@ async function handleSubmitFeedback(requestId, req, res) {
     redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
     googleUrl: routing.redirectUrl || settings.googleReviewUrl
   });
+}
+
+/**
+ * Track public redirect click (beacon from patient page).
+ * Updates review_request lifecycle → public_redirected.
+ */
+function handleTrackRedirect(requestId, res) {
+  if (storage.USE_SQLITE) {
+    try {
+      const repos = storage.getRepos();
+      const rr = repos.request.getByIdempotencyKey(requestId);
+      if (rr) {
+        repos.request.setLifecycleStatus(rr.id, 'public_redirected');
+      }
+    } catch (e) {
+      console.error('[REPUTY][REDIRECT] Lifecycle update error:', e.message);
+    }
+  }
+  // Fire-and-forget: always 204
+  res.writeHead(204);
+  res.end();
 }
 
 function handleGetFeedbacks(req, res) {
@@ -3902,6 +4021,13 @@ async function handleSaveSettings(req, res) {
   }
   
   if (sessionAuth && sessionAuth.org) {
+    // RBAC Tier 1: settings write — owner/admin only (session branch only, legacy fallback untouched)
+    if (!checkRole(sessionAuth, ['owner', 'admin'], res)) return;
+
+    // Zod validation — session branch only (PR-5)
+    const v = validateBody(schemas.settingsUpdate, body);
+    if (!v.ok) return sendJson(res, 400, v.payload);
+
     // User is authenticated via session - save to org-specific options
     const org = sessionAuth.org;
     const repos = storage.getRepos();
@@ -4062,6 +4188,484 @@ async function handleSaveReviewRouting(req, res) {
 // ============ INTERNAL BACKOFFICE API (Super Admin) ============
 
 /**
+ * P1.1: GET /internal/admin/health — Rich health check (admin-only).
+ * Returns system status for monitoring (UptimeRobot / BetterStack).
+ * HTTP 200 if ok/degraded, 503 if error.
+ * Constraint: < 100ms, no sensitive data, Cache-Control: no-store.
+ */
+function handleAdminHealth(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  let globalStatus = 'ok';
+  const issues = [];
+
+  // --- DB checks (fast) ---
+  const dbInfo = { status: 'ok', wal_mode: null, foreign_keys: null, integrity_ok: null, latency_ms: null };
+  try {
+    const dbModule = storage.getDb();
+    const database = dbModule ? dbModule.getDb() : null;
+    if (database) {
+      const t0 = Date.now();
+      database.prepare('SELECT 1').get();
+      dbInfo.latency_ms = Date.now() - t0;
+
+      const jm = database.pragma('journal_mode', { simple: true });
+      dbInfo.wal_mode = String(jm).toLowerCase() === 'wal';
+
+      const fk = database.pragma('foreign_keys', { simple: true });
+      dbInfo.foreign_keys = Boolean(fk);
+
+      const ic = database.prepare('PRAGMA integrity_check(1)').get();
+      dbInfo.integrity_ok = (ic?.integrity_check === 'ok');
+      if (!dbInfo.integrity_ok) {
+        dbInfo.status = 'error';
+        globalStatus = 'error';
+        issues.push('integrity_check failed');
+      }
+    } else if (!storage.USE_SQLITE) {
+      // JSON mode — DB checks not applicable
+      dbInfo.status = 'n/a';
+    } else {
+      dbInfo.status = 'error';
+      globalStatus = 'error';
+      issues.push('db not available');
+    }
+  } catch (err) {
+    dbInfo.status = 'error';
+    globalStatus = 'error';
+    issues.push('db error');
+    logger.logError('ADMIN_HEALTH_DB_ERROR', 'DB check failed during health check', {
+      errorMessage: err.message
+    });
+  }
+
+  // --- Backup checks (fast, non-blocking) ---
+  const backupsInfo = { last_backup_utc: null, count_24h: 0, dir: 'backups' };
+  try {
+    const backupDir = process.env.BACKUP_DIR || path.resolve(process.cwd(), 'backups');
+    if (fs.existsSync(backupDir)) {
+      const files = fs.readdirSync(backupDir)
+        .filter(f => f.endsWith('.db'))
+        .map(f => ({
+          name: f,
+          mtime: fs.statSync(path.join(backupDir, f)).mtime
+        }))
+        .sort((a, b) => b.mtime - a.mtime);
+
+      if (files.length > 0) {
+        backupsInfo.last_backup_utc = files[0].mtime.toISOString();
+      }
+      const now = Date.now();
+      backupsInfo.count_24h = files.filter(f =>
+        now - f.mtime.getTime() < 24 * 60 * 60 * 1000
+      ).length;
+    }
+    // If dir doesn't exist: degraded but not error
+  } catch (_) {
+    // Backup check failure is non-fatal
+  }
+
+  // --- Process info ---
+  const mem = process.memoryUsage();
+  const processInfo = {
+    rss_mb: +(mem.rss / 1048576).toFixed(1),
+    heap_used_mb: +(mem.heapUsed / 1048576).toFixed(1),
+    heap_total_mb: +(mem.heapTotal / 1048576).toFixed(1),
+    uptime_seconds: Math.floor(process.uptime()),
+    event_loop_lag_ms: null // placeholder for future monitoring
+  };
+
+  // --- MRR snapshot freshness check ---
+  const mrrSnapshotsInfo = { last_snapshot_date: null, fresh: false };
+  try {
+    const repos = storage.getRepos();
+    if (repos && repos.mrrSnapshot) {
+      const latest = repos.mrrSnapshot.getLatest();
+      if (latest) {
+        mrrSnapshotsInfo.last_snapshot_date = latest.date;
+        const todayUTC = new Date().toISOString().slice(0, 10);
+        mrrSnapshotsInfo.fresh = (latest.date === todayUTC);
+      }
+    }
+  } catch (_) {
+    // Non-fatal
+  }
+
+  // --- Global status resolution ---
+  if (globalStatus === 'ok' && backupsInfo.count_24h === 0) {
+    globalStatus = 'degraded';
+    issues.push('no backup in last 24h');
+  }
+  if (globalStatus === 'ok' && dbInfo.status === 'ok' && !dbInfo.wal_mode) {
+    globalStatus = 'degraded';
+    issues.push('WAL mode not active');
+  }
+  if (globalStatus === 'ok' && dbInfo.status === 'ok' && !dbInfo.foreign_keys) {
+    globalStatus = 'degraded';
+    issues.push('foreign keys not enabled');
+  }
+  if (globalStatus === 'ok' && !mrrSnapshotsInfo.fresh) {
+    globalStatus = 'degraded';
+    issues.push('mrr snapshot missing for today');
+  }
+
+  const payload = {
+    status: globalStatus,
+    version: VERSION,
+    uptime_seconds: Math.floor(process.uptime()),
+    node: { version: process.version },
+    storage: { mode: storage.USE_SQLITE ? 'sqlite' : 'json' },
+    db: dbInfo,
+    backups: backupsInfo,
+    mrr_snapshots: mrrSnapshotsInfo,
+    process: processInfo
+  };
+
+  // Only log if not OK (avoid spam)
+  if (globalStatus !== 'ok') {
+    logger.logWarn('ADMIN_HEALTH', `Health check: ${globalStatus}`, { issues });
+  }
+
+  const httpStatus = globalStatus === 'error' ? 503 : 200;
+  res.setHeader('Cache-Control', 'no-store');
+  return sendJson(res, httpStatus, payload);
+}
+
+/**
+ * Step 5: GET /internal/admin/metrics — Business metrics (admin-only).
+ *
+ * Authoritative payload aligned with docs/metrics-definition.md.
+ * Uses lifecycle timestamps (sent_at, feedback_received_at, etc.)
+ * and activated_at-based activation rate.
+ *
+ * Supports ?since=7d|30d|90d|365d (default 30d, clamp ≤ 365).
+ * Always HTTP 200 (even if partially empty). Tolerant of JSON mode.
+ *
+ * SQL verification:
+ *   SELECT status, COUNT(*) FROM review_requests GROUP BY status;
+ *   SELECT COUNT(*) FROM review_requests WHERE sent_at IS NOT NULL AND sent_at >= '<sinceISO>';
+ *   SELECT COUNT(*) FROM orgs WHERE activated_at IS NOT NULL;
+ */
+function handleAdminMetrics(req, res, urlParams = new URLSearchParams()) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  const t0 = Date.now();
+
+  // --- Period: canonical computeSinceISO(days) from db.js ---
+  const dbModule = storage.getDb();
+  const sinceParam = (urlParams.get('since') || '30d').trim();
+  const sinceMatch = sinceParam.match(/^(\d+)d$/);
+  const days = sinceMatch ? Math.min(parseInt(sinceMatch[1], 10), 365) : 30;
+  const sinceISO = dbModule ? dbModule.computeSinceISO(days) : new Date().toISOString();
+
+  const payload = {
+    generated_at_utc: new Date().toISOString(),
+    period: { since: sinceISO, days },
+
+    // North Star V1 (top-level for visibility)
+    north_star_v1: 0,
+
+    orgs: {
+      total: 0,
+      active_in_period: 0,   // orgs with usage_ledger activity in period
+    },
+
+    requests: {
+      total: 0,
+      created_in_period: 0,
+      queued_in_period: 0,
+      sent_in_period: 0,
+      failed_in_period: 0,
+      feedback_received_in_period: 0,
+      public_redirected_in_period: 0,
+      // All-time lifecycle totals
+      total_sent: 0,
+      total_failed: 0,
+      total_feedback_received: 0,
+      total_public_redirected: 0,
+    },
+
+    feedback: {
+      total: 0,
+      in_period: 0,           // = feedback_received_at >= since (authoritative)
+      in_period_crosscheck: 0, // = feedbacks.created_at >= since (validation only)
+    },
+
+    activation: {
+      activated_orgs: 0,
+      total_orgs: 0,
+      activation_rate_percent: 0,
+      // Legacy signals (still useful for usage-type breakdowns, not for activation rate)
+      deprecated_usage_signals: {
+        orgs_with_email: 0,
+        orgs_with_sms: 0,
+        orgs_with_ai: 0,
+        orgs_with_feedback: 0,
+        orgs_with_request: 0,
+      },
+    },
+
+    usage: { emails_sent: 0, sms_sent: 0, ai_used: 0 },
+
+    revenue: {
+      mrr_total_cents: 0,
+      mrr_total_eur: 0,
+      orgs_paid: 0,
+      orgs_free: 0,
+      arpu_cents: 0,
+      arpu_eur: 0,
+      mrr_by_tier: { bronze: 0, argent: 0, gold: 0, platinum: 0, custom: 0 },
+      negotiated_orgs: 0,
+      negotiated_percent: 0,
+    },
+  };
+
+  try {
+    const database = dbModule ? dbModule.getDb() : null;
+
+    if (!database) {
+      // JSON mode — return zeroes, no error
+      payload.performance = { duration_ms: Date.now() - t0 };
+      res.setHeader('Cache-Control', 'no-store');
+      return sendJson(res, 200, payload);
+    }
+
+    // ============================================================
+    // Orgs
+    // ============================================================
+    payload.orgs.total = database.prepare(
+      'SELECT COUNT(*) as cnt FROM orgs'
+    ).get().cnt;
+    payload.orgs.active_in_period = database.prepare(
+      'SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE created_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+
+    // ============================================================
+    // Requests — lifecycle counts (in-period + all-time)
+    // ============================================================
+    payload.requests.total = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests'
+    ).get().cnt;
+
+    // In-period lifecycle counts (6 queries, all indexed)
+    payload.requests.created_in_period = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE created_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+    payload.requests.queued_in_period = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE queued_at IS NOT NULL AND queued_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+    payload.requests.sent_in_period = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE sent_at IS NOT NULL AND sent_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+    payload.requests.failed_in_period = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE failed_at IS NOT NULL AND failed_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+    payload.requests.feedback_received_in_period = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE feedback_received_at IS NOT NULL AND feedback_received_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+    payload.requests.public_redirected_in_period = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE public_redirected_at IS NOT NULL AND public_redirected_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+
+    // All-time lifecycle totals
+    payload.requests.total_sent = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE sent_at IS NOT NULL'
+    ).get().cnt;
+    payload.requests.total_failed = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE failed_at IS NOT NULL'
+    ).get().cnt;
+    payload.requests.total_feedback_received = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE feedback_received_at IS NOT NULL'
+    ).get().cnt;
+    payload.requests.total_public_redirected = database.prepare(
+      'SELECT COUNT(*) as cnt FROM review_requests WHERE public_redirected_at IS NOT NULL'
+    ).get().cnt;
+
+    // ============================================================
+    // North Star V1 = public_redirected_in_period
+    // ============================================================
+    payload.north_star_v1 = payload.requests.public_redirected_in_period;
+
+    // ============================================================
+    // Feedback (authoritative: feedback_received_at on review_requests)
+    // ============================================================
+    payload.feedback.total = database.prepare(
+      'SELECT COUNT(*) as cnt FROM feedbacks'
+    ).get().cnt;
+    payload.feedback.in_period = payload.requests.feedback_received_in_period;
+    payload.feedback.in_period_crosscheck = database.prepare(
+      'SELECT COUNT(*) as cnt FROM feedbacks WHERE created_at >= $since'
+    ).get({ since: sinceISO }).cnt;
+
+    // ============================================================
+    // Usage (aggregated across all orgs via usage_ledger)
+    // ============================================================
+    const usageRows = database.prepare(
+      'SELECT type, SUM(qty) as total FROM usage_ledger WHERE created_at >= $since GROUP BY type'
+    ).all({ since: sinceISO });
+    for (const row of usageRows) {
+      if (row.type === 'email') payload.usage.emails_sent = row.total || 0;
+      if (row.type === 'sms') payload.usage.sms_sent = row.total || 0;
+      if (row.type === 'ai') payload.usage.ai_used = row.total || 0;
+    }
+
+    // ============================================================
+    // Activation — official: activated_at-based (see metrics-definition.md §3)
+    // ============================================================
+    try {
+      payload.activation.total_orgs = payload.orgs.total;
+      payload.activation.activated_orgs = database.prepare(
+        'SELECT COUNT(*) as cnt FROM orgs WHERE activated_at IS NOT NULL'
+      ).get().cnt;
+      if (payload.activation.total_orgs > 0) {
+        payload.activation.activation_rate_percent = +(
+          (payload.activation.activated_orgs / payload.activation.total_orgs) * 100
+        ).toFixed(1);
+      }
+
+      // Deprecated usage-based signals (still useful for breakdowns, not for rate)
+      const dep = payload.activation.deprecated_usage_signals;
+      dep.orgs_with_email = database.prepare(
+        "SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE type='email' AND created_at >= $since"
+      ).get({ since: sinceISO }).cnt || 0;
+      dep.orgs_with_sms = database.prepare(
+        "SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE type='sms' AND created_at >= $since"
+      ).get({ since: sinceISO }).cnt || 0;
+      dep.orgs_with_ai = database.prepare(
+        "SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE type='ai' AND created_at >= $since"
+      ).get({ since: sinceISO }).cnt || 0;
+      dep.orgs_with_feedback = database.prepare(
+        `SELECT COUNT(DISTINCT rr.org_id) as cnt
+         FROM feedbacks f
+         JOIN review_requests rr ON rr.id = f.request_db_id
+         WHERE f.created_at >= $since`
+      ).get({ since: sinceISO }).cnt || 0;
+      dep.orgs_with_request = database.prepare(
+        'SELECT COUNT(DISTINCT org_id) as cnt FROM review_requests WHERE created_at >= $since'
+      ).get({ since: sinceISO }).cnt || 0;
+    } catch (activErr) {
+      logger.logWarn('ADMIN_METRICS_ERROR', 'Activation aggregation failed', {
+        message: activErr.message
+      });
+    }
+
+    // ============================================================
+    // Revenue / MRR (unchanged logic — see metrics-definition.md §5)
+    // ============================================================
+    // Monthly effective price:
+    //   1. negotiated.enabled + customPriceCents > 0  → customPriceCents
+    //   2. negotiated.enabled + discountPercent > 0   → round(base * (1 - disc/100))
+    //   3. else                                       → basePriceCents
+    const MRR_CASE = `
+      CASE
+        WHEN CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
+          AND CAST(json_extract(negotiated_json,'$.customPriceCents') AS INTEGER) > 0
+        THEN CAST(json_extract(negotiated_json,'$.customPriceCents') AS INTEGER)
+        WHEN CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
+          AND CAST(json_extract(negotiated_json,'$.discountPercent') AS REAL) > 0
+        THEN CAST(ROUND(
+          CAST(json_extract(plan_json,'$.basePriceCents') AS REAL)
+          * (1.0 - CAST(json_extract(negotiated_json,'$.discountPercent') AS REAL) / 100.0)
+        ) AS INTEGER)
+        WHEN json_extract(plan_json,'$.basePriceCents') IS NULL THEN 0
+        ELSE CAST(json_extract(plan_json,'$.basePriceCents') AS INTEGER)
+      END`;
+    const TIER_CASE = `
+      CASE
+        WHEN json_extract(plan_json,'$.code') IS NULL THEN 'unknown'
+        WHEN INSTR(json_extract(plan_json,'$.code'),'_') = 0 THEN json_extract(plan_json,'$.code')
+        ELSE SUBSTR(json_extract(plan_json,'$.code'), INSTR(json_extract(plan_json,'$.code'),'_') + 1)
+      END`;
+    const ACTIVE_FILTER = `status = 'active' AND json_extract(billing_json,'$.status') = 'active'`;
+
+    try {
+      // MRR total + orgs_paid
+      const mrrRow = database.prepare(`
+        SELECT SUM(monthly) AS total_mrr, COUNT(*) AS paid_count
+        FROM (
+          SELECT ${MRR_CASE} AS monthly
+          FROM orgs
+          WHERE ${ACTIVE_FILTER}
+        )
+        WHERE monthly > 0
+      `).get();
+      payload.revenue.mrr_total_cents = mrrRow?.total_mrr || 0;
+      payload.revenue.orgs_paid = mrrRow?.paid_count || 0;
+
+      // orgs_free (active + billing active + monthly = 0)
+      const freeRow = database.prepare(`
+        SELECT COUNT(*) AS cnt
+        FROM (
+          SELECT ${MRR_CASE} AS monthly
+          FROM orgs
+          WHERE ${ACTIVE_FILTER}
+        )
+        WHERE monthly = 0
+      `).get();
+      payload.revenue.orgs_free = freeRow?.cnt || 0;
+
+      // negotiated_orgs (active + billing active + negotiated enabled)
+      const negRow = database.prepare(`
+        SELECT COUNT(*) AS cnt FROM orgs
+        WHERE ${ACTIVE_FILTER}
+          AND CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
+      `).get();
+      payload.revenue.negotiated_orgs = negRow?.cnt || 0;
+
+      // MRR by tier
+      const tierRows = database.prepare(`
+        SELECT tier, SUM(monthly) AS total
+        FROM (
+          SELECT ${TIER_CASE} AS tier, ${MRR_CASE} AS monthly
+          FROM orgs
+          WHERE ${ACTIVE_FILTER}
+        )
+        WHERE monthly > 0
+        GROUP BY tier
+      `).all();
+      const TIER_ALIASES = { basic: 'bronze', silver: 'argent', or: 'gold' };
+      for (const row of tierRows) {
+        const normalized = TIER_ALIASES[row.tier] || row.tier;
+        const t = (normalized in payload.revenue.mrr_by_tier) ? normalized : 'custom';
+        payload.revenue.mrr_by_tier[t] += (row.total || 0);
+      }
+
+      // ARPU + EUR conversions
+      if (payload.revenue.orgs_paid > 0) {
+        payload.revenue.arpu_cents = Math.round(
+          payload.revenue.mrr_total_cents / payload.revenue.orgs_paid
+        );
+        payload.revenue.negotiated_percent = +(
+          (payload.revenue.negotiated_orgs / payload.revenue.orgs_paid) * 100
+        ).toFixed(1);
+      }
+      payload.revenue.mrr_total_eur = +(payload.revenue.mrr_total_cents / 100).toFixed(2);
+      payload.revenue.arpu_eur = +(payload.revenue.arpu_cents / 100).toFixed(2);
+
+    } catch (revErr) {
+      logger.logWarn('ADMIN_REVENUE_ERROR', 'Revenue aggregation failed', {
+        message: revErr.message
+      });
+    }
+
+  } catch (err) {
+    logger.logWarn('ADMIN_METRICS_ERROR', 'Metrics aggregation failed', {
+      message: err.message
+    });
+  }
+
+  payload.performance = { duration_ms: Date.now() - t0 };
+  res.setHeader('Cache-Control', 'no-store');
+  return sendJson(res, 200, payload);
+}
+
+/**
  * P5: GET /internal/admin/feedbacks — All feedbacks (admin-only, no legacy token).
  * Replaces the legacy path through /api/feedbacks + CABINET_API_TOKEN.
  * Protected by requireAdmin (constant-time x-admin-token check).
@@ -4105,6 +4709,119 @@ function handleLegacyAuthStats(req, res) {
  * Query params:
  *   - now: ISO date string for debug (triggers ensureCurrentPeriod with this date)
  */
+/**
+ * GET /internal/admin/at-risk-orgs — Paying orgs that are NOT activated.
+ *
+ * Filters: billing.status = 'active' AND activated_at IS NULL.
+ * Returns org info + lastLogin + lastSentAt + daysSinceLastLogin.
+ */
+function handleAdminAtRiskOrgs(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  const dbModule = storage.getDb();
+  if (!dbModule) {
+    return sendJson(res, 200, { ok: true, orgs: [], total: 0 });
+  }
+  const database = dbModule.getDb();
+
+  const rows = database.prepare(`
+    SELECT
+      o.id,
+      o.name,
+      o.email,
+      o.vertical,
+      o.status,
+      json_extract(o.plan_json, '$.code') AS plan_code,
+      json_extract(o.billing_json, '$.status') AS billing_status,
+      o.activated_at,
+      o.created_at,
+      (SELECT MAX(u.last_login_at) FROM users u WHERE u.org_id = o.id) AS last_login,
+      (SELECT MAX(rr.sent_at) FROM review_requests rr WHERE rr.org_id = o.id AND rr.sent_at IS NOT NULL) AS last_sent_at
+    FROM orgs o
+    WHERE json_extract(o.billing_json, '$.status') = 'active'
+      AND o.activated_at IS NULL
+    ORDER BY o.created_at ASC
+  `).all();
+
+  const nowMs = Date.now();
+  const atRiskOrgs = rows.map(r => {
+    const lastLoginMs = r.last_login ? new Date(r.last_login).getTime() : null;
+    return {
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      vertical: r.vertical,
+      status: r.status,
+      planCode: r.plan_code,
+      billingStatus: r.billing_status,
+      activatedAt: r.activated_at,
+      createdAt: r.created_at,
+      lastLogin: r.last_login || null,
+      lastSentAt: r.last_sent_at || null,
+      daysSinceLastLogin: lastLoginMs
+        ? Math.max(0, Math.round((nowMs - lastLoginMs) / (1000 * 60 * 60 * 24)))
+        : null
+    };
+  });
+
+  return sendJson(res, 200, { ok: true, orgs: atRiskOrgs, total: atRiskOrgs.length });
+}
+
+/**
+ * P2: GET /internal/admin/mrr-history — Historical MRR snapshots.
+ *
+ * Query params:
+ *   ?days=90  (default 90, clamped 1..365)
+ *
+ * Returns an array of daily snapshots ordered by date ASC.
+ * Snapshots are populated by the daily cron script (snapshot-mrr.js).
+ */
+function handleAdminMrrHistory(req, res, urlParams = new URLSearchParams()) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  const repos = storage.getRepos();
+  if (!repos || !repos.mrrSnapshot) {
+    return sendJson(res, 200, { days: 0, sinceDate: null, snapshots: [] });
+  }
+
+  // Parse & clamp days
+  let days = parseInt(urlParams.get('days') || '90', 10);
+  if (isNaN(days) || days < 1) days = 1;
+  if (days > 365) days = 365;
+
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - days);
+  const sinceDate = d.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  const snapshots = repos.mrrSnapshot.listSince(sinceDate);
+
+  // Map to consistent snake_case response (aligned with /admin/metrics)
+  const result = snapshots.map(s => ({
+    date: s.date,
+    mrr_total_cents: s.mrrTotalCents,
+    orgs_paid: s.orgsPaid,
+    orgs_free: s.orgsFree,
+    arpu_cents: s.arpuCents,
+    mrr_by_tier: s.mrr_by_tier,
+    negotiated_orgs: s.negotiatedOrgs,
+    negotiated_percent: s.negotiatedPercent,
+  }));
+
+  res.setHeader('Cache-Control', 'no-store');
+  return sendJson(res, 200, {
+    days,
+    sinceDate,
+    snapshots: result,
+  });
+}
+
 function handleListOrgs(req, res, urlParams = new URLSearchParams()) {
   const auth = requireAdmin(req);
   if (!auth.ok) {
@@ -4223,6 +4940,9 @@ async function handleCreateOrg(req, res) {
   saveData(data);
   
   console.log('[REPUTY][INTERNAL] Org created:', newOrg.id, newOrg.name);
+  
+  // Audit log: org created by admin
+  try { writeAudit({ orgId: newOrg.id, actorUserId: auth.user?.id || null, action: 'admin.org_created', targetType: 'org', targetId: newOrg.id, meta: { name: newOrg.name, vertical: newOrg.vertical }, req }); } catch (_) { /* non-fatal */ }
   
   return sendJson(res, 201, { org: sanitizeOrg(newOrg) });
 }
@@ -5397,11 +6117,10 @@ async function handleLogin(req, res) {
     return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
   
-  const { email, password } = body;
-  
-  if (!email || !password) {
-    return sendJson(res, 400, { error: 'Email et password requis' });
-  }
+  // Zod validation (PR-5)
+  const v = validateBody(schemas.login, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { email, password } = v.data;
   
   // Rate limiting
   const rateLimitKey = `login:${email.toLowerCase()}`;
@@ -5427,6 +6146,8 @@ async function handleLogin(req, res) {
       errorCode: 'INVALID_CREDENTIALS',
       reason: 'user_not_found'
     });
+    // Audit log: login failed (unknown email)
+    try { writeAudit({ action: 'auth.login_failed', meta: { email, reason: 'user_not_found' }, req }); } catch (_) { /* non-fatal */ }
     return sendJson(res, 401, { error: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' });
   }
   
@@ -5443,6 +6164,8 @@ async function handleLogin(req, res) {
       errorCode: 'INVALID_CREDENTIALS',
       reason: 'wrong_password'
     });
+    // Audit log: login failed
+    try { writeAudit({ orgId: user.orgId, actorUserId: user.id, action: 'auth.login_failed', targetType: 'user', targetId: user.id, meta: { email, reason: 'wrong_password' }, req }); } catch (_) { /* non-fatal */ }
     return sendJson(res, 401, { error: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' });
   }
   
@@ -5511,6 +6234,9 @@ async function handleLogin(req, res) {
     durationMs: Date.now() - startTime,
     status: 200
   });
+  
+  // Audit log: login success
+  try { writeAudit({ orgId: user.orgId, actorUserId: user.id, action: 'auth.login', targetType: 'user', targetId: user.id, meta: { email }, req }); } catch (_) { /* non-fatal */ }
   
   return sendJson(res, 200, {
     ok: true,
@@ -5773,6 +6499,8 @@ async function handleClientCreateInstallation(req, res) {
       action: 'LOGIN'
     });
   }
+  // RBAC Tier 1: installation write — owner/admin only
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
   
   const repos = storage.getRepos();
   if (!repos) {
@@ -5787,8 +6515,10 @@ async function handleClientCreateInstallation(req, res) {
   
   try {
     const body = await parseBody(req);
-    const label = body.label || 'Nouvelle installation';
-    const metadata = body.metadata || {};
+    // Zod validation (PR-5)
+    const v = validateBody(schemas.installationCreate, body);
+    if (!v.ok) return sendJson(res, 400, v.payload);
+    const { label, metadata } = v.data;
     
     const result = repos.installation.create(auth.user.orgId, label, metadata);
     
@@ -5808,6 +6538,12 @@ async function handleClientCreateInstallation(req, res) {
     });
   } catch (err) {
     console.error('[REPUTY][INSTALLATION] Create error:', err);
+    sentry.captureException(err, {
+      route: '/client/installations',
+      phase: 'create',
+      orgId: auth.user?.orgId,
+      userId: auth.user?.id,
+    });
     return sendJson(res, 500, { 
       ok: false,
       errorCategory: 'INTERNAL_ERROR',
@@ -5834,6 +6570,8 @@ async function handleClientRevokeInstallation(req, res, installationId) {
       action: 'LOGIN'
     });
   }
+  // RBAC Tier 1: installation write — owner/admin only
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
   
   const repos = storage.getRepos();
   if (!repos) {
@@ -5909,6 +6647,8 @@ async function handleClientRotateInstallation(req, res, installationId) {
       action: 'LOGIN'
     });
   }
+  // RBAC Tier 1: installation write — owner/admin only
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
   
   const repos = storage.getRepos();
   if (!repos) {
@@ -6377,6 +7117,233 @@ function handleShortlinkRedirect(req, res, code) {
   // 302 redirect to target URL
   res.writeHead(302, { 'Location': shortlink.targetUrl });
   res.end();
+}
+
+// ============================================================
+// LIFECYCLE STATS HANDLER (P1a — KPI client lifecycle)
+// ============================================================
+
+/**
+ * GET /client/lifecycle-stats — Lifecycle KPIs for the authenticated org.
+ *
+ * Accepts ?period=30d or ?since=30d (alias), default 30d, clamp ≤ 365.
+ * Returns { sent, feedbackReceived, publicRedirected, conversionRate }
+ * computed from review_requests lifecycle timestamps.
+ */
+function handleClientLifecycleStats(req, res, urlParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN'
+    });
+  }
+
+  const orgId = auth.user.orgId;
+
+  // Parse period — accept ?period= OR ?since= (alias)
+  const raw = (urlParams.get('period') || urlParams.get('since') || '30d').trim();
+  const m = raw.match(/^(\d+)d$/);
+  const days = m ? Math.min(parseInt(m[1], 10), 365) : 30;
+
+  const dbModule = storage.getDb();
+  if (!dbModule) {
+    return sendJson(res, 200, {
+      ok: true,
+      period: { since: new Date().toISOString(), days },
+      sent: 0,
+      feedbackReceived: 0,
+      publicRedirected: 0,
+      conversionRate: 0
+    });
+  }
+
+  const sinceISO = dbModule.computeSinceISO(days);
+  const database = dbModule.getDb();
+
+  const sent = database.prepare(
+    `SELECT COUNT(*) as cnt FROM review_requests
+     WHERE org_id = $orgId AND sent_at IS NOT NULL AND sent_at >= $since`
+  ).get({ orgId, since: sinceISO }).cnt;
+
+  const feedbackReceived = database.prepare(
+    `SELECT COUNT(*) as cnt FROM review_requests
+     WHERE org_id = $orgId AND feedback_received_at IS NOT NULL AND feedback_received_at >= $since`
+  ).get({ orgId, since: sinceISO }).cnt;
+
+  const publicRedirected = database.prepare(
+    `SELECT COUNT(*) as cnt FROM review_requests
+     WHERE org_id = $orgId AND public_redirected_at IS NOT NULL AND public_redirected_at >= $since`
+  ).get({ orgId, since: sinceISO }).cnt;
+
+  // Conversion rate: publicRedirected / sent, protect against division by zero, round 1 decimal
+  const conversionRate = sent > 0
+    ? +(publicRedirected / sent * 100).toFixed(1)
+    : 0;
+
+  return sendJson(res, 200, {
+    ok: true,
+    period: { since: sinceISO, days },
+    sent,
+    feedbackReceived,
+    publicRedirected,
+    conversionRate
+  });
+}
+
+// ============================================================
+// AI SUGGEST-REPLY HANDLER (PR-3)
+// ============================================================
+
+/**
+ * POST /client/ai/suggest-reply
+ *
+ * Flow:
+ *   1) Auth (getAuthUser)
+ *   2) RBAC owner/admin/agent
+ *   3) Validate body (reviewText min 5 chars)
+ *   4) Check AI quota via computeEffectiveBilling
+ *   5) Call OpenAI (async, outside transaction)
+ *   6) db.transaction: debit quota + audit (sync, atomic)
+ *   7) Return { ok, draft, sensitive, requireApproval, remainingAi }
+ */
+async function handleAiSuggestReply(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth || !auth.user) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'AUTH_REQUIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Non authentifié',
+      action: 'LOGIN'
+    });
+  }
+
+  // RBAC — all session roles can use AI
+  if (!checkRole(auth, ['owner', 'admin', 'agent'], res)) return;
+
+  // Parse & validate body
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (_) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+  }
+
+  // Zod validation (PR-5)
+  const v = validateBody(schemas.aiSuggestReply, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const reviewText = v.data.reviewText.trim();
+
+  // Get fresh org + quota check via computeEffectiveBilling
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 503, { ok: false, error: 'STORAGE_UNAVAILABLE' });
+  }
+
+  const freshOrg = repos.org.getById(auth.org.id);
+  if (!freshOrg) {
+    return sendJson(res, 404, { ok: false, error: 'ORG_NOT_FOUND' });
+  }
+
+  const billing = effectiveBilling.computeEffectiveBilling({ org: freshOrg, repos });
+  const remainingAi = billing.totalAvailableThisMonth.ai;
+
+  if (remainingAi <= 0) {
+    return sendJson(res, 402, {
+      ok: false,
+      error: 'AI_QUOTA_EXCEEDED',
+      errorCategory: 'QUOTA_AI_EXCEEDED',
+      message: 'Quota IA atteint pour cette période. Passez au plan supérieur ou achetez un pack.',
+      action: 'BUY_AI_ADDON',
+      remainingAi: 0
+    });
+  }
+
+  // Call OpenAI — async, outside transaction
+  let aiResult;
+  try {
+    aiResult = await aiSuggestReply({
+      reviewText,
+      orgName: freshOrg.name || '',
+      language: body.language || 'fr',
+      tone: body.tone || 'professional',
+    });
+  } catch (err) {
+    const status = err.statusCode || 502;
+    const code = err.message || 'AI_ERROR';
+    console.error('[AI] OpenAI error:', err.message);
+    sentry.captureException(err, {
+      route: '/client/ai/suggest-reply',
+      phase: 'openai_call',
+      orgId: auth.org?.id,
+      userId: auth.user?.id,
+      errorCode: code,
+      reviewTextLen: reviewText.length, // Never send raw text
+    });
+    return sendJson(res, status, {
+      ok: false,
+      error: code,
+      message: status === 503
+        ? 'Service IA non configuré. Contactez l\'administrateur.'
+        : 'Erreur lors de la génération de la réponse IA.'
+    });
+  }
+
+  // Atomic: debit quota + audit (sync transaction)
+  const dbModule = storage.getDb();
+  try {
+    dbModule.transaction(() => {
+      // Re-read fresh org inside transaction to avoid stale data
+      const orgNow = repos.org.getById(auth.org.id);
+      orgNow.subscriptionCredits.aiUsedThisPeriod =
+        (orgNow.subscriptionCredits.aiUsedThisPeriod || 0) + 1;
+      repos.org.updateSubscriptionCredits(orgNow.id, orgNow.subscriptionCredits);
+
+      writeAudit({
+        orgId: auth.org.id,
+        actorUserId: auth.user.id,
+        action: 'ai.suggest_reply',
+        targetType: 'org',
+        targetId: auth.org.id,
+        meta: {
+          sensitive: aiResult.sensitive,
+          chars: reviewText.length,
+          tone: body.tone || 'professional',
+        },
+        req
+      });
+    });
+  } catch (err) {
+    console.error('[AI] Transaction error (debit/audit):', err.message);
+    sentry.captureException(err, {
+      route: '/client/ai/suggest-reply',
+      phase: 'debit_transaction',
+      orgId: auth.org?.id,
+      userId: auth.user?.id,
+      errorCode: 'DEBIT_ERROR',
+    });
+    return sendJson(res, 500, {
+      ok: false,
+      error: 'DEBIT_ERROR',
+      message: 'Erreur lors de la consommation du quota IA.'
+    });
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    draft: aiResult.draft,
+    sensitive: aiResult.sensitive,
+    requireApproval: true,
+    remainingAi: remainingAi - 1
+  });
 }
 
 // ============================================================
@@ -6971,6 +7938,8 @@ async function handleBillingCheckout(req, res) {
       action: 'LOGIN'
     });
   }
+  // RBAC Tier 1: billing write — owner/admin only
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
   
   const org = auth.org;
   if (!org) {
@@ -6991,26 +7960,10 @@ async function handleBillingCheckout(req, res) {
     });
   }
   
-  const { planId, provider = 'stripe', billingDetails } = body;
-  
-  // Bronze is FREE and NEVER goes through Stripe
-  if (planId === 'bronze') {
-    return sendJson(res, 400, {
-      error: 'Le forfait Bronze est gratuit et ne nécessite pas de paiement.',
-      errorCategory: 'BRONZE_IS_FREE',
-      action: 'USE_BRONZE_DIRECTLY'
-    });
-  }
-  
-  // Validate paid plans
-  const validPaidPlans = ['argent', 'or', 'platinum'];
-  if (!planId || !validPaidPlans.includes(planId)) {
-    return sendJson(res, 400, {
-      error: `Forfait invalide. Choisissez parmi: ${validPaidPlans.join(', ')}.`,
-      errorCategory: 'INVALID_PLAN',
-      action: 'SELECT_VALID_PLAN'
-    });
-  }
+  // Zod validation (PR-5) — validates planId ∈ {argent, or, platinum} + provider
+  const v = validateBody(schemas.billingCheckout, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+  const { planId, provider, billingDetails } = v.data;
   
   // Handle SEPA (GoCardless)
   if (provider === 'gocardless' || provider === 'sepa') {
@@ -7076,6 +8029,8 @@ async function handlePackCheckout(req, res) {
       action: 'LOGIN'
     });
   }
+  // RBAC Tier 1: billing write — owner/admin only
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
   
   const org = auth.org;
   if (!org) {
@@ -7148,6 +8103,8 @@ async function handleMultiPackCheckout(req, res) {
       action: 'LOGIN'
     });
   }
+  // RBAC Tier 1: billing write — owner/admin only
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
   
   const org = auth.org;
   if (!org) {
@@ -7228,6 +8185,8 @@ async function handleBillingPortal(req, res) {
       action: 'LOGIN'
     });
   }
+  // RBAC Tier 1: billing write — owner/admin only
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
   
   const org = auth.org;
   if (!org) {
@@ -7312,6 +8271,11 @@ async function handleStripeWebhook(req, res) {
       eventId: event.id,
       eventType: event.type,
       error: processResult.error.message
+    });
+    sentry.captureException(processResult.error, {
+      route: '/webhooks/stripe',
+      eventId: event.id,
+      eventType: event.type,
     });
   }
   
@@ -8080,6 +9044,9 @@ async function handleAssignPlan(req, res, orgId) {
       adminEmail: auth.user?.email || 'unknown',
     });
     
+    // Audit log: plan assigned by admin
+    try { writeAudit({ orgId, actorUserId: auth.user?.id || null, action: 'billing.plan_assigned', targetType: 'org', targetId: orgId, meta: { planCode, priceCents: plan.priceCents }, req }); } catch (_) { /* non-fatal */ }
+    
     return sendJson(res, 200, {
       ok: true,
       message: `Plan ${plan.name} assigné avec succès`,
@@ -8638,6 +9605,18 @@ const server = http.createServer(async (req, res) => {
     return handleClientDeleteShortlink(req, res, deleteShortlinkMatch[1]);
   }
   
+  // ============ CLIENT LIFECYCLE STATS (P1a) ============
+  
+  if (method === 'GET' && pathname === '/client/lifecycle-stats') {
+    return handleClientLifecycleStats(req, res, urlParams);
+  }
+  
+  // ============ CLIENT AI (PR-3) ============
+  
+  if (method === 'POST' && pathname === '/client/ai/suggest-reply') {
+    return handleAiSuggestReply(req, res);
+  }
+  
   // ============ CLIENT REVIEWS ROUTES (Phase 1A) ============
   
   // List reviews with filters and pagination
@@ -8742,6 +9721,16 @@ const server = http.createServer(async (req, res) => {
     return handleExtensionTelemetry(req, res);
   }
   
+  // P1.1: Rich health check (admin-only, monitoring)
+  if (method === 'GET' && pathname === '/internal/admin/health') {
+    return handleAdminHealth(req, res);
+  }
+
+  // P1.2: Business metrics (admin-only)
+  if (method === 'GET' && pathname === '/internal/admin/metrics') {
+    return handleAdminMetrics(req, res, urlParams);
+  }
+
   // P5: Admin feedbacks (replaces legacy /api/feedbacks + CABINET_API_TOKEN)
   if (method === 'GET' && pathname === '/internal/admin/feedbacks') {
     return handleAdminGetFeedbacks(req, res);
@@ -8750,6 +9739,16 @@ const server = http.createServer(async (req, res) => {
   // P5: Legacy auth stats (monitoring kill-switch migration)
   if (method === 'GET' && pathname === '/internal/admin/legacy-auth-stats') {
     return handleLegacyAuthStats(req, res);
+  }
+
+  // P1b: At-risk orgs (paying but not activated)
+  if (method === 'GET' && pathname === '/internal/admin/at-risk-orgs') {
+    return handleAdminAtRiskOrgs(req, res);
+  }
+
+  // P2: MRR history (daily snapshots)
+  if (method === 'GET' && pathname === '/internal/admin/mrr-history') {
+    return handleAdminMrrHistory(req, res, urlParams);
   }
   
   // List packs catalog
@@ -8866,6 +9865,12 @@ const server = http.createServer(async (req, res) => {
     }
   }
   
+  // Track Google redirect click (beacon from patient page)
+  const redirectMatch = pathname.match(/^\/r\/([a-f0-9]+)\/redirected$/);
+  if (redirectMatch && method === 'POST') {
+    return handleTrackRedirect(redirectMatch[1], res);
+  }
+
   // Rating page (feedback form) - hex IDs only
   const ratingMatch = pathname.match(/^\/r\/([a-f0-9]+)$/);
   if (ratingMatch) {

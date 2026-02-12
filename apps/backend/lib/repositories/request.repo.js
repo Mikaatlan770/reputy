@@ -302,8 +302,85 @@ function parseRequestRow(row) {
     feedbackUrl: row.feedback_url,
     meta: db.parseJson(row.meta_json),
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    // Lifecycle timestamps (migration 007)
+    queuedAt: row.queued_at,
+    sentAt: row.sent_at,
+    failedAt: row.failed_at,
+    feedbackReceivedAt: row.feedback_received_at,
+    publicRedirectedAt: row.public_redirected_at,
   };
+}
+
+// ============================================================
+// Lifecycle Helpers (migration 007)
+// ============================================================
+
+/**
+ * Update request lifecycle status with corresponding timestamp.
+ * 
+ * MONOTONE: transitions only go forward, never backward.
+ *   created(0) → queued(1) → sent(2) → feedback_received(3) → public_redirected(4)
+ *   created(0) → queued(1) → failed(2)  (terminal branch)
+ * 
+ * IDEMPOTENT: re-applying same status is a silent no-op.
+ * Retrograde transitions are logged and rejected.
+ *
+ * @param {string} id - Internal request DB ID
+ * @param {string} status - queued|sent|failed|feedback_received|public_redirected
+ * @returns {object|null}
+ */
+function setLifecycleStatus(id, status) {
+  const TS_MAP = {
+    queued: 'queued_at',
+    sent: 'sent_at',
+    failed: 'failed_at',
+    feedback_received: 'feedback_received_at',
+    public_redirected: 'public_redirected_at',
+  };
+
+  // Monotone ordering (higher = further in lifecycle)
+  const ORDER = {
+    created: 0,
+    queued: 1,
+    sent: 2,
+    failed: 2,                // same level as sent (terminal branch)
+    feedback_received: 3,
+    public_redirected: 4,
+  };
+
+  const tsColumn = TS_MAP[status];
+  if (!tsColumn) {
+    // Unknown lifecycle status — fallback to simple status update
+    return setStatus(id, status);
+  }
+
+  // Guard: check current status and reject retrograde transitions
+  const current = getById(id);
+  if (!current) return null;
+
+  const currentOrder = ORDER[current.status] ?? -1;
+  const targetOrder = ORDER[status] ?? -1;
+
+  // Same status → idempotent no-op
+  if (current.status === status) {
+    return current;
+  }
+
+  // Retrograde → reject silently (log for audit)
+  if (targetOrder <= currentOrder) {
+    console.log(`[LIFECYCLE] Blocked retrograde: ${current.status}(${currentOrder}) → ${status}(${targetOrder}) for ${id}`);
+    return current;
+  }
+
+  const now = db.nowISO();
+  db.run(`
+    UPDATE review_requests 
+    SET status = $status, ${tsColumn} = $ts, updated_at = $ts
+    WHERE id = $id
+  `, { id, status, ts: now });
+
+  return getById(id);
 }
 
 // ============================================================
@@ -318,6 +395,7 @@ module.exports = {
   createOrGetByIdempotencyKey,
   create,
   setStatus,
+  setLifecycleStatus,
   update,
   delete: deleteRequest,
   getStats

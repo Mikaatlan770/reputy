@@ -197,6 +197,19 @@ function nowISO() {
 }
 
 /**
+ * Compute ISO timestamp for UTC midnight N days ago.
+ * Use for consistent period-based metrics queries.
+ * @param {number} days - Number of days to go back (0 = today at midnight)
+ * @returns {string} ISO 8601 string at UTC midnight (e.g. "2026-02-04T00:00:00.000Z")
+ */
+function computeSinceISO(days) {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString();
+}
+
+/**
  * Parse JSON field safely
  * @param {string|null} jsonStr - JSON string or null
  * @param {any} defaultValue - Default if parsing fails
@@ -261,7 +274,9 @@ function getTableCounts() {
     'orgs', 'users', 'sessions', 'review_requests', 
     'feedbacks', 'messages', 'usage_ledger', 
     'telemetry_events', 'email_verifications',
-    'installations', 'shortlinks', 'migrations'
+    'installations', 'shortlinks', 'migrations',
+    'mrr_snapshots',
+    'audit_log'
   ];
   
   const counts = {};
@@ -318,6 +333,7 @@ module.exports = {
   // Utilities
   generateId,
   nowISO,
+  computeSinceISO,
   parseJson,
   toJson,
   hashToken,

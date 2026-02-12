@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useAuth, useIsClient } from '@/lib/auth'
-import { useReviewStats, statsToKpiData, StatsPeriod } from '@/lib/reviews'
+import { useReviewStats, statsToKpiData, StatsPeriod, useLifecycleStats } from '@/lib/reviews'
 import { KpiCard } from '@/components/dashboard/kpi-card'
 import { ReviewsChart } from '@/components/dashboard/reviews-chart'
 import { PendingReviews } from '@/components/dashboard/pending-reviews'
@@ -26,6 +26,10 @@ import {
   CreditCard,
   Package,
   Calendar,
+  Send,
+  ThumbsUp,
+  ExternalLink,
+  Percent,
 } from 'lucide-react'
 
 // Period options for the selector
@@ -279,6 +283,7 @@ export default function DashboardPage() {
   const { currentLocation } = useAppStore()
   const [period, setPeriod] = useState<StatsPeriod>('30d')
   const { stats, loading: statsLoading, error: statsError } = useReviewStats(period)
+  const { data: lifecycleData, loading: lifecycleLoading } = useLifecycleStats(period)
   const kpi = statsToKpiData(stats)
 
   // Calculate trend objects from deltas
@@ -355,7 +360,46 @@ export default function DashboardPage() {
       {/* Credits Section for clients */}
       <CreditsSection />
 
-      {/* KPI Cards */}
+      {/* Lifecycle KPI Cards (P1a) */}
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-foreground">Performance Reputy</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard
+            title={`Envois (${periodLabel})`}
+            value={lifecycleLoading ? '…' : (lifecycleData?.sent ?? 0)}
+            subtitle="Demandes d'avis envoyées"
+            icon={Send}
+            iconColor="text-blue-500"
+            iconBg="bg-blue-50"
+          />
+          <KpiCard
+            title={`Feedbacks (${periodLabel})`}
+            value={lifecycleLoading ? '…' : (lifecycleData?.feedbackReceived ?? 0)}
+            subtitle="Retours patients reçus"
+            icon={ThumbsUp}
+            iconColor="text-amber-500"
+            iconBg="bg-amber-50"
+          />
+          <KpiCard
+            title={`Redirects Google (${periodLabel})`}
+            value={lifecycleLoading ? '…' : (lifecycleData?.publicRedirected ?? 0)}
+            subtitle="Patients redirigés vers Google"
+            icon={ExternalLink}
+            iconColor="text-green-500"
+            iconBg="bg-green-50"
+          />
+          <KpiCard
+            title="Taux de conversion"
+            value={lifecycleLoading ? '…' : `${lifecycleData?.conversionRate ?? 0}%`}
+            subtitle="Redirects / Envois"
+            icon={Percent}
+            iconColor="text-purple-500"
+            iconBg="bg-purple-50"
+          />
+        </div>
+      </div>
+
+      {/* Google Reviews KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard
           title="Note moyenne"

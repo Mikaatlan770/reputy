@@ -16,6 +16,8 @@ const emailVerificationRepo = require('./email-verification.repo');
 const installationRepo = require('./installation.repo');
 const shortlinkRepo = require('./shortlink.repo');
 const reviewRepo = require('./review.repo');
+const emailOutboxRepo = require('./email-outbox.repo');
+const mrrSnapshotRepo = require('./mrr-snapshots.repo');
 
 module.exports = {
   org: orgRepo,
@@ -29,5 +31,7 @@ module.exports = {
   emailVerification: emailVerificationRepo,
   installation: installationRepo,
   shortlink: shortlinkRepo,
-  review: reviewRepo
+  review: reviewRepo,
+  emailOutbox: emailOutboxRepo,
+  mrrSnapshot: mrrSnapshotRepo
 };

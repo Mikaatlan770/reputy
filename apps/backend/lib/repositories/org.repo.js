@@ -320,6 +320,7 @@ function parseOrgRow(row) {
     quotas: db.parseJson(row.quotas_json),
     balances: db.parseJson(row.balances_json),
     subscriptionCredits: db.parseJson(row.subscription_credits_json),
+    activatedAt: row.activated_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

@@ -55,5 +55,25 @@ module.exports = {
         REPUTY_STORAGE: 'sqlite',
       },
     },
+
+    // P2: Daily MRR snapshot (00:05 UTC)
+    // cron_restart relaunches the stopped process at cron time.
+    // With autorestart: false, it runs once then stops until next cron tick.
+    {
+      name: 'snapshot-mrr',
+      script: 'apps/backend/lib/scripts/snapshot-mrr.js',
+      cwd: './',
+      cron_restart: '5 0 * * *',
+      autorestart: false,
+      watch: false,
+      error_file: './logs/snapshot-mrr-error.log',
+      out_file: './logs/snapshot-mrr-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        REPUTY_STORAGE: 'sqlite',
+      },
+    },
   ],
 };

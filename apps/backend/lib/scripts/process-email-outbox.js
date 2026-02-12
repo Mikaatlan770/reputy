@@ -51,6 +51,45 @@ if (!db.isInitialized()) {
   process.exit(1);
 }
 
+// ============ LIFECYCLE HELPER ============
+
+/**
+ * Update review_request lifecycle after email send/fail.
+ * Idempotent: only updates if status is still created/queued.
+ * On first 'sent', also sets orgs.activated_at if null.
+ */
+function updateRequestLifecycle(entry, newStatus) {
+  if (!entry.requestDbId) return;
+
+  const now = db.nowISO();
+  const tsCol = newStatus === 'sent' ? 'sent_at'
+              : newStatus === 'failed' ? 'failed_at'
+              : null;
+  if (!tsCol) return;
+
+  try {
+    db.run(`
+      UPDATE review_requests 
+      SET status = $status, ${tsCol} = $now, updated_at = $now
+      WHERE id = $id AND status IN ('created', 'queued')
+    `, { id: entry.requestDbId, status: newStatus, now });
+
+    // First sent → set orgs.activated_at = MIN(sent_at) (overrides proxy)
+    if (newStatus === 'sent') {
+      db.run(`
+        UPDATE orgs SET activated_at = (
+          SELECT MIN(rr.sent_at) FROM review_requests rr
+          WHERE rr.org_id = (SELECT org_id FROM review_requests WHERE id = $id)
+            AND rr.sent_at IS NOT NULL
+        )
+        WHERE id = (SELECT org_id FROM review_requests WHERE id = $id)
+      `, { id: entry.requestDbId });
+    }
+  } catch (e) {
+    console.error(`  ⚠️ Lifecycle update error: ${e.message}`);
+  }
+}
+
 // ============ MAIN ============
 async function processOutbox() {
   const pending = emailOutboxRepo.getPending(BATCH_LIMIT);
@@ -74,6 +113,7 @@ async function processOutbox() {
       if (!org) {
         console.log(`  ⚠️ Org not found: ${entry.orgId} — marking failed`);
         emailOutboxRepo.updateStatus(entry.id, 'failed', { error: 'org_not_found' });
+        updateRequestLifecycle(entry, 'failed');
         failed++;
         continue;
       }
@@ -101,6 +141,7 @@ async function processOutbox() {
       if (!quotaCheck.allowed) {
         console.log(`  ⛔ Quota exceeded (${quotaCheck.used}/${quotaCheck.limit}) — skipping`);
         emailOutboxRepo.updateStatus(entry.id, 'failed', { error: `quota:${quotaCheck.reason}` });
+        updateRequestLifecycle(entry, 'failed');
         failed++;
         continue;
       }
@@ -180,6 +221,9 @@ async function processOutbox() {
         provider: providerName,
       });
 
+      // 8b) Lifecycle: queued → sent (+ activation)
+      updateRequestLifecycle(entry, 'sent');
+
       // 9) Record usage
       usageRepo.recordEmail(entry.orgId, 1, {
         outboxId: entry.id,
@@ -199,6 +243,7 @@ async function processOutbox() {
       console.error(`  ❌ Error: ${err.message}`);
       emailOutboxRepo.updateStatus(entry.id, 'failed', { error: err.message });
       emailOutboxRepo.addEvent(entry.id, 'bounce', { error: err.message });
+      updateRequestLifecycle(entry, 'failed');
       failed++;
     }
   }

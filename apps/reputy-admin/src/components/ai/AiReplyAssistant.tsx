@@ -24,6 +24,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
+import { useAuth } from '@/lib/auth/auth-context'
 import type { AiTone, AiSuggestion, Review } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -54,6 +55,7 @@ export function AiReplyAssistant({
   onSelectSuggestion,
 }: AiReplyAssistantProps) {
   const { orgSettings, incrementAiUsage } = useAppStore()
+  const { getClientToken } = useAuth()
 
   // États
   const [isOpen, setIsOpen] = useState(false)
@@ -87,9 +89,13 @@ export function AiReplyAssistant({
     setSuggestions([])
 
     try {
+      const token = getClientToken()
       const response = await fetch('/api/ai/suggest-reply', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           reviewId: review.id,
           reviewContent: review.content,

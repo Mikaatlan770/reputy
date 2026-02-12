@@ -20,10 +20,10 @@ function createOutbox(data) {
   db.run(`
     INSERT INTO email_outbox (
       id, org_id, to_email, template_key, payload_json,
-      status, idempotency_key, scheduled_at, created_at, updated_at
+      status, idempotency_key, scheduled_at, request_db_id, created_at, updated_at
     ) VALUES (
       $id, $orgId, $toEmail, $templateKey, $payloadJson,
-      $status, $idempotencyKey, $scheduledAt, $createdAt, $updatedAt
+      $status, $idempotencyKey, $scheduledAt, $requestDbId, $createdAt, $updatedAt
     )
   `, {
     id,
@@ -34,6 +34,7 @@ function createOutbox(data) {
     status: data.status || 'pending',
     idempotencyKey: data.idempotencyKey || null,
     scheduledAt: data.scheduledAt || null,
+    requestDbId: data.requestDbId || null,
     createdAt: now,
     updatedAt: now,
   });
@@ -259,6 +260,7 @@ function parseOutboxRow(row) {
     sentAt: row.sent_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    requestDbId: row.request_db_id,
   };
 }
 

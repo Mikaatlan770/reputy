@@ -58,8 +58,17 @@ function applyMigration(filename) {
   console.log(`\n📦 Applying: ${filename}`);
   
   try {
-    // Execute the migration SQL
-    db.exec(sql);
+    // If migration contains ALTER TABLE, execute statement by statement
+    // to handle "duplicate column name" errors gracefully (ALTER TABLE
+    // ADD COLUMN is NOT idempotent in SQLite, unlike CREATE TABLE IF NOT EXISTS).
+    if (sql.includes('ALTER TABLE')) {
+      executeWithAlterTolerance(sql);
+    } else {
+      db.exec(sql);
+    }
+    
+    // Record migration as applied
+    recordMigration(migrationName);
     
     console.log(`   ✓ Migration applied successfully`);
     return true;
@@ -67,6 +76,48 @@ function applyMigration(filename) {
     console.error(`   ❌ Migration failed: ${err.message}`);
     return false;
   }
+}
+
+/**
+ * Execute SQL statements individually, tolerating "duplicate column name"
+ * errors from ALTER TABLE ADD COLUMN (which is not idempotent in SQLite).
+ */
+function executeWithAlterTolerance(sql) {
+  // Split on semicolons, filtering out empty/comment-only fragments
+  const statements = sql
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => {
+      // Remove lines that are only comments or whitespace
+      const meaningful = s.split('\n').filter(l => {
+        const trimmed = l.trim();
+        return trimmed.length > 0 && !trimmed.startsWith('--');
+      });
+      return meaningful.length > 0;
+    });
+  
+  for (const stmt of statements) {
+    try {
+      db.exec(stmt + ';');
+    } catch (err) {
+      if (err.message.includes('duplicate column name')) {
+        const col = stmt.match(/ADD COLUMN\s+(\w+)/i);
+        console.log(`   ⏭  Skipped (column already exists): ${col ? col[1] : '?'}`);
+      } else {
+        throw err; // Re-throw non-duplicate errors
+      }
+    }
+  }
+}
+
+/**
+ * Record a migration as applied in the migrations table
+ */
+function recordMigration(name) {
+  const database = db.getDb();
+  database.prepare(
+    'INSERT OR IGNORE INTO migrations (name, applied_at) VALUES (?, ?)'
+  ).run(name, new Date().toISOString());
 }
 
 /**

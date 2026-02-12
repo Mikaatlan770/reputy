@@ -1,117 +1,117 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { aiProvider } from '@/lib/ai/provider'
-import type { AiSuggestRequest, AiSuggestResponse, OrgSettings } from '@/types'
 
-// ===== MOCK ORG SETTINGS =====
-// En production, ces données viendraient de la base de données
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
 
-const mockOrgSettings: OrgSettings = {
-  id: 'org-1',
-  name: 'Cabinet Dr. Atlan',
-  plan: 'pro',
-  aiEnabled: true, // Changer à false pour tester le paywall
-  aiQuota: {
-    monthlyLimit: 100,
-    usedThisMonth: 23,
-    resetDate: '2026-02-01',
-  },
-  healthModeDefault: true,
-  createdAt: '2024-01-15',
-}
-
-// ===== API ENDPOINT =====
+// ===== API PROXY → Backend /client/ai/suggest-reply =====
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    
+
     const {
-      reviewId,
       reviewContent,
-      reviewRating,
       tone = 'professional',
       instructions,
       healthMode = false,
-    } = body as Partial<AiSuggestRequest>
+    } = body
 
-    // Validation des paramètres
-    if (!reviewId || !reviewContent || reviewRating === undefined) {
+    // Validation minimale côté proxy (le backend re-valide)
+    if (!reviewContent || typeof reviewContent !== 'string') {
       return NextResponse.json(
-        { error: 'Paramètres manquants: reviewId, reviewContent et reviewRating sont requis.' },
+        { error: 'reviewContent requis', code: 'VALIDATION_ERROR' },
         { status: 400 }
       )
     }
 
-    // Vérification de l'abonnement IA
-    if (!mockOrgSettings.aiEnabled) {
+    // Forward Authorization header
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader) {
       return NextResponse.json(
-        { 
-          error: 'L\'assistant IA n\'est pas activé pour votre compte.',
-          code: 'AI_NOT_ENABLED',
-          upgrade: true,
-        },
-        { status: 403 }
+        { error: 'Non authentifié', code: 'AUTH_REQUIRED' },
+        { status: 401 }
       )
     }
 
-    // Vérification du quota
-    const { aiQuota } = mockOrgSettings
-    if (aiQuota.usedThisMonth >= aiQuota.monthlyLimit) {
-      return NextResponse.json(
-        { 
-          error: 'Vous avez atteint votre quota mensuel de suggestions IA.',
-          code: 'QUOTA_EXCEEDED',
-          quota: aiQuota,
-        },
-        { status: 429 }
-      )
-    }
-
-    // Générer les suggestions via le provider
-    const suggestions = await aiProvider.generateSuggestions({
-      reviewId,
-      reviewContent,
-      reviewRating,
+    // Map frontend fields → backend fields
+    const backendPayload = {
+      reviewText: reviewContent, // mapping: reviewContent → reviewText
       tone,
       instructions,
       healthMode,
-    })
-
-    // Calculer les tokens utilisés (mock)
-    const totalTokens = suggestions.reduce((acc, s) => acc + (s.tokensUsed || 0), 0)
-
-    // Mettre à jour le quota (mock - en production, update en BDD)
-    const newUsedThisMonth = aiQuota.usedThisMonth + 1
-
-    const response: AiSuggestResponse = {
-      suggestions,
-      tokensUsed: totalTokens,
-      quotaRemaining: aiQuota.monthlyLimit - newUsedThisMonth,
     }
 
-    return NextResponse.json(response)
+    const backendResponse = await fetch(`${BACKEND_URL}/client/ai/suggest-reply`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authHeader,
+      },
+      cache: 'no-store',
+      body: JSON.stringify(backendPayload),
+    })
 
+    const data = await backendResponse.json()
+
+    // Handle backend errors — map to frontend error codes
+    if (!backendResponse.ok) {
+      let code = data.error || 'UNKNOWN_ERROR'
+      if (data.error === 'AI_QUOTA_EXCEEDED') {
+        code = 'QUOTA_EXCEEDED'
+      }
+      if (data.errorCategory === 'AUTH_REQUIRED' || backendResponse.status === 401) {
+        code = 'AUTH_REQUIRED'
+      }
+
+      return NextResponse.json(
+        {
+          error: data.message || data.error || 'Erreur backend',
+          code,
+        },
+        { status: backendResponse.status }
+      )
+    }
+
+    // Map backend success response → frontend expected shape
+    // Backend: { ok, draft, sensitive, requireApproval, remainingAi }
+    // Frontend expects: { suggestions: [{ id, tone, text }], quotaRemaining }
+    const suggestionId = crypto.randomUUID()
+
+    return NextResponse.json({
+      suggestions: [
+        {
+          id: suggestionId,
+          tone: tone || 'professional',
+          text: data.draft || '',
+        },
+      ],
+      quotaRemaining: data.remainingAi ?? null,
+      sensitive: data.sensitive ?? false,
+      requireApproval: data.requireApproval ?? true,
+    })
   } catch (error) {
-    console.error('[AI] Erreur génération suggestions:', error)
+    console.error('[AI Proxy] Error:', error)
     return NextResponse.json(
-      { error: 'Erreur lors de la génération des suggestions.' },
+      { error: 'Erreur lors de la communication avec le service IA.', code: 'PROXY_ERROR' },
       { status: 500 }
     )
   }
 }
 
 // ===== GET QUOTA STATUS =====
+// Kept for backward compatibility
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get('authorization')
+  if (!authHeader) {
+    return NextResponse.json(
+      { aiEnabled: false, error: 'Non authentifié' },
+      { status: 401 }
+    )
+  }
 
-export async function GET() {
-  // Retourne le statut IA et quota pour l'organisation
+  // Real quota is checked on POST by the backend
   return NextResponse.json({
-    aiEnabled: mockOrgSettings.aiEnabled,
-    plan: mockOrgSettings.plan,
-    quota: mockOrgSettings.aiQuota,
+    aiEnabled: true,
+    plan: 'unknown',
+    quota: null,
   })
 }
-
-
-
-
-

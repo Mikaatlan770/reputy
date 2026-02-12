@@ -283,6 +283,204 @@ pm2 restart reputy-backend
 4. Optionnel : supprimer `CABINET_API_TOKEN` du backend si plus aucun usage
    (l'extension utilise `validateExtensionAuth` avec publicKey+apiToken org-scoped)
 
+## 🔍 Monitoring externe (P1.1)
+
+### Endpoints de santé
+
+| Endpoint | Auth | Usage |
+|----------|------|-------|
+| `GET /health` | Aucune | Ping basique (load-balancer, PM2, Docker) |
+| `GET /internal/admin/health` | `x-admin-token` | Health check riche (monitoring profond) |
+
+### Health check riche — `/internal/admin/health`
+
+Retourne un JSON avec :
+- **status** : `ok` / `degraded` / `503 error`
+- **db** : WAL mode, foreign keys, integrity check, latency
+- **backups** : dernier backup, nombre sur 24h
+- **process** : mémoire RSS/heap, uptime
+
+#### Exemple curl
+
+```bash
+curl -s -H "x-admin-token: $INTERNAL_ADMIN_TOKEN" \
+  http://localhost:8787/internal/admin/health | jq .
+```
+
+#### Réponse type (status: ok)
+
+```json
+{
+  "status": "ok",
+  "version": "0.7.0",
+  "uptime_seconds": 86400,
+  "node": { "version": "v20.11.0" },
+  "storage": { "mode": "sqlite" },
+  "db": {
+    "status": "ok",
+    "wal_mode": true,
+    "foreign_keys": true,
+    "integrity_ok": true,
+    "latency_ms": 0
+  },
+  "backups": {
+    "last_backup_utc": "2026-02-11T10:00:00.000Z",
+    "count_24h": 4,
+    "dir": "backups"
+  },
+  "process": {
+    "rss_mb": 85.2,
+    "heap_used_mb": 42.1,
+    "heap_total_mb": 68.5,
+    "uptime_seconds": 86400,
+    "event_loop_lag_ms": null
+  }
+}
+```
+
+#### Codes HTTP
+
+| Code | Signification |
+|------|--------------|
+| 200 | `ok` ou `degraded` (système fonctionnel) |
+| 503 | `error` (DB inaccessible ou intégrité KO) |
+| 401 | Token admin manquant ou invalide |
+
+#### Logique de status
+
+- **ok** : DB OK + integrity OK + ≥1 backup en 24h + WAL + FK
+- **degraded** : DB OK mais backup absent, WAL inactif ou FK désactivées
+- **error** : DB inaccessible ou integrity_check échoué
+
+### Configuration UptimeRobot / BetterStack
+
+1. **Ping basique** : `GET http://votre-domaine:8787/health` — pas de headers
+2. **Deep check** : `GET http://votre-domaine:8787/internal/admin/health`
+   - Header : `x-admin-token: <votre token>`
+   - Attendu : HTTP 200, body contient `"status":"ok"`
+   - Alerte si : HTTP ≠ 200 **ou** body contient `"status":"error"`
+3. Fréquence recommandée : **toutes les 2–5 minutes**
+
+## 📊 P1.2 — Metrics Admin (Business Observability)
+
+### Endpoint
+
+```
+GET /internal/admin/metrics
+GET /internal/admin/metrics?since=7d
+GET /internal/admin/metrics?since=90d
+```
+
+Protégé par `x-admin-token`. Toujours HTTP 200 (même partiellement vide).
+
+### Paramètre `since`
+
+| Valeur | Description |
+|--------|-------------|
+| `7d` | 7 derniers jours |
+| `30d` | 30 derniers jours (défaut) |
+| `90d` | 90 derniers jours |
+
+### Exemple curl
+
+```bash
+curl -s -H "x-admin-token: $INTERNAL_ADMIN_TOKEN" \
+  http://localhost:8787/internal/admin/metrics?since=30d | jq .
+```
+
+### Réponse type
+
+```json
+{
+  "generated_at_utc": "2026-02-11T12:00:00.000Z",
+  "period": { "since": "2026-01-12T00:00:00.000Z", "days": 30 },
+  "orgs": { "total": 16, "active": 14 },
+  "usage": { "emails_sent": 842, "sms_sent": 120, "ai_used": 45 },
+  "feedback": { "total": 15, "in_period": 8 },
+  "requests": { "total": 67, "in_period": 32 }
+}
+```
+
+### Migration requise
+
+Avant la première utilisation en production, appliquer la migration 006 pour les index de performance :
+
+```bash
+cd /chemin/vers/repo && npm run db:migrate-v2
+```
+
+Cela crée les index `idx_usage_created`, `idx_feedbacks_created`, `idx_rr_created` sur les colonnes `created_at`.
+
+---
+
+# 📈 P2 — MRR Snapshots (Revenue History)
+
+## Vue d'ensemble
+
+Le script `snapshot-mrr.js` calcule un snapshot quotidien de la MRR et le persiste dans
+la table `mrr_snapshots` (une row par jour UTC). Le snapshot est **idempotent** :
+relancer le script le même jour écrase la row existante.
+
+La logique de calcul (MRR, tiers, négocié) est **identique** à celle de
+`GET /internal/admin/metrics` (mêmes expressions SQL `CASE/json_extract`).
+
+## Table `mrr_snapshots`
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| `snapshot_date` | TEXT PK | `YYYY-MM-DD` (UTC) |
+| `mrr_total_cents` | INTEGER | MRR totale en centimes |
+| `orgs_paid` | INTEGER | Nombre d'orgs payantes |
+| `orgs_free` | INTEGER | Nombre d'orgs gratuites |
+| `arpu_cents` | INTEGER | ARPU en centimes |
+| `mrr_by_tier_json` | TEXT | JSON `{ bronze, argent, gold, platinum, custom }` |
+| `negotiated_orgs` | INTEGER | Orgs avec tarif négocié |
+| `negotiated_percent` | REAL | % d'orgs payantes négociées |
+
+## Exécution manuelle
+
+```bash
+# Depuis apps/backend/
+npm run snapshot:mrr          # Calcule et persiste le snapshot du jour
+npm run snapshot:mrr:dry      # Calcule sans écrire (preview)
+```
+
+## Vérification
+
+```bash
+# Vérifier les snapshots enregistrés
+sqlite3 -header -column apps/backend/reputy.db \
+  "SELECT * FROM mrr_snapshots ORDER BY snapshot_date DESC LIMIT 10;"
+
+# Vérifier via l'API admin
+curl -s -H "x-admin-token: $INTERNAL_ADMIN_TOKEN" \
+  http://localhost:8787/internal/admin/mrr-history?days=30 | jq .
+```
+
+## Planification automatique (PM2)
+
+Le process `snapshot-mrr` est configuré dans `ecosystem.config.cjs` :
+- **Heure** : 00:05 UTC quotidien (`cron_restart: '5 0 * * *'`)
+- **Mode** : `autorestart: false` → tourne une fois puis s'arrête
+
+```bash
+# Vérifier le statut
+pm2 list
+pm2 logs snapshot-mrr --lines 20
+```
+
+## Endpoint API
+
+```
+GET /internal/admin/mrr-history?days=90
+```
+
+- Auth : `x-admin-token` (requireAdmin)
+- `days` : 1–365 (défaut 90)
+- Retourne les snapshots en snake_case, cohérent avec `/internal/admin/metrics`
+
+---
+
 ## Changements P5 effectués
 
 - ✅ `requireAdmin()` utilise `safeTokenCompare()` (constant-time)

@@ -141,13 +141,14 @@ function create(data) {
   
   db.run(`
     INSERT INTO feedbacks (
-      id, request_db_id, rating, comment, source, created_at
+      id, request_db_id, org_id, rating, comment, source, created_at
     ) VALUES (
-      $id, $requestDbId, $rating, $comment, $source, $createdAt
+      $id, $requestDbId, $orgId, $rating, $comment, $source, $createdAt
     )
   `, {
     id,
     requestDbId: data.requestDbId,
+    orgId: data.orgId || null,
     rating: data.rating || null,
     comment: data.comment || null,
     source: data.source || null,
@@ -208,6 +209,7 @@ function parseFeedbackRow(row) {
   return {
     id: row.id,
     requestDbId: row.request_db_id,
+    orgId: row.org_id,
     rating: row.rating,
     comment: row.comment,
     source: row.source,

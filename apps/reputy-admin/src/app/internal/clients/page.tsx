@@ -1,11 +1,15 @@
 import { BackofficeLayout } from '@/components/internal/backoffice-layout'
 import { ClientsList } from '@/components/internal/clients-list'
-import { fetchInternal, ListOrgsResponse } from '@/lib/internal/fetch-internal'
+import { AtRiskBanner } from '@/components/internal/at-risk-banner'
+import { fetchInternal, ListOrgsResponse, AtRiskOrgsResponse } from '@/lib/internal/fetch-internal'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ClientsPage() {
-  const result = await fetchInternal<ListOrgsResponse>('/internal/orgs', { revalidate: 0 })
+  const [result, atRiskResult] = await Promise.all([
+    fetchInternal<ListOrgsResponse>('/internal/orgs', { revalidate: 0 }),
+    fetchInternal<AtRiskOrgsResponse>('/internal/admin/at-risk-orgs', { revalidate: 0 }),
+  ])
   
   return (
     <BackofficeLayout>
@@ -16,6 +20,11 @@ export default async function ClientsPage() {
             Gérez tous les clients Reputy
           </p>
         </div>
+
+        {/* P1b: At-risk banner — paying orgs not yet activated */}
+        <AtRiskBanner
+          atRiskOrgs={atRiskResult.ok ? atRiskResult.data?.orgs || [] : []}
+        />
         
         <ClientsList 
           initialOrgs={result.ok ? result.data?.orgs || [] : []}
