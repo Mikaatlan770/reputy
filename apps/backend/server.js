@@ -285,11 +285,12 @@ function getClientIp(req) {
 }
 
 /**
- * Check rate limit for a given key (route:ip)
- * @param {string} key - Unique key (e.g., "/auth/login:192.168.1.1")
+ * Check rate limit for a given key (route:ip or ai:orgId:userId)
+ * @param {string} key - Unique key (e.g., "/auth/login:192.168.1.1", "ai:org1:user1")
+ * @param {number} maxAttempts - Max attempts per window (default: AUTH_RATE_LIMIT_MAX_ATTEMPTS)
  * @returns {{ allowed: boolean, remaining: number, retryAfterSec?: number }}
  */
-function checkRateLimit(key) {
+function checkRateLimit(key, maxAttempts = AUTH_RATE_LIMIT_MAX_ATTEMPTS) {
   const now = Date.now();
   const entry = authRateLimitStore.get(key);
   
@@ -299,18 +300,18 @@ function checkRateLimit(key) {
       count: 1,
       resetAt: now + AUTH_RATE_LIMIT_WINDOW_MS
     });
-    return { allowed: true, remaining: AUTH_RATE_LIMIT_MAX_ATTEMPTS - 1 };
+    return { allowed: true, remaining: maxAttempts - 1 };
   }
   
   // Entry exists and not expired
   entry.count++;
   
-  if (entry.count > AUTH_RATE_LIMIT_MAX_ATTEMPTS) {
+  if (entry.count > maxAttempts) {
     const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
     return { allowed: false, remaining: 0, retryAfterSec };
   }
   
-  return { allowed: true, remaining: AUTH_RATE_LIMIT_MAX_ATTEMPTS - entry.count };
+  return { allowed: true, remaining: maxAttempts - entry.count };
 }
 
 /**
@@ -7228,6 +7229,18 @@ async function handleAiSuggestReply(req, res) {
 
   // RBAC — all session roles can use AI
   if (!checkRole(auth, ['owner', 'admin', 'agent'], res)) return;
+
+  // Rate limit IA — 10 req/min par user+org (PR-6)
+  const aiRlKey = `ai:${auth.org.id}:${auth.user.id}`;
+  const aiRl = checkRateLimit(aiRlKey, IS_PRODUCTION ? 10 : 1000);
+  if (!aiRl.allowed) {
+    return sendJson(res, 429, {
+      ok: false,
+      error: 'RATE_LIMIT_EXCEEDED',
+      message: 'Trop de requêtes IA. Réessayez plus tard.',
+      retryAfter: aiRl.retryAfterSec
+    });
+  }
 
   // Parse & validate body
   let body;
