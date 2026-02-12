@@ -347,7 +347,7 @@ function getDefaultBilling() {
 
 function getDefaultPlan(vertical = 'health') {
   return {
-    code: `${vertical}_basic`,
+    code: `${vertical}_bronze`,
     basePriceCents: 4900,
     currency: 'EUR',
     billingCycle: 'monthly'

@@ -375,6 +375,17 @@ export interface SepaMandate {
 export type MembershipRole = 'owner' | 'admin' | 'agent'
 export type MembershipStatus = 'active' | 'pending' | 'revoked'
 
+/** Permissions granulaires par membership */
+export interface MembershipPermissions {
+  reviews: boolean
+  stats: boolean
+  campaigns: boolean
+  billing: boolean
+  team: boolean
+  settings: boolean
+  ai: boolean
+}
+
 /** Membership retourné par GET /client/memberships */
 export interface Membership {
   id: string
@@ -385,6 +396,7 @@ export interface Membership {
   orgPlan: Record<string, unknown>
   role: MembershipRole
   status: MembershipStatus
+  permissions?: MembershipPermissions
   acceptedAt: string | null
 }
 
@@ -405,6 +417,7 @@ export interface TeamMember {
   name: string | null
   role: MembershipRole
   status: MembershipStatus
+  permissions?: MembershipPermissions
   invitedAt: string | null
   acceptedAt: string | null
   revokedAt: string | null

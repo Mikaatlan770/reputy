@@ -2109,11 +2109,15 @@ function getAuthUser(req, data) {
     const user = repos.user.getById(sessionData.userId);
     if (!user) return null;
     
-    // Get org from SQLite
+    // Get org from SQLite — use session's orgId (supports multi-org switch)
     const org = repos.org.getById(sessionData.orgId);
     
+    // CRITICAL: override user.orgId with session orgId so all endpoints
+    // automatically use the correct org after a switch (no need to patch every endpoint)
+    const effectiveUser = { ...user, orgId: sessionData.orgId };
+    
     return { 
-      user, 
+      user: effectiveUser, 
       org,
       session: { 
         token, 
@@ -6230,37 +6234,13 @@ async function handleLogin(req, res) {
   let loginOrgId = user.orgId; // Default: legacy user.orgId
   let loginMembershipRole = user.role; // Default: legacy user.role
 
-  // PR-8b: Multi-org login flow
+  // PR-8b: Multi-org login — always connect to first active membership (no org-picker at login)
+  // User switches orgs from the topbar in reputy-admin (3002)
   if (repos && repos.membership) {
     const activeMemberships = repos.membership.getActiveByUserId(user.id);
 
-    if (activeMemberships.length >= 2) {
-      // Multi-org user: return pending token + org list for selection
-      const pending = repos.membership.createLoginPending(user.id);
-      repos.user.updateLastLogin(user.id);
-
-      logger.logAuth('LOGIN_MULTI_ORG', true, req, {
-        requestId, email, userId: user.id,
-        orgCount: activeMemberships.length,
-        durationMs: Date.now() - startTime, status: 200
-      });
-      try { writeAudit({ actorUserId: user.id, action: 'auth.login_multi_org', targetType: 'user', targetId: user.id, meta: { email, orgCount: activeMemberships.length }, req }); } catch (_) { /* non-fatal */ }
-
-      return sendJson(res, 200, {
-        ok: true,
-        requireOrgSelection: true,
-        pendingToken: pending.token,
-        orgs: activeMemberships.map(m => ({
-          orgId: m.orgId,
-          orgName: m.orgName,
-          role: m.role,
-        })),
-        mustChangePassword: !!user.mustChangePassword,
-      });
-    }
-
-    if (activeMemberships.length === 1) {
-      // Single membership: use membership orgId (may differ from user.orgId)
+    if (activeMemberships.length >= 1) {
+      // Use first active membership as default org
       loginOrgId = activeMemberships[0].orgId;
       loginMembershipRole = activeMemberships[0].role;
     }
@@ -6419,6 +6399,7 @@ function handleClientGetMemberships(req, res) {
       orgPlan: m.orgPlan,
       role: m.role,
       status: m.status,
+      permissions: repos.membership.getEffectivePermissions(m),
       acceptedAt: m.acceptedAt
     }))
   });
@@ -6739,6 +6720,7 @@ function handleClientGetTeam(req, res, urlParams) {
       name: m.userName,
       role: m.role,
       status: m.status,
+      permissions: repos.membership.getEffectivePermissions(m),
       invitedAt: m.invitedAt,
       acceptedAt: m.acceptedAt,
       revokedAt: m.revokedAt || null,
@@ -6773,7 +6755,7 @@ async function handleClientTeamInvite(req, res) {
 
   const v = validateBody(schemas.teamInvite, body);
   if (!v.ok) return sendJson(res, 400, v.payload);
-  const { email, role, name } = v.data;
+  const { email, role, name, permissions } = v.data;
 
   // Check if user already exists
   let targetUser = repos.user.getByEmail(email);
@@ -6793,6 +6775,9 @@ async function handleClientTeamInvite(req, res) {
     // If revoked: reactivate the existing membership instead of creating a new one
     if (existingMembership && existingMembership.status === 'revoked') {
       repos.membership.updateRole(existingMembership.id, role);
+      if (permissions) {
+        repos.membership.updatePermissions(existingMembership.id, permissions);
+      }
       reactivatedMembership = repos.membership.updateStatus(existingMembership.id, 'pending');
     }
   } else {
@@ -6840,6 +6825,7 @@ async function handleClientTeamInvite(req, res) {
       status: 'pending',
       invitedBy: auth.user.id,
       inviteToken: inviteToken,
+      permissions: permissions || null,
     });
   }
 
@@ -6939,7 +6925,7 @@ async function handleClientTeamUpdateRole(req, res, membershipId) {
 
   const v = validateBody(schemas.teamUpdateRole, body);
   if (!v.ok) return sendJson(res, 400, v.payload);
-  const { role: newRole } = v.data;
+  const { role: newRole, permissions: newPermissions } = v.data;
 
   // Get target membership
   const targetMembership = repos.membership.getById(membershipId);
@@ -6957,14 +6943,25 @@ async function handleClientTeamUpdateRole(req, res, membershipId) {
     return sendJson(res, 400, { ok: false, error: 'CANNOT_MODIFY_OWNER', message: 'Impossible de modifier le rôle du propriétaire' });
   }
 
-  const updated = repos.membership.updateRole(membershipId, newRole);
+  let updated = targetMembership;
+  if (newRole) {
+    updated = repos.membership.updateRole(membershipId, newRole);
+  }
+  if (newPermissions) {
+    updated = repos.membership.updatePermissions(membershipId, newPermissions);
+  }
 
   // Audit
-  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.update_role', targetType: 'membership', targetId: membershipId, meta: { previousRole: targetMembership.role, newRole }, req }); } catch (_) { /* non-fatal */ }
+  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.update', targetType: 'membership', targetId: membershipId, meta: { previousRole: targetMembership.role, newRole: newRole || targetMembership.role, permissionsUpdated: !!newPermissions }, req }); } catch (_) { /* non-fatal */ }
 
   return sendJson(res, 200, {
     ok: true,
-    membership: { id: updated.id, role: updated.role, status: updated.status },
+    membership: {
+      id: updated.id,
+      role: updated.role,
+      status: updated.status,
+      permissions: repos.membership.getEffectivePermissions(updated),
+    },
   });
 }
 

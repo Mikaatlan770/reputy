@@ -32,8 +32,8 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:878
 
 const roleLabels: Record<string, string> = {
   owner: 'Propriétaire',
-  admin: 'Admin',
-  agent: 'Agent',
+  admin: 'Directeur',
+  agent: 'Secrétaire',
 }
 
 const verticalLabels: Record<string, string> = {

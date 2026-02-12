@@ -21,7 +21,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useAuth } from '@/lib/auth'
-import type { TeamMember, MembershipRole } from '@/types'
+import type { TeamMember, MembershipRole, MembershipPermissions } from '@/types'
 import {
   Users,
   Shield,
@@ -38,12 +38,48 @@ import {
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
 
+// ============ PERMISSIONS CONFIG ============
+
+const PERMISSION_LABELS: Record<keyof MembershipPermissions, { label: string; description: string }> = {
+  reviews: { label: 'Avis', description: 'Voir et répondre aux avis' },
+  stats: { label: 'Statistiques', description: 'Consulter les statistiques' },
+  campaigns: { label: 'Campagnes', description: 'Gérer les campagnes SMS/email' },
+  billing: { label: 'Facturation', description: 'Voir et modifier la facturation' },
+  team: { label: 'Équipe', description: 'Gérer les membres de l\'équipe' },
+  settings: { label: 'Paramètres', description: 'Modifier les paramètres' },
+  ai: { label: 'Assistant IA', description: 'Utiliser l\'assistant IA' },
+}
+
+const DEFAULT_ADMIN_PERMISSIONS: MembershipPermissions = {
+  reviews: true,
+  stats: true,
+  campaigns: true,
+  billing: false,
+  team: true,
+  settings: true,
+  ai: true,
+}
+
+const DEFAULT_AGENT_PERMISSIONS: MembershipPermissions = {
+  reviews: true,
+  stats: true,
+  campaigns: false,
+  billing: false,
+  team: false,
+  settings: false,
+  ai: true,
+}
+
+function getDefaultPermissions(role: 'admin' | 'agent'): MembershipPermissions {
+  return role === 'admin' ? { ...DEFAULT_ADMIN_PERMISSIONS } : { ...DEFAULT_AGENT_PERMISSIONS }
+}
+
 // ============ ROLE HELPERS ============
 
 const roleLabels: Record<string, string> = {
   owner: 'Propriétaire',
-  admin: 'Administrateur',
-  agent: 'Agent',
+  admin: 'Directeur',
+  agent: 'Secrétaire',
 }
 
 const roleBadgeVariant: Record<string, 'default' | 'secondary' | 'outline'> = {
@@ -79,6 +115,7 @@ export default function TeamPage() {
   const [showInvite, setShowInvite] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'admin' | 'agent'>('agent')
+  const [invitePermissions, setInvitePermissions] = useState<MembershipPermissions>(getDefaultPermissions('agent'))
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState('')
 
@@ -165,7 +202,7 @@ export default function TeamPage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole, permissions: invitePermissions }),
       })
 
       const data = await response.json()
@@ -180,6 +217,7 @@ export default function TeamPage() {
       setShowInvite(false)
       setInviteEmail('')
       setInviteRole('agent')
+      setInvitePermissions(getDefaultPermissions('agent'))
       setInviting(false)
       await fetchTeam()
     } catch {
@@ -361,7 +399,7 @@ export default function TeamPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{adminCount}</p>
-              <p className="text-xs text-muted-foreground">Admins</p>
+              <p className="text-xs text-muted-foreground">Directeurs</p>
             </div>
           </CardContent>
         </Card>
@@ -372,7 +410,7 @@ export default function TeamPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{agentCount}</p>
-              <p className="text-xs text-muted-foreground">Agents</p>
+              <p className="text-xs text-muted-foreground">Secrétaires</p>
             </div>
           </CardContent>
         </Card>
@@ -535,7 +573,11 @@ export default function TeamPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Rôle *</label>
-              <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as 'admin' | 'agent')} disabled={inviting}>
+              <Select value={inviteRole} onValueChange={(v) => {
+                const role = v as 'admin' | 'agent'
+                setInviteRole(role)
+                setInvitePermissions(getDefaultPermissions(role))
+              }} disabled={inviting}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -543,13 +585,13 @@ export default function TeamPage() {
                   <SelectItem value="admin">
                     <div className="flex items-center gap-2">
                       <Shield className="h-3.5 w-3.5" />
-                      Administrateur
+                      Directeur / Directrice
                     </div>
                   </SelectItem>
                   <SelectItem value="agent">
                     <div className="flex items-center gap-2">
                       <UserCheck className="h-3.5 w-3.5" />
-                      Agent
+                      Secrétaire
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -559,6 +601,31 @@ export default function TeamPage() {
                   ? 'Peut gérer l\'équipe, inviter des membres et modifier les paramètres.'
                   : 'Peut répondre aux avis et consulter le tableau de bord.'}
               </p>
+            </div>
+
+            {/* Permissions granulaires */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Accès autorisés</label>
+              <div className="border rounded-lg divide-y">
+                {(Object.keys(PERMISSION_LABELS) as Array<keyof MembershipPermissions>).map((key) => (
+                  <label
+                    key={key}
+                    className="flex items-center justify-between px-3 py-2.5 hover:bg-accent/50 cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{PERMISSION_LABELS[key].label}</p>
+                      <p className="text-xs text-muted-foreground">{PERMISSION_LABELS[key].description}</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={invitePermissions[key]}
+                      onChange={(e) => setInvitePermissions({ ...invitePermissions, [key]: e.target.checked })}
+                      disabled={inviting}
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
 
             {inviteError && (
@@ -602,8 +669,8 @@ export default function TeamPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Administrateur</SelectItem>
-                  <SelectItem value="agent">Agent</SelectItem>
+                  <SelectItem value="admin">Directeur / Directrice</SelectItem>
+                  <SelectItem value="agent">Secrétaire</SelectItem>
                 </SelectContent>
               </Select>
             </div>

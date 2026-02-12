@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
-import type { Membership, MembershipRole } from '@/types'
+import type { Membership, MembershipRole, MembershipPermissions } from '@/types'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
 const TOKEN_KEY = 'reputy_client_token'
@@ -124,6 +124,7 @@ export interface AuthState {
   // PR-8c: Multi-establishment
   memberships: Membership[]
   currentMembershipRole: MembershipRole | null
+  currentPermissions: MembershipPermissions | null
 }
 
 export interface AuthContextValue extends AuthState {
@@ -180,6 +181,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isSuperAdmin: false,
     memberships: [],
     currentMembershipRole: null,
+    currentPermissions: null,
   })
 
   // Fetch client session from /me + /client/org + /client/memberships
@@ -210,17 +212,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // PR-8c: Fetch memberships
       let memberships: Membership[] = []
       let currentMembershipRole: MembershipRole | null = null
+      let currentPermissions: MembershipPermissions | null = null
       try {
         const membershipsResponse = await fetch(`${BACKEND_URL}/client/memberships`, { headers })
         if (membershipsResponse.ok) {
           const membershipsData = await membershipsResponse.json()
           memberships = membershipsData.memberships || []
-          // Extract role for current org
+          // Extract role and permissions for current org
           const currentOrgId = fullOrg?.id || data.org?.id
           const currentMembership = memberships.find(
             (m: Membership) => m.orgId === currentOrgId && m.status === 'active'
           )
           currentMembershipRole = currentMembership?.role || null
+          currentPermissions = currentMembership?.permissions || null
         }
       } catch {
         // Non-fatal: memberships endpoint may not be available
@@ -237,6 +241,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isSuperAdmin: false,
         memberships,
         currentMembershipRole,
+        currentPermissions,
       }))
 
       return true
@@ -341,6 +346,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isSuperAdmin: false,
       memberships: [],
       currentMembershipRole: null,
+      currentPermissions: null,
     })
   }, [])
 
@@ -430,6 +436,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           clientToken: null,
           memberships: [],
           currentMembershipRole: null,
+          currentPermissions: null,
         }))
       }
     }

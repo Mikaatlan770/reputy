@@ -25,8 +25,8 @@ import { LOGOUT_REDIRECT_URL } from '@/lib/constants'
 // Role labels for display
 const roleLabels: Record<string, string> = {
   owner: 'Propriétaire',
-  admin: 'Admin',
-  agent: 'Agent',
+  admin: 'Directeur',
+  agent: 'Secrétaire',
 }
 
 export function Topbar() {

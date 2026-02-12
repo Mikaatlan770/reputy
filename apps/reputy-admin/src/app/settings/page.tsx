@@ -34,6 +34,23 @@ import { WebsiteWidgetManager } from '@/components/embed'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
 
+// Plan display labels — maps backend plan slugs to user-friendly names
+const planLabels: Record<string, string> = {
+  health_bronze: 'Bronze',
+  health_basic: 'Bronze',  // Legacy alias
+  health_silver: 'Silver',
+  health_gold: 'Gold',
+  health_platinum: 'Platinum',
+  starter: 'Bronze',
+  pro: 'Silver',
+  free: 'Gratuit',
+}
+
+function getPlanLabel(plan?: string): string {
+  if (!plan) return 'Gratuit'
+  return planLabels[plan] || plan.charAt(0).toUpperCase() + plan.slice(1)
+}
+
 // Get session token from localStorage (client auth)
 const getAuthToken = () => {
   if (typeof window === 'undefined') return null
@@ -605,10 +622,10 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between p-4 bg-primary/5 rounded-lg border border-primary/20">
               <div>
                 <p className="font-semibold text-primary">
-                  Plan {orgSettings?.plan === 'pro' ? 'Pro' : orgSettings?.plan === 'starter' ? 'Starter' : 'Gratuit'}
+                  Plan {getPlanLabel(orgSettings?.plan)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {orgSettings?.plan === 'pro' ? '59€/mois HT' : orgSettings?.plan === 'starter' ? '29€/mois HT' : 'Gratuit'}
+                  {orgSettings?.plan ? 'Abonnement actif' : 'Gratuit'}
                 </p>
               </div>
               <Badge variant="default">Actif</Badge>

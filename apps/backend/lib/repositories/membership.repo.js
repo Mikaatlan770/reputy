@@ -164,7 +164,7 @@ function hasActiveMembership(userId, orgId) {
 
 /**
  * Create a new membership
- * @param {object} data - { userId, orgId, role, status?, invitedBy?, inviteToken? }
+ * @param {object} data - { userId, orgId, role, status?, invitedBy?, inviteToken?, permissions? }
  * @returns {object} Created membership
  */
 function create(data) {
@@ -175,11 +175,13 @@ function create(data) {
     INSERT INTO memberships (
       id, user_id, org_id, role, status,
       invited_by, invite_token, invited_at,
-      accepted_at, created_at, updated_at
+      accepted_at, permissions_json,
+      created_at, updated_at
     ) VALUES (
       $id, $userId, $orgId, $role, $status,
       $invitedBy, $inviteToken, $invitedAt,
-      $acceptedAt, $createdAt, $updatedAt
+      $acceptedAt, $permissionsJson,
+      $createdAt, $updatedAt
     )
   `, {
     id,
@@ -191,6 +193,7 @@ function create(data) {
     inviteToken: data.inviteToken || null,
     invitedAt: data.invitedBy ? now : null,
     acceptedAt: data.status === 'active' ? now : null,
+    permissionsJson: data.permissions ? db.toJson(data.permissions) : null,
     createdAt: now,
     updatedAt: now,
   });
@@ -245,6 +248,20 @@ function updateRole(id, role) {
   db.run(`
     UPDATE memberships SET role = $role, updated_at = $updatedAt WHERE id = $id
   `, { id, role, updatedAt: now });
+  return getById(id);
+}
+
+/**
+ * Update membership permissions
+ * @param {string} id - Membership ID
+ * @param {object} permissions - Permissions object (e.g. { reviews: true, billing: false })
+ * @returns {object|null}
+ */
+function updatePermissions(id, permissions) {
+  const now = db.nowISO();
+  db.run(`
+    UPDATE memberships SET permissions_json = $permissionsJson, updated_at = $updatedAt WHERE id = $id
+  `, { id, permissionsJson: db.toJson(permissions), updatedAt: now });
   return getById(id);
 }
 
@@ -323,13 +340,65 @@ function cleanupLoginPending() {
 // Helper Functions
 // ============================================================
 
+/**
+ * Default permissions — owner gets everything, others get a granular set.
+ * Permissions keys:
+ *   reviews    — voir et répondre aux avis
+ *   stats      — voir les statistiques
+ *   campaigns  — gérer les campagnes SMS/email
+ *   billing    — voir/modifier la facturation
+ *   team       — gérer l'équipe
+ *   settings   — modifier les paramètres de l'établissement
+ *   ai         — utiliser l'assistant IA
+ */
+const ALL_PERMISSIONS = {
+  reviews: true,
+  stats: true,
+  campaigns: true,
+  billing: true,
+  team: true,
+  settings: true,
+  ai: true,
+};
+
+const DEFAULT_ADMIN_PERMISSIONS = {
+  reviews: true,
+  stats: true,
+  campaigns: true,
+  billing: false,
+  team: true,
+  settings: true,
+  ai: true,
+};
+
+const DEFAULT_AGENT_PERMISSIONS = {
+  reviews: true,
+  stats: true,
+  campaigns: false,
+  billing: false,
+  team: false,
+  settings: false,
+  ai: true,
+};
+
+function getDefaultPermissions(role) {
+  if (role === 'owner') return { ...ALL_PERMISSIONS };
+  if (role === 'admin') return { ...DEFAULT_ADMIN_PERMISSIONS };
+  return { ...DEFAULT_AGENT_PERMISSIONS };
+}
+
 function parseMembershipRow(row) {
+  const permissions = row.permissions_json
+    ? db.parseJson(row.permissions_json)
+    : null; // null = use role defaults
+
   return {
     id: row.id,
     userId: row.user_id,
     orgId: row.org_id,
     role: row.role,
     status: row.status,
+    permissions: permissions,
     invitedBy: row.invited_by,
     inviteToken: row.invite_token,
     invitedAt: row.invited_at,
@@ -338,6 +407,19 @@ function parseMembershipRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * Get effective permissions for a membership (merge custom + defaults)
+ * @param {object} membership - Parsed membership object
+ * @returns {object} Effective permissions
+ */
+function getEffectivePermissions(membership) {
+  if (membership.role === 'owner') return { ...ALL_PERMISSIONS };
+  const defaults = getDefaultPermissions(membership.role);
+  if (!membership.permissions) return defaults;
+  // Custom permissions override defaults
+  return { ...defaults, ...membership.permissions };
 }
 
 // ============================================================
@@ -357,8 +439,13 @@ module.exports = {
   create,
   updateStatus,
   updateRole,
+  updatePermissions,
   delete: deleteMembership,
   generateInviteToken,
+  // Permissions
+  getEffectivePermissions,
+  getDefaultPermissions,
+  ALL_PERMISSIONS,
   // Login pending
   createLoginPending,
   validateLoginPending,

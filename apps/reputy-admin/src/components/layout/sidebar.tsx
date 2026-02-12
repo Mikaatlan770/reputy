@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/lib/store'
 import { useAuth, useIsClient } from '@/lib/auth'
-import type { MembershipRole } from '@/types'
+import type { MembershipRole, MembershipPermissions } from '@/types'
 import {
   LayoutDashboard,
   Star,
@@ -35,46 +35,48 @@ interface NavItem {
   clientOnly?: boolean  // Visible uniquement pour les clients
   /** PR-8d: rôles membership autorisés. Si absent = visible pour tous. */
   allowedRoles?: MembershipRole[]
+  /** Permission requise (clé de MembershipPermissions). Si absent = visible pour tous. */
+  requiredPermission?: keyof MembershipPermissions
 }
 
-// PR-8d: role-based menu visibility
-// - Équipe : owner + admin
-// - Paramètres : owner + admin
-// - Facturation : owner uniquement
-// - Tout le reste : visible pour tous
+// Navigation items with permission-based visibility
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Installation', href: '/installation', icon: Download, clientOnly: true },
-  { name: 'Avis', href: '/reviews', icon: Star },
-  { name: 'Feedbacks', href: '/feedbacks', icon: ThumbsUp },
-  { name: 'Historique', href: '/history', icon: History },
-  { name: 'Réponses', href: '/inbox', icon: MessageSquare },
+  { name: 'Avis', href: '/reviews', icon: Star, requiredPermission: 'reviews' },
+  { name: 'Feedbacks', href: '/feedbacks', icon: ThumbsUp, requiredPermission: 'reviews' },
+  { name: 'Historique', href: '/history', icon: History, requiredPermission: 'reviews' },
+  { name: 'Réponses', href: '/inbox', icon: MessageSquare, requiredPermission: 'reviews' },
   { name: 'Collecte', href: '/collect', icon: QrCode },
-  { name: 'Campagnes', href: '/campaigns', icon: Megaphone },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Concurrence', href: '/competitors', icon: Swords },
+  { name: 'Campagnes', href: '/campaigns', icon: Megaphone, requiredPermission: 'campaigns' },
+  { name: 'Analytics', href: '/analytics', icon: BarChart3, requiredPermission: 'stats' },
+  { name: 'Concurrence', href: '/competitors', icon: Swords, requiredPermission: 'stats' },
   { name: 'Établissements', href: '/locations', icon: Building2 },
-  { name: 'Équipe', href: '/team', icon: Users2, allowedRoles: ['owner', 'admin'] },
-  { name: 'Facturation', href: '/billing', icon: CreditCard, allowedRoles: ['owner'] },
-  { name: 'Paramètres', href: '/settings', icon: Settings, allowedRoles: ['owner', 'admin'] },
+  { name: 'Équipe', href: '/team', icon: Users2, requiredPermission: 'team' },
+  { name: 'Facturation', href: '/billing', icon: CreditCard, requiredPermission: 'billing' },
+  { name: 'Paramètres', href: '/settings', icon: Settings, requiredPermission: 'settings' },
   { name: 'Aide', href: '/help', icon: HelpCircle },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
   const { sidebarOpen, toggleSidebar } = useAppStore()
-  const { currentMembershipRole } = useAuth()
+  const { currentMembershipRole, currentPermissions } = useAuth()
   const isClient = useIsClient()
 
-  // Filtrer la navigation selon le mode + rôle membership
+  // Filtrer la navigation selon le mode + permissions
   const filteredNavigation = navigation.filter(item => {
     // Si l'item est clientOnly, ne l'afficher que pour les clients
     if (item.clientOnly && !isClient) {
       return false
     }
-    // PR-8d: role-based filtering
-    // Si allowedRoles défini ET le rôle est connu → vérifier l'inclusion
-    // Si currentMembershipRole est null (chargement) → afficher tout (anti-flicker)
+    // Permissions non encore chargées → afficher tout (anti-flicker)
+    if (!currentPermissions) return true
+    // Vérifier la permission requise
+    if (item.requiredPermission && currentPermissions[item.requiredPermission] === false) {
+      return false
+    }
+    // Legacy role-based check (fallback)
     if (item.allowedRoles && currentMembershipRole) {
       if (!item.allowedRoles.includes(currentMembershipRole)) {
         return false

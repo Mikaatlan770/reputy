@@ -144,6 +144,15 @@ const schemas = {
       invalid_type_error: 'Rôle invalide (admin ou agent)',
     }),
     name: z.string().max(100, 'Nom trop long').optional(),
+    permissions: z.object({
+      reviews: z.boolean().optional(),
+      stats: z.boolean().optional(),
+      campaigns: z.boolean().optional(),
+      billing: z.boolean().optional(),
+      team: z.boolean().optional(),
+      settings: z.boolean().optional(),
+      ai: z.boolean().optional(),
+    }).optional(),
   }),
 
   /**
@@ -153,7 +162,18 @@ const schemas = {
     role: z.enum(['admin', 'agent'], {
       required_error: 'Rôle requis',
       invalid_type_error: 'Rôle invalide (admin ou agent)',
-    }),
+    }).optional(),
+    permissions: z.object({
+      reviews: z.boolean().optional(),
+      stats: z.boolean().optional(),
+      campaigns: z.boolean().optional(),
+      billing: z.boolean().optional(),
+      team: z.boolean().optional(),
+      settings: z.boolean().optional(),
+      ai: z.boolean().optional(),
+    }).optional(),
+  }).refine(data => data.role || data.permissions, {
+    message: 'Rôle ou permissions requis',
   }),
 
   // ============ PR-8e: Accept invite ============
