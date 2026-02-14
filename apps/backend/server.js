@@ -6582,42 +6582,49 @@ async function handleAuthAcceptInvite(req, res) {
  * CRITICAL: create new session BEFORE deleting old one (no lock-out)
  */
 async function handleClientSwitchOrg(req, res) {
-  const data = loadData();
-  const auth = getAuthUser(req, data);
-  if (!auth) {
-    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  try {
+    const data = loadData();
+    const auth = getAuthUser(req, data);
+    if (!auth) {
+      return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+    }
+
+    let body;
+    try { body = await parseBody(req); } catch (_) {
+      return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+    }
+
+    const v = validateBody(schemas.switchOrg, body);
+    if (!v.ok) return sendJson(res, 400, v.payload);
+    const { orgId: targetOrgId } = v.data;
+
+    const repos = storage.getRepos();
+
+    // Verify membership on target org
+    const membership = requireMembershipRole(repos, auth.user.id, targetOrgId, ['owner', 'admin', 'agent'], res);
+    if (!membership) return; // 403 already sent
+
+    // Create new session FIRST (safety: old session still valid if this fails)
+    const newSession = repos.session.createSession(auth.user.id, targetOrgId);
+
+    // Delete old session (best effort)
+    try { repos.session.deleteSession(auth.session.token); } catch (_) { /* best effort */ }
+
+    // Audit
+    try { writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.switch', targetType: 'org', targetId: targetOrgId, meta: { fromOrgId: auth.org?.id, toOrgId: targetOrgId }, req }); } catch (_) { /* non-fatal */ }
+
+    return sendJson(res, 200, {
+      ok: true,
+      token: newSession.token,
+      orgId: targetOrgId,
+      membership: { orgId: targetOrgId, role: membership.role },
+    });
+  } catch (err) {
+    console.error('[REPUTY][ERROR] switchOrg failed:', err.message, err.stack);
+    if (!res.headersSent) {
+      return sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Erreur lors du changement d\'établissement' });
+    }
   }
-
-  let body;
-  try { body = await parseBody(req); } catch (_) {
-    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
-  }
-
-  const v = validateBody(schemas.switchOrg, body);
-  if (!v.ok) return sendJson(res, 400, v.payload);
-  const { orgId: targetOrgId } = v.data;
-
-  const repos = storage.getRepos();
-
-  // Verify membership on target org
-  const membership = requireMembershipRole(repos, auth.user.id, targetOrgId, ['owner', 'admin', 'agent'], res);
-  if (!membership) return; // 403 already sent
-
-  // Create new session FIRST (safety: old session still valid if this fails)
-  const newSession = repos.session.createSession(auth.user.id, targetOrgId);
-
-  // Delete old session (best effort)
-  try { repos.session.deleteSession(auth.session.token); } catch (_) { /* best effort */ }
-
-  // Audit
-  try { writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.switch', targetType: 'org', targetId: targetOrgId, meta: { fromOrgId: auth.org?.id, toOrgId: targetOrgId }, req }); } catch (_) { /* non-fatal */ }
-
-  return sendJson(res, 200, {
-    ok: true,
-    token: newSession.token,
-    orgId: targetOrgId,
-    membership: { orgId: targetOrgId, role: membership.role },
-  });
 }
 
 // ============ PR-8b: POST /client/orgs (create establishment) ============
@@ -10178,6 +10185,7 @@ function recordTelemetry(data, orgId, level, code, message, extra = {}) {
 // ============ SERVER ============
 
 const server = http.createServer(async (req, res) => {
+  try {
   const { method, url } = req;
 
   // ── P0.3: Security headers (default: API-safe strict CSP) ──
@@ -10641,6 +10649,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   sendJson(res, 404, { error: 'Not found' });
+
+  } catch (err) {
+    // Global safety net — log the error but DON'T crash the server
+    console.error('[REPUTY][ERROR] Unhandled error in request handler:', err.message, err.stack);
+    try {
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'Erreur interne du serveur' }));
+      }
+    } catch (_) { /* response already sent or broken */ }
+  }
 });
 
 // ============ SERVER STARTUP ============
