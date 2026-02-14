@@ -6634,58 +6634,64 @@ async function handleClientSwitchOrg(req, res) {
  * Body: { name, email?, vertical? }
  */
 async function handleClientCreateOrg(req, res) {
-  const data = loadData();
-  const auth = getAuthUser(req, data);
-  if (!auth) {
-    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
-  }
+  try {
+    const data = loadData();
+    const auth = getAuthUser(req, data);
+    if (!auth) {
+      return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+    }
 
-  const repos = storage.getRepos();
+    const repos = storage.getRepos();
 
-  // Membership RBAC: only owner/admin of current org can create new establishments
-  const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
-  if (!currentMembership) return;
+    // Membership RBAC: only owner/admin of current org can create new establishments
+    const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
+    if (!currentMembership) return;
 
-  let body;
-  try { body = await parseBody(req); } catch (_) {
-    return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
-  }
+    let body;
+    try { body = await parseBody(req); } catch (_) {
+      return sendJson(res, 400, { ok: false, error: 'INVALID_JSON', message: 'Corps JSON invalide' });
+    }
 
-  const v = validateBody(schemas.createOrg, body);
-  if (!v.ok) return sendJson(res, 400, v.payload);
-  const { name, email, vertical } = v.data;
+    const v = validateBody(schemas.createOrg, body);
+    if (!v.ok) return sendJson(res, 400, v.payload);
+    const { name, email, vertical } = v.data;
 
-  let newOrg;
-  let newMembership;
+    let newOrg;
+    let newMembership;
 
-  const dbModule = storage.getDb();
-  dbModule.transaction(() => {
-    // Create new org (status: 'active')
-    // TODO: PR-billing — status should be 'pending_payment' if no plan selected
-    newOrg = repos.org.create({
-      name,
-      email: email || null,
-      vertical: vertical || 'health',
-      status: 'active',
+    const dbModule = storage.getDb();
+    dbModule.transaction(() => {
+      // Create new org (status: 'active')
+      newOrg = repos.org.create({
+        name,
+        email: email || null,
+        vertical: vertical || 'health',
+        status: 'active',
+      });
+
+      // Create owner membership for current user on new org
+      newMembership = repos.membership.create({
+        userId: auth.user.id,
+        orgId: newOrg.id,
+        role: 'owner',
+        status: 'active',
+      });
     });
 
-    // Create owner membership for current user on new org
-    newMembership = repos.membership.create({
-      userId: auth.user.id,
-      orgId: newOrg.id,
-      role: 'owner',
-      status: 'active',
+    // Audit
+    try { writeAudit({ orgId: newOrg.id, actorUserId: auth.user.id, action: 'org.create', targetType: 'org', targetId: newOrg.id, meta: { parentOrgId: auth.org.id, name, vertical }, req }); } catch (_) { /* non-fatal */ }
+
+    return sendJson(res, 201, {
+      ok: true,
+      org: { id: newOrg.id, name: newOrg.name, vertical: newOrg.vertical, status: newOrg.status },
+      membership: { id: newMembership.id, orgId: newOrg.id, role: 'owner' },
     });
-  });
-
-  // Audit
-  try { writeAudit({ orgId: newOrg.id, actorUserId: auth.user.id, action: 'org.create', targetType: 'org', targetId: newOrg.id, meta: { parentOrgId: auth.org.id, name, vertical }, req }); } catch (_) { /* non-fatal */ }
-
-  return sendJson(res, 201, {
-    ok: true,
-    org: { id: newOrg.id, name: newOrg.name, vertical: newOrg.vertical, status: newOrg.status },
-    membership: { id: newMembership.id, orgId: newOrg.id, role: 'owner' },
-  });
+  } catch (err) {
+    console.error('[REPUTY][ERROR] createOrg failed:', err.message, err.stack);
+    if (!res.headersSent) {
+      return sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Erreur lors de la création de l\'établissement' });
+    }
+  }
 }
 
 // ============ PR-8b: GET /client/team ============
@@ -10667,6 +10673,12 @@ const server = http.createServer(async (req, res) => {
 try {
   // P0.1: Validate secrets before starting
   validateProductionSecrets();
+  
+  // Auto-apply pending SQL migrations (lib/migrations/*.sql)
+  if (storage.USE_SQLITE) {
+    const db = require('./lib/db');
+    db.runPendingMigrations();
+  }
   
   server.listen(PORT, () => {
     const settings = getSettings();

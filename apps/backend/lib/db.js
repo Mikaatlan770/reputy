@@ -15,6 +15,7 @@ const fs = require('fs');
 
 const DB_PATH = process.env.REPUTY_DB_PATH || path.join(__dirname, '..', 'reputy.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
+const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // ============================================================
@@ -106,6 +107,63 @@ function isInitialized() {
     "SELECT name FROM sqlite_master WHERE type='table' AND name='orgs'"
   ).get();
   return !!result;
+}
+
+/**
+ * Run all pending SQL migrations from lib/migrations/
+ * Migrations are tracked in the `migrations` table.
+ * Each .sql file must contain INSERT OR IGNORE INTO migrations(...) at the end.
+ * @returns {number} Number of migrations applied
+ */
+function runPendingMigrations() {
+  const database = getDb();
+
+  // Ensure migrations table exists
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  if (!fs.existsSync(MIGRATIONS_DIR)) {
+    return 0;
+  }
+
+  // Get already applied migrations
+  const applied = new Set(
+    database.prepare('SELECT name FROM migrations').all().map(r => r.name)
+  );
+
+  // List all .sql files sorted by name (numeric prefix ensures order)
+  const files = fs.readdirSync(MIGRATIONS_DIR)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+
+  let count = 0;
+  for (const file of files) {
+    // Migration name = filename without .sql
+    const migrationName = file.replace('.sql', '');
+    if (applied.has(migrationName)) continue;
+
+    const sqlPath = path.join(MIGRATIONS_DIR, file);
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+
+    try {
+      database.exec(sql);
+      count++;
+      console.log(`[REPUTY-DB] ✅ Migration applied: ${migrationName}`);
+    } catch (err) {
+      console.error(`[REPUTY-DB] ❌ Migration failed: ${migrationName} — ${err.message}`);
+      // Don't throw — log and continue (non-fatal for server startup)
+    }
+  }
+
+  if (count > 0) {
+    console.log(`[REPUTY-DB] ${count} migration(s) applied`);
+  }
+
+  return count;
 }
 
 // ============================================================
@@ -322,6 +380,7 @@ module.exports = {
   // Schema
   initSchema,
   isInitialized,
+  runPendingMigrations,
   
   // Query helpers
   prepare,
