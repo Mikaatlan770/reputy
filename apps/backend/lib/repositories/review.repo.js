@@ -244,6 +244,116 @@ function getStats(orgId, period = DEFAULT_PERIOD) {
     };
   });
 
+  // ========== PROVIDER BREAKDOWN (current period) ==========
+  const providerRows = db.all(`
+    SELECT COALESCE(provider, 'unknown') as provider, COUNT(*) as count
+    FROM reviews
+    WHERE org_id = $orgId
+      AND reviewed_at >= datetime('now', '-${days} days')
+    GROUP BY COALESCE(provider, 'unknown')
+    ORDER BY count DESC
+  `, { orgId });
+
+  const providerBreakdownPeriod = providerRows.map(r => ({
+    provider: r.provider,
+    count: r.count || 0,
+    percentage: totalPeriod > 0 ? Math.round((r.count / totalPeriod) * 100) : 0,
+  }));
+
+  // ========== SENTIMENT BREAKDOWN (current period) ==========
+  const sentimentRows = db.all(`
+    SELECT sentiment, COUNT(*) as count
+    FROM reviews
+    WHERE org_id = $orgId
+      AND reviewed_at >= datetime('now', '-${days} days')
+      AND sentiment IS NOT NULL
+    GROUP BY sentiment
+    ORDER BY count DESC
+  `, { orgId });
+
+  const sentimentBreakdownPeriod = sentimentRows.map(r => ({
+    sentiment: r.sentiment,
+    count: r.count || 0,
+    percentage: totalPeriod > 0 ? Math.round((r.count / totalPeriod) * 100) : 0,
+  }));
+
+  // ========== RESPONSE TIME DISTRIBUTION (current period) ==========
+  const noReplyRow = db.get(`
+    SELECT COUNT(*) as count
+    FROM reviews
+    WHERE org_id = $orgId
+      AND reviewed_at >= datetime('now', '-${days} days')
+      AND reply_sent_at IS NULL
+  `, { orgId });
+
+  const responseTimeDistRows = db.all(`
+    SELECT
+      CASE
+        WHEN ((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) < 1 THEN '<1h'
+        WHEN ((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) < 4 THEN '1-4h'
+        WHEN ((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) < 24 THEN '4-24h'
+        WHEN ((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) < 72 THEN '1-3d'
+        ELSE '>3d'
+      END as bucket,
+      COUNT(*) as count
+    FROM reviews
+    WHERE org_id = $orgId
+      AND reviewed_at >= datetime('now', '-${days} days')
+      AND reply_sent_at IS NOT NULL
+    GROUP BY bucket
+  `, { orgId });
+
+  const RESPONSE_BUCKETS = ['<1h', '1-4h', '4-24h', '1-3d', '>3d'];
+  const repliedWithTimeCount = responseTimeDistRows.reduce((s, r) => s + (r.count || 0), 0);
+
+  const responseTimeDistributionPeriod = RESPONSE_BUCKETS.map(bucket => {
+    const found = responseTimeDistRows.find(r => r.bucket === bucket);
+    const count = found?.count || 0;
+    return {
+      bucket,
+      count,
+      percentage: repliedWithTimeCount > 0 ? Math.round((count / repliedWithTimeCount) * 100) : 0,
+    };
+  });
+
+  const responseTimeNoReplyCount = noReplyRow?.count || 0;
+
+  // ========== TAG BREAKDOWN (current period, top 12, JS aggregation) ==========
+  const tagRows = db.all(`
+    SELECT tags
+    FROM reviews
+    WHERE org_id = $orgId
+      AND reviewed_at >= datetime('now', '-${days} days')
+      AND tags IS NOT NULL
+      AND tags != '[]'
+  `, { orgId });
+
+  const tagCounts = new Map();
+  for (const row of tagRows) {
+    if (!row?.tags) continue;
+    try {
+      const arr = JSON.parse(row.tags);
+      if (!Array.isArray(arr)) continue;
+      for (const t of arr) {
+        if (!t || typeof t !== 'string') continue;
+        const key = t.trim().toLowerCase();
+        if (!key) continue;
+        tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
+      }
+    } catch (_) {
+      // ignore invalid JSON
+    }
+  }
+
+  const tagBreakdownPeriod = [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([tag, count]) => ({
+      tag,
+      count,
+      percentage: totalPeriod > 0 ? Math.round((count / totalPeriod) * 100) : 0,
+    }));
+
   // ========== CALCULATE DERIVED VALUES ==========
   
   // Current period values
@@ -320,6 +430,13 @@ function getStats(orgId, period = DEFAULT_PERIOD) {
 
     // Star distribution for current period
     starDistributionPeriod,
+
+    // Advanced breakdowns (PR-A analytics)
+    providerBreakdownPeriod,
+    sentimentBreakdownPeriod,
+    responseTimeDistributionPeriod,
+    responseTimeNoReplyCount,
+    tagBreakdownPeriod,
 
     // Legacy fields (for backward compatibility)
     total: allTimeStats?.total || 0,

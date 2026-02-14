@@ -62,6 +62,13 @@ export interface ReviewStatsAdvanced {
   // Star distribution for current period
   starDistributionPeriod: StarDistributionItem[]
 
+  // Advanced breakdowns (PR-A analytics — optional for backward compat)
+  providerBreakdownPeriod?: { provider: string; count: number; percentage: number }[]
+  sentimentBreakdownPeriod?: { sentiment: string; count: number; percentage: number }[]
+  responseTimeDistributionPeriod?: { bucket: string; count: number; percentage: number }[]
+  responseTimeNoReplyCount?: number
+  tagBreakdownPeriod?: { tag: string; count: number; percentage: number }[]
+
   // Legacy fields (backward compatibility)
   total: number
   avgRating: number
