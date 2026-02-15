@@ -25,7 +25,10 @@ import {
   Plus,
   Building2,
   CheckCircle,
+  CheckCircle2,
   Loader2,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
@@ -44,6 +47,16 @@ const verticalLabels: Record<string, string> = {
   other: 'Autre',
 }
 
+function getPlanDisplayName(planCode: string): string {
+  const code = planCode.toLowerCase()
+  if (code.includes('platinum')) return 'Platinum'
+  if (code.includes('or') || code.includes('gold')) return 'Or'
+  if (code.includes('argent') || code.includes('silver')) return 'Argent'
+  if (code.includes('bronze')) return 'Bronze'
+  if (code.includes('basic')) return 'Bronze'
+  return planCode
+}
+
 export default function LocationsPage() {
   const { clientOrg, memberships, switchOrg, fetchMemberships, getClientToken } = useAuth()
   
@@ -54,12 +67,55 @@ export default function LocationsPage() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [switching, setSwitching] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  // Delete dialog
+  const [deleteTarget, setDeleteTarget] = useState<{ orgId: string; orgName: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   const handleSwitchOrg = async (orgId: string) => {
     if (orgId === clientOrg?.id) return
     setSwitching(orgId)
     await switchOrg(orgId)
     // switchOrg does window.location.href = '/' on success
+  }
+
+  const handleDeleteOrg = async () => {
+    if (!deleteTarget) return
+
+    setDeleting(true)
+    setDeleteError('')
+
+    try {
+      const token = getClientToken()
+      const response = await fetch(`${BACKEND_URL}/client/orgs/${deleteTarget.orgId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setDeleteError(data.message || 'Erreur lors de la suppression')
+        setDeleting(false)
+        return
+      }
+
+      // Refresh memberships list
+      await fetchMemberships()
+      
+      setDeleteTarget(null)
+      setDeleting(false)
+      setSuccessMessage(`Établissement "${deleteTarget.orgName}" archivé avec succès`)
+      setTimeout(() => setSuccessMessage(null), 5000)
+    } catch {
+      setDeleteError('Erreur de connexion au serveur')
+      setDeleting(false)
+    }
   }
 
   const handleCreateOrg = async () => {
@@ -98,6 +154,8 @@ export default function LocationsPage() {
       setCreateName('')
       setCreateVertical('health')
       setCreating(false)
+      setSuccessMessage(`Établissement "${createName.trim()}" créé avec succès`)
+      setTimeout(() => setSuccessMessage(null), 5000)
     } catch {
       setCreateError('Erreur de connexion au serveur')
       setCreating(false)
@@ -120,9 +178,25 @@ export default function LocationsPage() {
         </Button>
       </div>
 
+      {/* Success Message */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <span className="text-sm font-medium">{successMessage}</span>
+          </div>
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="text-green-600 hover:text-green-800"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Locations Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {memberships.map((m) => {
+        {memberships.filter(m => m.orgStatus !== 'archived').map((m) => {
           const isCurrent = clientOrg?.id === m.orgId
           const isLoading = switching === m.orgId
 
@@ -170,7 +244,7 @@ export default function LocationsPage() {
                   {m.orgPlan && typeof m.orgPlan === 'object' && 'code' in m.orgPlan && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Plan</span>
-                      <span className="text-sm font-medium">{String(m.orgPlan.code)}</span>
+                      <span className="text-sm font-medium">{getPlanDisplayName(String(m.orgPlan.code))}</span>
                     </div>
                   )}
                 </div>
@@ -181,25 +255,40 @@ export default function LocationsPage() {
                       Établissement actif
                     </Button>
                   ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 gap-1"
-                      disabled={isLoading}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSwitchOrg(m.orgId)
-                      }}
-                    >
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Changement...
-                        </>
-                      ) : (
-                        'Sélectionner'
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 gap-1"
+                        disabled={isLoading}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSwitchOrg(m.orgId)
+                        }}
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Changement...
+                          </>
+                        ) : (
+                          'Sélectionner'
+                        )}
+                      </Button>
+                      {m.role === 'owner' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteTarget({ orgId: m.orgId, orgName: m.orgName })
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       )}
-                    </Button>
+                    </>
                   )}
                 </div>
               </CardContent>
@@ -223,6 +312,43 @@ export default function LocationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Org Dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Supprimer l&apos;établissement
+            </DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer <strong>&quot;{deleteTarget?.orgName}&quot;</strong> ? 
+              Cette action archivera l&apos;établissement et révoquera tous les accès des membres.
+              Les données seront conservées mais l&apos;établissement ne sera plus accessible.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteError(''); }} disabled={deleting}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteOrg} disabled={deleting}>
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Suppression...
+                </>
+              ) : (
+                'Supprimer définitivement'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Org Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>

@@ -29,7 +29,10 @@
     "pm2:status": "pm2 status",
     "db:backup": "node scripts/db-backup.js",
     "db:restore": "node scripts/db-restore.js",
-    "db:backup:verify": "node scripts/db-backup-verify.js"
+    "db:backup:verify": "node scripts/db-backup-verify.js",
+    "cap:sync": "cd apps/reputy-mobile && npx cap sync",
+    "cap:open:ios": "cd apps/reputy-mobile && npx cap open ios",
+    "cap:open:android": "cd apps/reputy-mobile && npx cap open android"
   }
 }
 

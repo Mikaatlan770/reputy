@@ -6694,6 +6694,72 @@ async function handleClientCreateOrg(req, res) {
   }
 }
 
+// ============ DELETE /client/orgs/:orgId — Archive an establishment ============
+
+/**
+ * DELETE /client/orgs/:orgId — Archive (soft-delete) an establishment
+ * Only the owner of that org can archive it.
+ * Cannot archive the org you're currently logged into.
+ */
+async function handleClientDeleteOrg(req, res, targetOrgId) {
+  try {
+    const data = loadData();
+    const auth = getAuthUser(req, data);
+    if (!auth) {
+      return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+    }
+
+    const repos = storage.getRepos();
+
+    // Cannot delete your current org (must switch first)
+    if (targetOrgId === auth.org.id) {
+      return sendJson(res, 400, { ok: false, error: 'CANNOT_DELETE_CURRENT', message: 'Impossible de supprimer l\'établissement actif. Changez d\'établissement d\'abord.' });
+    }
+
+    // Check that the user is owner on the TARGET org
+    const targetMembership = repos.membership.getByUserAndOrg(auth.user.id, targetOrgId);
+    if (!targetMembership || targetMembership.role !== 'owner') {
+      return sendJson(res, 403, { ok: false, error: 'FORBIDDEN', message: 'Seul le propriétaire peut supprimer un établissement' });
+    }
+
+    // Verify the org exists
+    const targetOrg = repos.org.getById(targetOrgId);
+    if (!targetOrg) {
+      return sendJson(res, 404, { ok: false, error: 'NOT_FOUND', message: 'Établissement introuvable' });
+    }
+
+    if (targetOrg.status === 'archived') {
+      return sendJson(res, 400, { ok: false, error: 'ALREADY_ARCHIVED', message: 'Cet établissement est déjà archivé' });
+    }
+
+    // Soft-delete: set status to 'archived'
+    const dbModule = storage.getDb();
+    dbModule.prepare('UPDATE orgs SET status = $status, updated_at = $now WHERE id = $id').run({
+      status: 'archived',
+      now: new Date().toISOString(),
+      id: targetOrgId,
+    });
+
+    // Revoke all memberships on this org
+    const allMemberships = repos.membership.getByOrgId(targetOrgId);
+    for (const m of allMemberships) {
+      if (m.status === 'active' || m.status === 'pending') {
+        repos.membership.updateStatus(m.id, 'revoked');
+      }
+    }
+
+    // Audit
+    try { writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.archive', targetType: 'org', targetId: targetOrgId, meta: { previousStatus: targetOrg.status }, req }); } catch (_) { /* non-fatal */ }
+
+    return sendJson(res, 200, { ok: true, message: 'Établissement archivé avec succès' });
+  } catch (err) {
+    console.error('[REPUTY][ERROR] deleteOrg failed:', err.message, err.stack);
+    if (!res.headersSent) {
+      return sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Erreur lors de la suppression de l\'établissement' });
+    }
+  }
+}
+
 // ============ PR-8b: GET /client/team ============
 
 /**
@@ -10301,6 +10367,12 @@ const server = http.createServer(async (req, res) => {
   
   if (method === 'POST' && pathname === '/client/orgs') {
     return handleClientCreateOrg(req, res);
+  }
+
+  // DELETE /client/orgs/:orgId — archive an establishment
+  const deleteOrgMatch = pathname.match(/^\/client\/orgs\/([a-f0-9]+)$/);
+  if (deleteOrgMatch && method === 'DELETE') {
+    return handleClientDeleteOrg(req, res, deleteOrgMatch[1]);
   }
 
   if (method === 'GET' && pathname === '/client/team') {

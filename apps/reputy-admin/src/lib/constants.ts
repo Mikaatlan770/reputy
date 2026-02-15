@@ -45,3 +45,16 @@ export const SIGNUP_URL = `${REPUTY_WEB_URL}/signup`
  * Retour vers le site web principal
  */
 export const LOGOUT_REDIRECT_URL = REPUTY_WEB_URL
+
+// ============================================================
+// CAPACITOR (APP MOBILE)
+// ============================================================
+
+/**
+ * Détecte si l'app tourne dans le shell natif Capacitor (WebView iOS/Android).
+ * Le bridge Capacitor est injecté automatiquement dans la WebView.
+ * Sur le web classique, c'est toujours false → aucun impact.
+ */
+export const IS_CAPACITOR: boolean =
+  typeof window !== 'undefined' &&
+  !!(window as any).Capacitor?.isNativePlatform?.()

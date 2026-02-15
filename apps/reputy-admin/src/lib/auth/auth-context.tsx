@@ -2,9 +2,10 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
 import type { Membership, MembershipRole, MembershipPermissions } from '@/types'
+import { getSecureToken, setSecureToken, removeSecureToken } from './secure-token'
+import { LOGIN_URL } from '@/lib/constants'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
-const TOKEN_KEY = 'reputy_client_token'
 
 // ============ TYPES ============
 
@@ -145,21 +146,6 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 // ============ HELPERS ============
 
-function getStoredToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem(TOKEN_KEY)
-}
-
-function setStoredToken(token: string) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(TOKEN_KEY, token)
-}
-
-function removeStoredToken() {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(TOKEN_KEY)
-}
-
 function checkSuperAdminCookie(): boolean {
   if (typeof document === 'undefined') return false
   return document.cookie.includes('admin_ok=1')
@@ -251,7 +237,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [])
 
-  // Initialize auth state
+  // Initialize auth state (async — reads from secure storage)
   useEffect(() => {
     const initAuth = async () => {
       // 1. Check if super admin (cookie)
@@ -266,15 +252,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return
       }
 
-      // 2. Check if client has token
-      const token = getStoredToken()
+      // 2. Check if client has token (Keychain on mobile, localStorage on web)
+      const token = await getSecureToken()
       if (token) {
         const valid = await fetchClientSession(token)
         if (valid) {
           return
         }
         // Token invalid, remove it
-        removeStoredToken()
+        await removeSecureToken()
       }
 
       // 3. No auth
@@ -287,6 +273,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     initAuth()
   }, [fetchClientSession])
+
+  // Listen for session-expired events (emitted by authed-fetch.ts on 401)
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setState(prev => ({
+        ...prev,
+        mode: 'NONE',
+        loading: false,
+        clientUser: null,
+        clientOrg: null,
+        clientToken: null,
+        memberships: [],
+        currentMembershipRole: null,
+        currentPermissions: null,
+      }))
+      // Redirect to login
+      if (typeof window !== 'undefined') {
+        window.location.href = LOGIN_URL
+      }
+    }
+
+    window.addEventListener('reputy:session-expired', handleSessionExpired)
+    return () => window.removeEventListener('reputy:session-expired', handleSessionExpired)
+  }, [])
 
   // Login client
   const loginClient = useCallback(async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
@@ -304,7 +314,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (data.ok && data.token) {
-        setStoredToken(data.token)
+        await setSecureToken(data.token)
         await fetchClientSession(data.token)
         return { ok: true }
       }
@@ -318,7 +328,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Logout client
   const logoutClient = useCallback(async () => {
-    const token = getStoredToken()
+    const token = state.clientToken
     
     // Try to call logout endpoint
     if (token) {
@@ -335,7 +345,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     }
 
-    removeStoredToken()
+    await removeSecureToken()
     
     setState({
       mode: 'NONE',
@@ -348,11 +358,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       currentMembershipRole: null,
       currentPermissions: null,
     })
-  }, [])
+  }, [state.clientToken])
 
   // PR-8c: Switch to another organization
   const switchOrg = useCallback(async (orgId: string): Promise<{ ok: boolean; error?: string }> => {
-    const token = getStoredToken()
+    const token = state.clientToken
     if (!token) {
       return { ok: false, error: 'Non authentifié' }
     }
@@ -375,7 +385,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (data.ok && data.token) {
         // Store new token, then full page reload to reset all state
-        setStoredToken(data.token)
+        await setSecureToken(data.token)
         window.location.href = '/'
         return { ok: true }
       }
@@ -385,11 +395,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error('[AuthContext] Switch org error:', err)
       return { ok: false, error: 'Erreur de connexion au serveur' }
     }
-  }, [])
+  }, [state.clientToken])
 
   // PR-8c: Fetch memberships list
   const fetchMemberships = useCallback(async () => {
-    const token = getStoredToken()
+    const token = state.clientToken
     if (!token) return
 
     try {
@@ -419,15 +429,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (err) {
       console.error('[AuthContext] Failed to fetch memberships:', err)
     }
-  }, [])
+  }, [state.clientToken])
 
   // Refresh client session
   const refreshClientSession = useCallback(async () => {
-    const token = getStoredToken()
+    const token = await getSecureToken()
     if (token) {
       const valid = await fetchClientSession(token)
       if (!valid) {
-        removeStoredToken()
+        await removeSecureToken()
         setState(prev => ({
           ...prev,
           mode: 'NONE',
@@ -442,10 +452,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [fetchClientSession])
 
-  // Get client token
+  // Get client token (synchrone — retourne la valeur déjà en mémoire dans le state)
   const getClientToken = useCallback(() => {
-    return getStoredToken()
-  }, [])
+    return state.clientToken
+  }, [state.clientToken])
 
   const value: AuthContextValue = {
     ...state,

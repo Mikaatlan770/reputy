@@ -34,6 +34,7 @@ import {
   Trash2,
   Edit3,
   Clock,
+  CheckCircle2,
 } from 'lucide-react'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
@@ -132,6 +133,9 @@ export default function TeamPage() {
   // Action menu
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
 
+  // Success message
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
   const canManageTeam = currentMembershipRole === 'owner' || currentMembershipRole === 'admin'
   const isOwner = currentMembershipRole === 'owner'
 
@@ -219,6 +223,8 @@ export default function TeamPage() {
       setInviteRole('agent')
       setInvitePermissions(getDefaultPermissions('agent'))
       setInviting(false)
+      setSuccessMessage(`Invitation envoyée avec succès à ${data.membership?.email || inviteEmail.trim()}`)
+      setTimeout(() => setSuccessMessage(null), 5000)
       await fetchTeam()
     } catch {
       setInviteError('Erreur de connexion au serveur')
@@ -255,6 +261,8 @@ export default function TeamPage() {
 
       setEditTarget(null)
       setEditing(false)
+      setSuccessMessage(`Rôle modifié avec succès`)
+      setTimeout(() => setSuccessMessage(null), 5000)
       await fetchTeam()
     } catch {
       setEditError('Erreur de connexion au serveur')
@@ -288,6 +296,8 @@ export default function TeamPage() {
 
       setRevokeTarget(null)
       setRevoking(false)
+      setSuccessMessage(`Accès révoqué avec succès`)
+      setTimeout(() => setSuccessMessage(null), 5000)
       await fetchTeam()
     } catch {
       alert('Erreur de connexion au serveur')
@@ -378,6 +388,22 @@ export default function TeamPage() {
           </Button>
         )}
       </div>
+
+      {/* Success Message */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <span className="text-sm font-medium">{successMessage}</span>
+          </div>
+          <button
+            onClick={() => setSuccessMessage(null)}
+            className="text-green-600 hover:text-green-800"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Role Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
