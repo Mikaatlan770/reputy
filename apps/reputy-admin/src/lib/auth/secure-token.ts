@@ -18,12 +18,14 @@ const TOKEN_KEY = `reputy_client_token${ENV_SUFFIX}`
 
 /**
  * Charge le plugin Capacitor dynamiquement.
- * Le commentaire webpackIgnore empêche Next.js / webpack de résoudre
- * le module au build time (il n'est disponible que dans le shell natif).
+ * new Function() rend l'import INVISIBLE à l'analyse statique de webpack / Next.js.
+ * → Plus de "Module not found" au build web.
+ * → Le module n'est chargé QUE au runtime, dans le shell natif Capacitor.
  */
 async function getCapacitorPlugin() {
-  // @ts-ignore — module disponible uniquement dans le shell Capacitor
-  const mod = await import(/* webpackIgnore: true */ 'capacitor-secure-storage-plugin')
+  // eslint-disable-next-line no-new-func
+  const dynamicImport = new Function('specifier', 'return import(specifier)')
+  const mod = await dynamicImport('capacitor-secure-storage-plugin')
   return mod.SecureStoragePlugin
 }
 
