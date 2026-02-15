@@ -82,6 +82,14 @@ function CreditsSection() {
   // Normalise billing via BillingUI (source unique, testée)
   const b = billing ? toBillingUIFromClient(billing) : null
 
+  // Détecte plan Bronze (aucun crédit mensuel inclus)
+  const sub = credits?.subscription
+  const isNoIncludedCredits =
+    !!sub &&
+    (sub.smsTotal ?? 0) === 0 &&
+    (sub.emailTotal ?? 0) === 0 &&
+    (sub.aiTotal ?? 0) === 0
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -121,6 +129,28 @@ function CreditsSection() {
           </div>
         )}
       </div>
+
+      {/* Bannière Bronze — aucun crédit mensuel inclus */}
+      {isNoIncludedCredits && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg dark:bg-amber-950/20 dark:border-amber-800">
+          <div>
+            <p className="font-medium text-amber-800 dark:text-amber-200">
+              Plan Bronze — Aucun crédit mensuel inclus
+            </p>
+            <p className="text-sm text-amber-700 dark:text-amber-300 mt-0.5">
+              Achetez des packs ou passez à Argent pour des crédits SMS, Email et IA inclus.
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" size="sm" asChild>
+              <a href="/billing">Acheter un pack</a>
+            </Button>
+            <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white" asChild>
+              <a href="/billing">Comparer les plans</a>
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Abonnement (mensuel) */}
