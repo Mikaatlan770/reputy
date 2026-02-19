@@ -8,7 +8,7 @@
   ],
   "host_permissions": [
     "https://pro.doctolib.fr/*",
-    "https://api.reputy.fr/*",
+    "https://api.reputyapp.com/*",
     "http://localhost:*/*",
     "http://127.0.0.1:*/*",
     "http://[::1]:*/*"
