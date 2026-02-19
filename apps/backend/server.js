@@ -12329,9 +12329,13 @@ try {
   // P0.1: Validate secrets before starting
   validateProductionSecrets();
   
-  // Auto-apply pending SQL migrations (lib/migrations/*.sql)
+  // Auto-initialize schema + apply pending SQL migrations (lib/migrations/*.sql)
   if (storage.USE_SQLITE) {
     const db = require('./lib/db');
+    if (!db.isInitialized()) {
+      console.log('[REPUTY][STARTUP] Fresh database detected — initializing schema…');
+      db.initSchema();
+    }
     db.runPendingMigrations();
   }
   

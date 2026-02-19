@@ -15,7 +15,8 @@ const path = require('path');
 // Configuration
 // ============================================================
 
-const USE_SQLITE = process.env.USE_SQLITE === '1';
+const USE_SQLITE = process.env.USE_SQLITE === '1'
+  || process.env.REPUTY_STORAGE === 'sqlite';
 const DATA_FILE = path.join(__dirname, '..', 'data.json');
 
 // SQLite modules (lazy loaded)
