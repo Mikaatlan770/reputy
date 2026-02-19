@@ -630,6 +630,91 @@ async function cancelSubscription(subscriptionId, immediate = false) {
 }
 
 // ============================================================
+// Invoices
+// ============================================================
+
+/**
+ * List invoices for a Stripe customer
+ * Returns Stripe-hosted invoice data including PDF URLs
+ * @param {string} customerId - Stripe customer ID
+ * @param {number} limit - Max invoices to return (default 24 = ~2 years monthly)
+ * @returns {Promise<{invoices: Array} | {error: object}>}
+ */
+async function listInvoices(customerId, limit = 24) {
+  const stripeClient = getStripe();
+  
+  if (!stripeClient) {
+    return {
+      error: {
+        errorCategory: 'BILLING_NOT_CONFIGURED',
+        errorCode: 'STRIPE_NOT_CONFIGURED',
+        message: 'La facturation n\'est pas configurée.',
+        action: 'CONTACT_SUPPORT'
+      }
+    };
+  }
+  
+  if (!customerId) {
+    return {
+      error: {
+        errorCategory: 'BILLING_ERROR',
+        errorCode: 'NO_CUSTOMER_ID',
+        message: 'Aucun compte de facturation associé.',
+        action: 'SETUP_BILLING'
+      }
+    };
+  }
+  
+  try {
+    const stripeInvoices = await stripeClient.invoices.list({
+      customer: customerId,
+      limit,
+      status: 'paid', // Only show paid invoices (not drafts or void)
+    });
+    
+    const invoices = stripeInvoices.data.map(inv => ({
+      id: inv.id,
+      number: inv.number,
+      date: new Date(inv.created * 1000).toISOString(),
+      periodStart: inv.period_start ? new Date(inv.period_start * 1000).toISOString() : null,
+      periodEnd: inv.period_end ? new Date(inv.period_end * 1000).toISOString() : null,
+      status: inv.status, // 'paid', 'open', 'void', 'uncollectible'
+      amountDue: inv.amount_due, // in cents
+      amountPaid: inv.amount_paid, // in cents
+      currency: inv.currency,
+      description: inv.description || inv.lines?.data?.[0]?.description || 'Abonnement Reputy',
+      pdfUrl: inv.invoice_pdf, // Direct Stripe PDF download URL
+      hostedUrl: inv.hosted_invoice_url, // Stripe hosted invoice page
+      lines: (inv.lines?.data || []).map(line => ({
+        description: line.description || 'Abonnement',
+        quantity: line.quantity || 1,
+        unitAmount: line.unit_amount_excluding_tax ? parseInt(line.unit_amount_excluding_tax) : (line.amount || 0),
+        amount: line.amount || 0,
+      })),
+      subtotal: inv.subtotal_excluding_tax || inv.subtotal || 0,
+      tax: inv.tax || 0,
+      total: inv.total || 0,
+    }));
+    
+    return { invoices };
+  } catch (err) {
+    logger.logError('STRIPE_LIST_INVOICES_ERROR', {
+      customerId,
+      error: err.message
+    });
+    
+    return {
+      error: {
+        errorCategory: 'BILLING_ERROR',
+        errorCode: 'INVOICES_FETCH_FAILED',
+        message: 'Erreur lors de la récupération des factures.',
+        action: 'RETRY'
+      }
+    };
+  }
+}
+
+// ============================================================
 // Helpers
 // ============================================================
 
@@ -711,5 +796,8 @@ module.exports = {
   
   // Subscriptions
   getSubscription,
-  cancelSubscription
+  cancelSubscription,
+  
+  // Invoices
+  listInvoices
 };

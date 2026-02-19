@@ -10321,6 +10321,48 @@ async function handleMultiPackCheckout(req, res) {
 }
 
 /**
+ * GET /client/billing/invoices - List invoices for the authenticated org
+ * Returns Stripe invoices with PDF download URLs
+ */
+async function handleBillingInvoices(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  
+  if (!auth || !auth.user) {
+    return sendJson(res, 401, { 
+      error: 'Non authentifié',
+      errorCategory: 'AUTH_REQUIRED',
+      action: 'LOGIN'
+    });
+  }
+  // RBAC: owner/admin can view invoices
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
+  
+  const org = auth.org;
+  if (!org) {
+    return sendJson(res, 404, { 
+      error: 'Organisation non trouvée',
+      errorCategory: 'ORG_NOT_FOUND'
+    });
+  }
+  
+  const customerId = org.billing?.stripeCustomerId;
+  
+  if (!customerId) {
+    // No Stripe customer yet = no invoices, return empty list (not an error)
+    return sendJson(res, 200, { invoices: [] });
+  }
+  
+  const result = await stripeBilling.listInvoices(customerId);
+  
+  if (result.error) {
+    return sendJson(res, 500, result.error);
+  }
+  
+  return sendJson(res, 200, { invoices: result.invoices });
+}
+
+/**
  * POST /client/billing/portal - Create Stripe customer portal session
  */
 async function handleBillingPortal(req, res) {
@@ -12042,6 +12084,11 @@ const server = http.createServer(async (req, res) => {
   // Get billing status
   if (method === 'GET' && pathname === '/client/billing/status') {
     return handleBillingStatus(req, res);
+  }
+  
+  // List invoices (Stripe)
+  if (method === 'GET' && pathname === '/client/billing/invoices') {
+    return handleBillingInvoices(req, res);
   }
   
   // Create checkout session (Stripe)

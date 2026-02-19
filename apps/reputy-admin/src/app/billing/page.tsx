@@ -34,6 +34,9 @@ import {
   RefreshCw,
   ShoppingCart,
   Bot,
+  Download,
+  FileText,
+  Eye,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -269,6 +272,52 @@ async function createPackCheckoutSession(packId: string): Promise<{ url: string 
   return response.json()
 }
 
+// ===== Invoice types =====
+
+interface StripeInvoice {
+  id: string
+  number: string | null
+  date: string
+  periodStart: string | null
+  periodEnd: string | null
+  status: string
+  amountDue: number
+  amountPaid: number
+  currency: string
+  description: string
+  pdfUrl: string | null
+  hostedUrl: string | null
+  lines: Array<{
+    description: string
+    quantity: number
+    unitAmount: number
+    amount: number
+  }>
+  subtotal: number
+  tax: number
+  total: number
+}
+
+async function fetchInvoices(): Promise<StripeInvoice[]> {
+  const token = await getSecureToken()
+  if (!token) throw new Error('Non authentifié')
+
+  const response = await fetch(`${API_BASE_URL}/client/billing/invoices`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Erreur inconnue' }))
+    throw new Error(error.message || `Erreur ${response.status}`)
+  }
+
+  const data = await response.json()
+  return data.invoices
+}
+
 async function createMultiPackCheckoutSession(items: CartItem[]): Promise<{ url: string }> {
   const token = await getSecureToken()
   if (!token) throw new Error('Non authentifié')
@@ -304,6 +353,9 @@ export default function BillingPage() {
   const [packCheckoutLoading, setPackCheckoutLoading] = useState<string | null>(null)
   const [cart, setCart] = useState<Record<string, number>>({})
   const [cartCheckoutLoading, setCartCheckoutLoading] = useState(false)
+  const [invoices, setInvoices] = useState<StripeInvoice[]>([])
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
+  const [invoicesError, setInvoicesError] = useState<string | null>(null)
 
   // Load billing status
   const loadBilling = useCallback(async () => {
@@ -319,9 +371,24 @@ export default function BillingPage() {
     }
   }, [])
 
+  // Load invoices
+  const loadInvoices = useCallback(async () => {
+    try {
+      setInvoicesLoading(true)
+      setInvoicesError(null)
+      const data = await fetchInvoices()
+      setInvoices(data)
+    } catch (err) {
+      setInvoicesError(err instanceof Error ? err.message : 'Erreur de chargement des factures')
+    } finally {
+      setInvoicesLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadBilling()
-  }, [loadBilling])
+    loadInvoices()
+  }, [loadBilling, loadInvoices])
 
   // Handle checkout
   const handleCheckout = async (planId: string) => {
@@ -891,6 +958,168 @@ export default function BillingPage() {
           <p className="text-xs text-muted-foreground mt-4 pt-4 border-t">
             💡 Les crédits des packs n'expirent jamais et sont consommés après votre quota mensuel.
           </p>
+        </CardContent>
+      </Card>
+
+      {/* Historique des factures */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Receipt className="h-5 w-5 text-primary" />
+                Historique des factures
+              </CardTitle>
+              <CardDescription>
+                Retrouvez et téléchargez toutes vos factures
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={loadInvoices}
+              disabled={invoicesLoading}
+            >
+              <RefreshCw className={cn("h-4 w-4", invoicesLoading && "animate-spin")} />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {invoicesLoading && invoices.length === 0 ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center justify-between p-3">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              ))}
+            </div>
+          ) : invoicesError ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <AlertCircle className="h-8 w-8 text-destructive mb-2" />
+              <p className="text-sm text-muted-foreground mb-3">{invoicesError}</p>
+              <Button size="sm" variant="outline" onClick={loadInvoices}>
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Réessayer
+              </Button>
+            </div>
+          ) : invoices.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <FileText className="h-10 w-10 text-muted-foreground/50 mb-3" />
+              <p className="text-sm text-muted-foreground">
+                Aucune facture pour le moment
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Vos factures apparaîtront ici après votre premier paiement
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-0 divide-y">
+              {invoices.map((invoice) => {
+                const date = new Date(invoice.date).toLocaleDateString('fr-FR', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric',
+                })
+                const amount = invoice.total >= 0
+                  ? `${(invoice.total / 100).toFixed(2)} €`
+                  : `-${(Math.abs(invoice.total) / 100).toFixed(2)} €`
+
+                return (
+                  <div
+                    key={invoice.id}
+                    className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="p-2 rounded-lg bg-muted flex-shrink-0">
+                        <FileText className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">
+                          {invoice.description}
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{date}</span>
+                          {invoice.number && (
+                            <>
+                              <span>•</span>
+                              <span>{invoice.number}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                      <div className="text-right">
+                        <p className="font-semibold text-sm">{amount}</p>
+                        <Badge
+                          variant={invoice.status === 'paid' ? 'success' : 'secondary'}
+                          className="text-[10px] px-1.5"
+                        >
+                          {invoice.status === 'paid' ? 'Payée' : invoice.status === 'open' ? 'En attente' : invoice.status}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-1">
+                        {invoice.pdfUrl && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            asChild
+                          >
+                            <a
+                              href={invoice.pdfUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Télécharger le PDF"
+                            >
+                              <Download className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        )}
+                        {invoice.hostedUrl && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            asChild
+                          >
+                            <a
+                              href={invoice.hostedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Voir la facture en ligne"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {invoices.length > 0 && billing?.hasPaymentMethod && (
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-xs text-muted-foreground">
+                💡 Vous pouvez aussi accéder à toutes vos factures depuis le{' '}
+                <button
+                  className="text-primary underline hover:no-underline"
+                  onClick={handlePortal}
+                  disabled={portalLoading}
+                >
+                  portail Stripe
+                </button>
+                .
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
