@@ -2114,6 +2114,13 @@ function generateVerificationCode() {
  * Create a new session
  */
 function createSession(data, userId, orgId) {
+  // SQLite mode: use session repository for persistence
+  const repos = storage.getRepos();
+  if (repos && repos.session) {
+    return repos.session.createSession(userId, orgId, SESSION_EXPIRY_DAYS);
+  }
+  
+  // Legacy JSON mode
   const token = generateSessionToken();
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
   
@@ -2203,6 +2210,12 @@ function getAuthUser(req, data) {
  * Get user by email
  */
 function getUserByEmail(data, email) {
+  // SQLite mode: use user repository
+  const repos = storage.getRepos();
+  if (repos && repos.user) {
+    return repos.user.getByEmail(email);
+  }
+  // Legacy JSON mode
   return data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
 }
 
@@ -2278,19 +2291,27 @@ function sendEmail(data, to, subject, textContent, htmlContent = null) {
  */
 function createEmailVerification(data, email, orgId = null) {
   const code = generateVerificationCode();
-  const expiresAt = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
   
-  const verification = {
-    id: generateId(),
-    email: email.toLowerCase(),
-    code,
-    orgId,
-    expiresAt,
-    createdAt: nowISO(),
-    usedAt: null
-  };
+  let verification;
   
-  data.emailVerifications.push(verification);
+  // SQLite mode: use email verification repository for persistence
+  const repos = storage.getRepos();
+  if (repos && repos.emailVerification) {
+    verification = repos.emailVerification.createOrUpdate(email, code, orgId);
+  } else {
+    // Legacy JSON mode
+    const expiresAt = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
+    verification = {
+      id: generateId(),
+      email: email.toLowerCase(),
+      code,
+      orgId,
+      expiresAt,
+      createdAt: nowISO(),
+      usedAt: null
+    };
+    data.emailVerifications.push(verification);
+  }
   
   // Send verification email
   sendEmail(
@@ -2317,6 +2338,27 @@ L'équipe Reputy`
 function verifyEmailCode(data, email, code) {
   const normalizedEmail = email.toLowerCase();
   
+  // SQLite mode: use email verification repository
+  const repos = storage.getRepos();
+  if (repos && repos.emailVerification) {
+    const verification = repos.emailVerification.verifyCode(normalizedEmail, code);
+    if (!verification) {
+      // Check if there's an active verification at all (to distinguish NOT_FOUND vs INVALID)
+      const existing = repos.emailVerification.getByEmail(normalizedEmail);
+      if (!existing) {
+        return { valid: false, error: 'CODE_NOT_FOUND' };
+      }
+      if (new Date(existing.expiresAt) < new Date()) {
+        return { valid: false, error: 'CODE_EXPIRED' };
+      }
+      return { valid: false, error: 'CODE_INVALID' };
+    }
+    // Clean up used verification
+    repos.emailVerification.deleteByEmail(normalizedEmail);
+    return { valid: true, verification };
+  }
+  
+  // Legacy JSON mode
   // Find latest unused verification for this email
   const verification = data.emailVerifications
     .filter(v => v.email === normalizedEmail && !v.usedAt)
@@ -6074,10 +6116,41 @@ async function handleSignup(req, res) {
     lastLoginAt: null
   };
   
-  data.orgs.push(org);
-  data.users.push(user);
+  // Persist org + user
+  const repos = storage.getRepos();
+  if (repos) {
+    // SQLite mode: use repositories for persistence
+    repos.org.create({
+      id: orgId,
+      publicKey,
+      name: orgName,
+      email: email.toLowerCase(),
+      vertical,
+      status: 'pending',
+      googlePlaceId: googlePlaceId || null,
+      billing: org.billing,
+      plan: org.plan,
+      negotiated: org.negotiated,
+      options: org.options,
+      quotas: org.quotas,
+      balances: org.balances,
+    });
+    repos.user.create({
+      id: userId,
+      orgId,
+      email: email.toLowerCase(),
+      passwordHash,
+      role: 'owner',
+      name: orgName,
+      emailVerified: false,
+    });
+  } else {
+    // Legacy JSON mode
+    data.orgs.push(org);
+    data.users.push(user);
+  }
   
-  // Create email verification
+  // Create email verification (already SQLite-aware)
   createEmailVerification(data, email, orgId);
   
   saveData(data);
@@ -6180,25 +6253,47 @@ async function handleVerifyEmail(req, res) {
     return sendJson(res, 404, { error: 'USER_NOT_FOUND', message: 'Utilisateur non trouvé' });
   }
   
-  user.emailVerified = true;
-  user.updatedAt = nowISO();
+  const repos = storage.getRepos();
+  let org;
   
-  // Activate org
-  const org = data.orgs.find(o => o.id === user.orgId);
-  if (org && org.status === 'pending') {
-    org.status = 'active';
-    org.updatedAt = nowISO();
+  if (repos) {
+    // SQLite mode: use repositories for persistence
+    repos.user.verifyEmail(user.id);
     
-    // Initialize billing period
-    const period = computePeriod(new Date(), org.billing.startedAt || org.createdAt);
-    org.billing.periodStart = period.periodStart;
-    org.billing.periodEnd = period.periodEnd;
+    org = repos.org.getById(user.orgId);
+    if (org && org.status === 'pending') {
+      // Activate org
+      const period = computePeriod(new Date(), (org.billing && org.billing.startedAt) || org.createdAt);
+      const updatedBilling = {
+        ...(org.billing || {}),
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd
+      };
+      repos.org.update(org.id, { 
+        status: 'active',
+        billing: updatedBilling
+      });
+      org = repos.org.getById(org.id); // refresh
+    }
+  } else {
+    // Legacy JSON mode
+    user.emailVerified = true;
+    user.updatedAt = nowISO();
     
-    // Ensure credits are initialized
-    ensureCurrentPeriod(data, org, false);
+    org = data.orgs.find(o => o.id === user.orgId);
+    if (org && org.status === 'pending') {
+      org.status = 'active';
+      org.updatedAt = nowISO();
+      
+      const period = computePeriod(new Date(), org.billing.startedAt || org.createdAt);
+      org.billing.periodStart = period.periodStart;
+      org.billing.periodEnd = period.periodEnd;
+      
+      ensureCurrentPeriod(data, org, false);
+    }
   }
   
-  // Create session
+  // Create session (already SQLite-aware)
   const session = createSession(data, user.id, user.orgId);
   
   saveData(data);
