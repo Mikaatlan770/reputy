@@ -108,7 +108,7 @@ export default function PrivacyPage() {
                 <li>Droit de retirer votre consentement</li>
               </ul>
               <p className="text-gray-600">
-                Pour exercer ces droits, contactez-nous à : <strong>privacy@reputy.fr</strong>
+                Pour exercer ces droits, contactez-nous à : <strong>privacy@reputyapp.com</strong>
               </p>
             </section>
 
@@ -126,8 +126,8 @@ export default function PrivacyPage() {
                 Pour toute question concernant cette politique :
               </p>
               <ul className="list-none text-gray-600 space-y-1">
-                <li><strong>Email :</strong> privacy@reputy.fr</li>
-                <li><strong>DPO :</strong> dpo@reputy.fr</li>
+                <li><strong>Email :</strong> privacy@reputyapp.com</li>
+                <li><strong>DPO :</strong> dpo@reputyapp.com</li>
                 <li><strong>Adresse :</strong> Reputy, 6 Allée Gustave Eiffel, 92130 Issy-les-Moulineaux</li>
                 <li><strong>SIRET :</strong> 809 760 168 00017 – RCS Nanterre</li>
               </ul>

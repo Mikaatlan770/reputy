@@ -445,7 +445,7 @@ function NewCampaignDialog({
   const previewText = template
     .replace(/\{prenom\}/g, 'Jean')
     .replace(/\{nom\}/g, 'Dupont')
-    .replace(/\{lien_avis\}/g, 'https://reputy.fr/r/abc123')
+    .replace(/\{lien_avis\}/g, 'https://reputyapp.com/r/abc123')
 
   const smsLength = template.length
   const smsSegments = Math.ceil(smsLength / 160) || 1

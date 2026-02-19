@@ -263,8 +263,8 @@ function parseRow(row) {
 /**
  * Build full short URL from code
  * @param {string} code - Short code
- * @param {string} baseUrl - Base URL (e.g., "https://reputy.fr")
- * @returns {string} Full URL (e.g., "https://reputy.fr/r/Ab3xY9kL")
+ * @param {string} baseUrl - Base URL (e.g., "https://reputyapp.com")
+ * @returns {string} Full URL (e.g., "https://reputyapp.com/r/Ab3xY9kL")
  */
 function buildShortUrl(code, baseUrl) {
   // Remove trailing slash from base URL

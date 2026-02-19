@@ -302,7 +302,7 @@ JWT_SECRET=another-secure-random-secret-for-jwt
 CABINET_API_TOKEN=extension-api-token-unique
 ADMIN_COOKIE_SECRET=hmac-cookie-signing-secret
 
-REVIEWS_BASE_URL=https://api.reputy.fr
+REVIEWS_BASE_URL=https://api.reputyapp.com
 ```
 
 #### Génération de secrets sécurisés

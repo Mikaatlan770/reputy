@@ -179,13 +179,13 @@ export default function HistoryPage() {
       const matchesEmail = request.patient.email?.toLowerCase().includes(search)
       if (!matchesName && !matchesPhone && !matchesEmail) return false
     }
-
+    
     // Filtre statut
     if (filterStatus !== 'all' && request.status !== filterStatus) return false
-
+    
     // Filtre canal
     if (filterChannel !== 'all' && request.channel !== filterChannel) return false
-
+    
     return true
   })
 
@@ -237,7 +237,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-
+          
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -251,7 +251,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-
+          
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -265,7 +265,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-
+          
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -279,7 +279,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-
+          
           <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -412,7 +412,7 @@ export default function HistoryPage() {
                             {getInitials(request.patient.name || 'N/A')}
                           </AvatarFallback>
                         </Avatar>
-
+                        
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">
@@ -428,7 +428,7 @@ export default function HistoryPage() {
                               <ChannelIcon className="h-3 w-3" />
                             </div>
                           </div>
-
+                          
                           <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                             {request.patient.phone && (
                               <span className="flex items-center gap-1">
@@ -443,7 +443,7 @@ export default function HistoryPage() {
                               </span>
                             )}
                           </div>
-
+                          
                           <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
@@ -458,7 +458,7 @@ export default function HistoryPage() {
                           </div>
                         </div>
                       </div>
-
+                      
                       {/* Feedback info */}
                       <div className="flex flex-col items-end gap-2">
                         {request.feedback ? (

@@ -113,7 +113,7 @@ export default function CompetitorsPage() {
   const { series: analyticsSeries, loading: analyticsLoading } = useReviewAnalytics('90d', 'month')
 
   // Données établissement actif (réel depuis /client/reviews/stats)
-  const currentEstablishmentData = {
+const currentEstablishmentData = {
     rating: stats?.avgRatingAllTime ?? 0,
     reviewsCount: stats?.totalAllTime ?? 0,
     reviewsLast30d: stats?.totalPeriod ?? 0,
@@ -246,7 +246,7 @@ export default function CompetitorsPage() {
   // Charger mock au montage si pas de données réelles
   useEffect(() => {
     if (!hasRealData && !competitorsLoading) {
-      loadAutoCompetitors()
+    loadAutoCompetitors()
     }
   }, [hasRealData, competitorsLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -565,8 +565,8 @@ export default function CompetitorsPage() {
           </div>
 
           {/* Disclaimer */}
-          <div className="mt-4 flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
-            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div className="mt-4 flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <span>
               {hasRealData ? (
                 <>
@@ -732,12 +732,12 @@ export default function CompetitorsPage() {
                         {statsLoading ? (
                           <Skeleton className="h-5 w-12 mx-auto" />
                         ) : (
-                          <div className="flex items-center justify-center gap-1">
-                            <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                            <span className="font-bold">
+                        <div className="flex items-center justify-center gap-1">
+                          <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                          <span className="font-bold">
                               {currentEstablishmentData.rating.toFixed(1)}
-                            </span>
-                          </div>
+                          </span>
+                        </div>
                         )}
                       </td>
                       <td className="text-center py-4 px-4 font-medium">
@@ -767,7 +767,7 @@ export default function CompetitorsPage() {
                             className="gap-1"
                           >
                             {currentEstablishmentData.reviewsDeltaPct > 0 ? (
-                              <TrendingUp className="h-3 w-3" />
+                          <TrendingUp className="h-3 w-3" />
                             ) : currentEstablishmentData.reviewsDeltaPct < 0 ? (
                               <TrendingDown className="h-3 w-3" />
                             ) : (
@@ -775,7 +775,7 @@ export default function CompetitorsPage() {
                             )}
                             {currentEstablishmentData.reviewsDeltaPct > 0 ? '+' : ''}
                             {Math.round(currentEstablishmentData.reviewsDeltaPct)}%
-                          </Badge>
+                        </Badge>
                         ) : (
                           <span className="text-muted-foreground text-sm">—</span>
                         )}
@@ -889,34 +889,34 @@ export default function CompetitorsPage() {
                         </td>
                         <td className="text-center py-4 px-4">
                           {reviewsLast30d !== null ? (
-                            <Badge
-                              variant={
-                                trend === 'up'
-                                  ? 'success'
-                                  : trend === 'down'
-                                  ? 'destructive'
-                                  : 'secondary'
-                              }
-                              className="gap-1"
-                            >
-                              {trend === 'up' ? (
-                                <TrendingUp className="h-3 w-3" />
-                              ) : trend === 'down' ? (
-                                <TrendingDown className="h-3 w-3" />
-                              ) : (
-                                <Minus className="h-3 w-3" />
-                              )}
-                              {trend === 'up'
-                                ? '+'
+                          <Badge
+                            variant={
+                              trend === 'up'
+                                ? 'success'
                                 : trend === 'down'
-                                ? '-'
-                                : ''}
-                              {Math.abs(
-                                typeof reviewsLast30d === 'number'
-                                  ? reviewsLast30d
-                                  : 0
-                              )}
-                            </Badge>
+                                ? 'destructive'
+                                : 'secondary'
+                            }
+                            className="gap-1"
+                          >
+                            {trend === 'up' ? (
+                              <TrendingUp className="h-3 w-3" />
+                            ) : trend === 'down' ? (
+                              <TrendingDown className="h-3 w-3" />
+                            ) : (
+                              <Minus className="h-3 w-3" />
+                            )}
+                            {trend === 'up'
+                              ? '+'
+                              : trend === 'down'
+                              ? '-'
+                              : ''}
+                            {Math.abs(
+                              typeof reviewsLast30d === 'number'
+                                ? reviewsLast30d
+                                : 0
+                            )}
+                          </Badge>
                           ) : (
                             <span className="text-muted-foreground text-sm">—</span>
                           )}
@@ -926,12 +926,12 @@ export default function CompetitorsPage() {
                         </td>
                         <td className="text-center py-4 px-4">
                           <div className="flex items-center justify-center gap-1">
-                            <Badge
-                              variant={isAuto ? 'outline' : 'secondary'}
-                              className={isAuto ? 'text-slate-500' : ''}
-                            >
-                              {isAuto ? 'Auto' : 'Manuel'}
-                            </Badge>
+                          <Badge
+                            variant={isAuto ? 'outline' : 'secondary'}
+                            className={isAuto ? 'text-slate-500' : ''}
+                          >
+                            {isAuto ? 'Auto' : 'Manuel'}
+                          </Badge>
                             {isReal ? (
                               <Badge variant="outline" className="text-[10px] px-1 py-0 text-green-600 border-green-300">
                                 Google
@@ -984,9 +984,9 @@ export default function CompetitorsPage() {
                                 <ExternalLink className="h-4 w-4" />
                               </Button>
                             ) : (
-                              <Button variant="ghost" size="sm">
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
+                            <Button variant="ghost" size="sm">
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
                             )}
                           </div>
                         </td>
@@ -1050,24 +1050,24 @@ export default function CompetitorsPage() {
                 Pas encore de données d&apos;évolution
               </div>
             ) : (
-              <div className="h-[250px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={evolutionData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="vous"
-                      stroke="#3B82F6"
-                      strokeWidth={2}
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={evolutionData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="vous"
+                    stroke="#3B82F6"
+                    strokeWidth={2}
                       name="Vous (cumulés)"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
             )}
           </CardContent>
         </Card>

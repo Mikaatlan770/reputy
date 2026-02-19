@@ -147,7 +147,7 @@ export default function FAQPage() {
                 Notre équipe support est à votre disposition pour répondre à toutes vos questions.
               </p>
               <ul className="text-gray-600 space-y-1">
-                <li><strong>Email :</strong> support@reputy.fr</li>
+                <li><strong>Email :</strong> support@reputyapp.com</li>
                 <li><strong>Horaires :</strong> Lun-Ven, 9h-18h</li>
               </ul>
             </section>

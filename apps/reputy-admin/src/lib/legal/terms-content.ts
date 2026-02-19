@@ -15,9 +15,9 @@ export const COMPANY_INFO = {
     city: 'Paris',
     country: 'France',
   },
-  email: 'contact@reputy.fr',
+  email: 'contact@reputyapp.com',
   phone: '+33 1 XX XX XX XX',
-  dpo: 'dpo@reputy.fr',
+  dpo: 'dpo@reputyapp.com',
 };
 
 export const TERMS_VERSION = '1.0';

@@ -148,7 +148,7 @@ export function generateInvoiceHtml(invoice: Invoice): string {
   <!-- Footer -->
   <div style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #E5E7EB; text-align: center; color: #9CA3AF; font-size: 12px;">
     <p>Reputy SAS - Capital social: 10 000 € - RCS Paris 123 456 789</p>
-    <p>contact@reputy.fr - www.reputy.fr</p>
+    <p>contact@reputyapp.com - www.reputyapp.com</p>
   </div>
 </body>
 </html>

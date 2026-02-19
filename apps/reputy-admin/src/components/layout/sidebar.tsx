@@ -41,7 +41,7 @@ interface NavItem {
 
 // Navigation items with permission-based visibility
 const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Reputyboard', href: '/', icon: LayoutDashboard },
   { name: 'Installation', href: '/installation', icon: Download, clientOnly: true },
   { name: 'Avis', href: '/reviews', icon: Star, requiredPermission: 'reviews' },
   { name: 'Feedbacks', href: '/feedbacks', icon: ThumbsUp, requiredPermission: 'reviews' },

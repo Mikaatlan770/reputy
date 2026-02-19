@@ -135,11 +135,11 @@ export default function InboxPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Réponses (Inbox)</h1>
-          <p className="text-muted-foreground mt-1">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Réponses (Inbox)</h1>
+        <p className="text-muted-foreground mt-1">
             Centralisez vos avis à traiter et répondez rapidement
-          </p>
+        </p>
         </div>
         <Button
           variant="outline"
@@ -190,13 +190,13 @@ export default function InboxPage() {
                 {statsLoading ? (
                   <Skeleton className="h-8 w-16 mt-1" />
                 ) : (
-                  <p className="text-2xl font-bold">
+                <p className="text-2xl font-bold">
                     {avgResponseTime != null
                       ? avgResponseTime < 24
                         ? `${Math.round(avgResponseTime)}h`
                         : `${Math.round(avgResponseTime / 24)}j`
                       : '—'}
-                  </p>
+                </p>
                 )}
               </div>
             </div>
@@ -247,7 +247,7 @@ export default function InboxPage() {
         <CardContent>
           {/* Loading skeleton */}
           {reviewsLoading && pendingReviews.length === 0 ? (
-            <div className="space-y-3">
+          <div className="space-y-3">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg">
                   <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
@@ -262,14 +262,14 @@ export default function InboxPage() {
             </div>
           ) : pendingReviews.length === 0 && !reviewsError ? (
             /* Empty state */
-            <div className="text-center py-12">
+              <div className="text-center py-12">
               <Inbox className="h-12 w-12 mx-auto text-green-500 mb-4" />
               <h3 className="font-semibold text-foreground">Inbox vide !</h3>
-              <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-sm text-muted-foreground mt-1">
                 Tous les avis ont été traités. Revenez plus tard.
-              </p>
-            </div>
-          ) : (
+                </p>
+              </div>
+            ) : (
             /* Review list */
             <div className="space-y-3">
               {pendingReviews.map((review) => {
@@ -287,7 +287,7 @@ export default function InboxPage() {
                           ? 'bg-amber-50/50 border-amber-200 hover:bg-amber-50'
                           : 'bg-muted/50 border-transparent hover:bg-muted'
                     }`}
-                  >
+                >
                     {/* Review header */}
                     <div className="flex items-start gap-4">
                       <Avatar className="h-10 w-10 flex-shrink-0">
@@ -410,7 +410,7 @@ export default function InboxPage() {
                           <p className="text-xs text-blue-600 flex items-center gap-1">
                             <CheckCircle className="h-3 w-3" />
                             La réponse sera publiée automatiquement sur Google
-                          </p>
+                        </p>
                         )}
                       </div>
                     )}
@@ -421,15 +421,15 @@ export default function InboxPage() {
                         {review.tags.map((tag) => (
                           <Badge key={tag} variant="outline" className="text-[10px]">
                             {tag}
-                          </Badge>
+                      </Badge>
                         ))}
                       </div>
-                    )}
-                  </div>
+                  )}
+                </div>
                 )
               })}
             </div>
-          )}
+            )}
         </CardContent>
       </Card>
     </div>

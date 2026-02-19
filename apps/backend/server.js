@@ -587,7 +587,7 @@ if (IS_PRODUCTION) {
   if (!rawOrigins || !rawOrigins.trim()) {
     throw new Error(
       '[CONFIG] ALLOWED_ORIGINS manquant en production — sinon CORS bloquera tout le frontend.\n' +
-      '  Exemple: ALLOWED_ORIGINS=https://app.reputy.fr,https://admin.reputy.fr'
+      '  Exemple: ALLOWED_ORIGINS=https://app.reputyapp.com,https://reputyapp.com'
     );
   }
 

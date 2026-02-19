@@ -165,7 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function normalizeUrl(url) {
-    const DEFAULT_URL = 'http://127.0.0.1:8787';
+    const DEFAULT_URL = 'https://api.reputyapp.com';
     if (!url) return DEFAULT_URL;
     url = url.trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -193,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
           syncData.apiBaseUrl,
           localData.backendUrl,
           localData.apiBaseUrl,
-          'http://127.0.0.1:8787'
+          'https://api.reputyapp.com'
         )
       );
 

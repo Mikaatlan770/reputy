@@ -5,7 +5,7 @@
  * Each template function returns { subject, text, html }.
  */
 
-const REPUTY_DOMAIN = process.env.REPUTY_DOMAIN || 'https://reputy.fr';
+const REPUTY_DOMAIN = process.env.REPUTY_DOMAIN || 'https://reputyapp.com';
 
 // ============================================================
 // TEMPLATE: review_request

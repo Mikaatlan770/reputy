@@ -312,7 +312,7 @@ export default function InstallationPage() {
               Notre équipe est là pour vous accompagner dans la configuration.
             </p>
             <Button asChild variant="default" className="bg-blue-600 hover:bg-blue-700">
-              <a href="mailto:support@reputy.fr">
+              <a href="mailto:support@reputyapp.com">
                 <Mail className="h-4 w-4 mr-2" />
                 Contacter le support
               </a>

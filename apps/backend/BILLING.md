@@ -31,8 +31,8 @@ STRIPE_PRICE_ID_SILVER=price_...   # Pack Argent
 STRIPE_PRICE_ID_GOLD=price_...     # Pack Or
 
 # Optionnel
-REPUTY_DOMAIN=https://app.reputy.fr
-SUPPORT_BILLING_EMAIL=support@reputy.fr
+REPUTY_DOMAIN=https://reputyapp.com
+SUPPORT_BILLING_EMAIL=support@reputyapp.com
 ```
 
 ### Configuration Stripe
@@ -44,7 +44,7 @@ SUPPORT_BILLING_EMAIL=support@reputy.fr
 2. **Copier les Price IDs** dans les variables d'environnement
 
 3. **Configurer le webhook** dans Stripe Dashboard > Developers > Webhooks
-   - URL: `https://api.reputy.fr/webhooks/stripe`
+   - URL: `https://api.reputyapp.com/webhooks/stripe`
    - Événements à écouter:
      - `checkout.session.completed`
      - `invoice.paid`

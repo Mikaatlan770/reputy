@@ -205,7 +205,7 @@ export default function TermsPage() {
                 Pour toute question concernant ces CGU :
               </p>
               <ul className="list-none text-gray-600 space-y-1">
-                <li><strong>Email :</strong> contact@reputy.fr</li>
+                <li><strong>Email :</strong> contact@reputyapp.com</li>
                 <li><strong>Adresse :</strong> Reputy SAS, [Adresse à compléter]</li>
                 <li><strong>SIRET :</strong> [À compléter]</li>
               </ul>

@@ -164,7 +164,7 @@ export default function FeedbacksPage() {
                 {loading ? (
                   <Skeleton className="h-8 w-10 mt-1" />
                 ) : (
-                  <p className="text-2xl font-bold">{stats.total}</p>
+                <p className="text-2xl font-bold">{stats.total}</p>
                 )}
               </div>
             </div>
@@ -181,7 +181,7 @@ export default function FeedbacksPage() {
                 {loading ? (
                   <Skeleton className="h-8 w-14 mt-1" />
                 ) : (
-                  <p className="text-2xl font-bold">{stats.avgRating}/5</p>
+                <p className="text-2xl font-bold">{stats.avgRating}/5</p>
                 )}
               </div>
             </div>
@@ -198,7 +198,7 @@ export default function FeedbacksPage() {
                 {loading ? (
                   <Skeleton className="h-8 w-10 mt-1" />
                 ) : (
-                  <p className="text-2xl font-bold">{stats.positive}</p>
+                <p className="text-2xl font-bold">{stats.positive}</p>
                 )}
               </div>
             </div>
@@ -215,7 +215,7 @@ export default function FeedbacksPage() {
                 {loading ? (
                   <Skeleton className="h-8 w-10 mt-1" />
                 ) : (
-                  <p className="text-2xl font-bold">{stats.negative}</p>
+                <p className="text-2xl font-bold">{stats.negative}</p>
                 )}
               </div>
             </div>
@@ -257,8 +257,8 @@ export default function FeedbacksPage() {
                     ))}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+          </CardContent>
+        </Card>
           ))}
         </div>
       )}
@@ -297,8 +297,8 @@ export default function FeedbacksPage() {
                         feedback.rating >= 4
                           ? 'bg-green-100 text-green-700'
                           : feedback.rating <= 2
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-amber-100 text-amber-700'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-amber-100 text-amber-700'
                       )}
                     >
                       {getInitials(getPatientName(feedback.patient))}

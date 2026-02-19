@@ -8,7 +8,7 @@ const REPUTY_VERSION = '1.0.0';
 console.log(`[REPUTY][BG] Service worker loaded v${REPUTY_VERSION}`);
 
 // Configuration par défaut
-const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8787';
+const DEFAULT_BACKEND_URL = 'https://api.reputyapp.com';
 
 // ===== UTILITAIRES =====
 

@@ -8,8 +8,8 @@
  * - Gérés via un service email (SendGrid, Mailgun, etc.)
  */
 
-const REPUTY_DOMAIN = process.env.REPUTY_DOMAIN || 'https://reputy.fr';
-const ADMIN_URL = process.env.ADMIN_URL || 'https://app.reputy.fr';
+const REPUTY_DOMAIN = process.env.REPUTY_DOMAIN || 'https://reputyapp.com';
+const ADMIN_URL = process.env.ADMIN_URL || 'https://app.reputyapp.com';
 const CHROME_EXTENSION_URL = 'https://chrome.google.com/webstore/detail/reputy/EXTENSION_ID';
 
 /**
@@ -57,7 +57,7 @@ Public Key : ${publicKey}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Documentation : ${REPUTY_DOMAIN}/docs
-Support : support@reputy.fr
+Support : support@reputyapp.com
 
 Merci de votre confiance !
 
@@ -86,7 +86,12 @@ ${REPUTY_DOMAIN}
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">Reputy</div>
+      <div class="logo" style="display:flex;align-items:center;justify-content:center;gap:10px;">
+        <div style="width:36px;height:36px;background:#2D3748;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+          <svg viewBox="0 0 70 100" width="18" height="26" fill="white"><rect x="0" y="0" width="18" height="100" rx="2"/><path d="M18 0 L50 0 A25 25 0 0 1 50 50 L18 50 L18 35 L45 35 A10 10 0 0 0 45 15 L18 15 Z"/><polygon points="28,48 70,100 52,100 18,56"/></svg>
+        </div>
+        <span style="font-size:28px;font-weight:700;color:#2D3748;">Reputy</span>
+      </div>
       <p style="color: #64748b;">Collectez et gérez vos avis clients</p>
     </div>
     
@@ -141,7 +146,7 @@ ${REPUTY_DOMAIN}
     </div>
     
     <div class="footer">
-      <p>Besoin d'aide ? <a href="mailto:support@reputy.fr" style="color: #3b82f6;">support@reputy.fr</a></p>
+      <p>Besoin d'aide ? <a href="mailto:support@reputyapp.com" style="color: #3b82f6;">support@reputyapp.com</a></p>
       <p>© Reputy • <a href="${REPUTY_DOMAIN}" style="color: #64748b;">${REPUTY_DOMAIN}</a></p>
     </div>
   </div>
@@ -172,7 +177,7 @@ Pour commencer à collecter des avis automatiquement :
 3. Collez votre Public Key : ${publicKey}
 4. Enregistrez !
 
-Besoin d'aide ? Contactez-nous : support@reputy.fr
+Besoin d'aide ? Contactez-nous : support@reputyapp.com
 
 L'équipe Reputy
     `.trim(),

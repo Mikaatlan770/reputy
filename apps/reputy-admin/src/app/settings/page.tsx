@@ -676,10 +676,10 @@ export default function SettingsPage() {
             ) : googleStatus?.google?.connected ? (
               <>
                 {/* Connected state */}
-                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
+              <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
+                <CheckCircle className="h-5 w-5 text-green-600" />
                   <div className="flex-1">
-                    <p className="font-medium text-green-800">Connecté</p>
+                  <p className="font-medium text-green-800">Connecté</p>
                     <p className="text-xs text-green-700">
                       {googleStatus.google.locationName || 'Établissement Google'}
                     </p>
@@ -688,11 +688,11 @@ export default function SettingsPage() {
                         Dernière synchro : {new Date(googleStatus.google.lastSyncAt).toLocaleString('fr-FR')}
                       </p>
                     )}
-                  </div>
+                </div>
                   <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
                     Actif
                   </Badge>
-                </div>
+              </div>
 
                 {/* Sync controls */}
                 <div className="flex gap-2">
@@ -703,7 +703,7 @@ export default function SettingsPage() {
                   >
                     {googleSyncing ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
+            ) : (
                       <RefreshCw className="h-4 w-4" />
                     )}
                     {googleSyncing ? 'Synchronisation...' : 'Synchroniser les avis'}
@@ -730,13 +730,13 @@ export default function SettingsPage() {
                 {/* Not connected state */}
                 <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
                   <AlertTriangle className="h-5 w-5 text-amber-500" />
-                  <div>
+                <div>
                     <p className="font-medium text-gray-800">Non connecté</p>
                     <p className="text-xs text-muted-foreground">
                       Connectez votre compte Google pour importer vos avis automatiquement
-                    </p>
-                  </div>
+                  </p>
                 </div>
+              </div>
 
                 {googleStatus?.configured ? (
                   <Button
@@ -750,13 +750,13 @@ export default function SettingsPage() {
                       <Globe className="h-4 w-4" />
                     )}
                     {googleConnecting ? 'Connexion en cours...' : 'Connecter Google Business'}
-                  </Button>
+              </Button>
                 ) : (
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                     <p className="text-sm text-amber-700">
                       <strong>Configuration requise :</strong> Google Business Profile n&apos;est pas encore configuré sur le serveur. Contactez le support pour activer cette fonctionnalité.
                     </p>
-                  </div>
+            </div>
                 )}
 
                 {/* Info */}
@@ -770,7 +770,7 @@ export default function SettingsPage() {
                         <li>Répondre aux avis directement depuis Reputy</li>
                         <li>Suivre vos statistiques en temps réel</li>
                       </ul>
-                    </div>
+            </div>
                   </div>
                 </div>
               </>

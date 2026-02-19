@@ -298,9 +298,9 @@ export default function ReviewsPage() {
                               {review.authorName}
                             </span>
                             {review.provider === 'google' && (
-                              <Badge variant="google" className="text-[10px]">
-                                Google
-                              </Badge>
+                            <Badge variant="google" className="text-[10px]">
+                              Google
+                            </Badge>
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-1">

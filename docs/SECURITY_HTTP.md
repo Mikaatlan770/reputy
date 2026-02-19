@@ -18,7 +18,7 @@ Dans `apps/backend/.env` :
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:3002,http://127.0.0.1:3001
 
 # Prod (exemple) :
-ALLOWED_ORIGINS=https://app.reputy.fr,https://admin.reputy.fr,https://www.reputy.fr
+ALLOWED_ORIGINS=https://app.reputyapp.com,https://reputyapp.com
 ```
 
 > ⚠️ **Ne jamais mettre `*`** dans `ALLOWED_ORIGINS` en production.

@@ -9,7 +9,7 @@
  */
 
 const ADMIN_URL = process.env.ADMIN_URL || 'http://localhost:3002';
-const SUPPORT_EMAIL = process.env.SUPPORT_BILLING_EMAIL || 'support@reputy.fr';
+const SUPPORT_EMAIL = process.env.SUPPORT_BILLING_EMAIL || 'support@reputyapp.com';
 
 // ============================================================
 // Plan Labels

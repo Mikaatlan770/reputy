@@ -145,7 +145,7 @@ export default async function PublicReviewsPage({ params }: PageProps) {
           <p>
             Avis collectés et vérifiés par{' '}
             <a
-              href="https://reputy.fr"
+              href="https://reputyapp.com"
               target="_blank"
               rel="noopener noreferrer"
               className="text-indigo-500 hover:underline"

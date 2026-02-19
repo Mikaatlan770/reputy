@@ -331,7 +331,7 @@ export default function DashboardPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-foreground">Reputyboard</h1>
           <p className="text-muted-foreground mt-1">Chargement des données...</p>
         </div>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -362,7 +362,7 @@ export default function DashboardPage() {
       {/* Header with Period Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-foreground">Reputyboard</h1>
           <p className="text-muted-foreground mt-1">
             Bienvenue ! Voici un aperçu de votre e-réputation.
           </p>

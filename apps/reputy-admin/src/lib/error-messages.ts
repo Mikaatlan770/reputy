@@ -266,7 +266,7 @@ const ACTIONS: Record<ActionType, ActionConfig> = {
   },
   CONTACT_SUPPORT: {
     label: 'Contacter le support',
-    href: 'mailto:support@reputy.fr'
+    href: 'mailto:support@reputyapp.com'
   },
   RESUBSCRIBE: {
     label: 'Se réabonner',
