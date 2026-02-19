@@ -4,7 +4,7 @@ import type { AutoCompetitor, EstablishmentType, HealthSpecialty } from '@/types
 // ===== DONNÉES MOCK CONCURRENTS AUTO =====
 
 // Noms générés selon le type
-const healthNames: Record<HealthSpecialty, string[]> = {
+const healthNames: Partial<Record<HealthSpecialty, string[]>> = {
   generaliste: [
     'Cabinet Dr. Martin', 'Cabinet Dr. Lefèvre', 'Cabinet Dr. Bernard', 
     'Centre Médical Pasteur', 'Cabinet Dr. Dubois', 'Maison de Santé Centre-Ville',
