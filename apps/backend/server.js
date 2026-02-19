@@ -91,6 +91,9 @@ const { checkRole } = require('./lib/rbac');
 // AI provider (PR-3)
 const { suggestReply: aiSuggestReply } = require('./lib/ai/openai-provider');
 
+// Email provider (Brevo API or dry-run)
+const emailProvider = require('./lib/email/provider');
+
 // Sentry — optional error tracking (PR-5, no-op if SENTRY_DSN absent)
 const sentry = require('./lib/sentry');
 
@@ -2226,31 +2229,48 @@ function checkRateLimit(key, maxAttempts = RATE_LIMIT_MAX_ATTEMPTS) {
 }
 
 /**
- * Simulate sending an email (log + store in outbox)
+ * Send an email via the real provider (Brevo API) or dry-run.
+ * Falls back to console simulation if provider fails.
  */
 function sendEmail(data, to, subject, textContent, htmlContent = null) {
-  const email = {
+  const emailRecord = {
     id: generateId(),
     to,
     subject,
     text: textContent,
     html: htmlContent,
     createdAt: nowISO(),
-    status: 'simulated'
+    status: 'pending'
   };
   
-  data.emailOutbox.push(email);
+  data.emailOutbox.push(emailRecord);
   
-  console.log('\n' + '='.repeat(60));
-  console.log('📧 EMAIL SIMULÉ');
-  console.log('='.repeat(60));
-  console.log(`À: ${to}`);
-  console.log(`Sujet: ${subject}`);
-  console.log('-'.repeat(60));
-  console.log(textContent);
-  console.log('='.repeat(60) + '\n');
+  // Send via real provider (async, fire-and-forget)
+  emailProvider.sendEmail({
+    to,
+    subject,
+    text: textContent,
+    html: htmlContent || undefined,
+  }).then((result) => {
+    emailRecord.status = 'sent';
+    emailRecord.messageId = result.messageId;
+    console.log(`[REPUTY][EMAIL] ✅ Envoyé à ${to} — sujet: "${subject}" — messageId: ${result.messageId}`);
+  }).catch((err) => {
+    emailRecord.status = 'error';
+    emailRecord.error = err.message;
+    console.error(`[REPUTY][EMAIL] ❌ Échec envoi à ${to} — sujet: "${subject}" — erreur: ${err.message}`);
+    // Log in console for debugging
+    console.log('\n' + '='.repeat(60));
+    console.log('📧 EMAIL NON ENVOYÉ (fallback console)');
+    console.log('='.repeat(60));
+    console.log(`À: ${to}`);
+    console.log(`Sujet: ${subject}`);
+    console.log('-'.repeat(60));
+    console.log(textContent);
+    console.log('='.repeat(60) + '\n');
+  });
   
-  return email;
+  return emailRecord;
 }
 
 /**
@@ -5950,29 +5970,14 @@ async function handleSignup(req, res) {
   }
   
   // ═══════════════════════════════════════════════════════════════
-  // VERROU ANTI-ABUS BRONZE
+  // Google Business URL — optionnel au signup, configurable ensuite dans le dashboard
   // ═══════════════════════════════════════════════════════════════
   let googlePlaceId = null;
   
-  if (plan === 'bronze') {
-    // Bronze REQUIRES a Google Business URL
-    if (!googleBusinessUrl) {
-      return sendJson(res, 400, { 
-        error: 'GOOGLE_BUSINESS_REQUIRED',
-        message: 'Le forfait Bronze gratuit nécessite un lien Google Business pour valider votre établissement.',
-        action: 'PROVIDE_GOOGLE_BUSINESS_URL'
-      });
-    }
-    
-    // Extract Google Place ID
+  if (googleBusinessUrl) {
     googlePlaceId = extractGooglePlaceId(googleBusinessUrl);
-    if (!googlePlaceId) {
-      return sendJson(res, 400, { 
-        error: 'INVALID_GOOGLE_BUSINESS_URL',
-        message: 'Le lien Google Business fourni est invalide. Utilisez le format: https://g.page/r/XXXX/review',
-        action: 'PROVIDE_VALID_GOOGLE_URL'
-      });
-    }
+    // Si l'URL est fournie mais invalide, on l'ignore silencieusement
+    // L'utilisateur pourra la configurer correctement dans le dashboard
   }
   
   const data = loadData();
@@ -5980,26 +5985,6 @@ async function handleSignup(req, res) {
   // Check if email already exists
   if (getUserByEmail(data, email)) {
     return sendJson(res, 409, { error: 'EMAIL_ALREADY_EXISTS', message: 'Un compte existe déjà avec cet email' });
-  }
-  
-  // VERROU: Check if Google Place ID already exists (Bronze only)
-  if (plan === 'bronze' && googlePlaceId) {
-    const existingOrg = findOrgByGooglePlaceId(data, googlePlaceId);
-    if (existingOrg) {
-      logger.logAudit('BRONZE_ANTI_ABUSE_BLOCKED', {
-        email,
-        googlePlaceId,
-        existingOrgId: existingOrg.id,
-        existingOrgName: existingOrg.name
-      });
-      
-      return sendJson(res, 409, { 
-        error: 'GOOGLE_BUSINESS_ALREADY_REGISTERED',
-        message: 'Un compte gratuit existe déjà pour cet établissement. Connectez-vous ou passez à une offre payante.',
-        action: 'LOGIN_OR_UPGRADE',
-        hint: 'Si vous êtes le propriétaire de cet établissement, connectez-vous avec l\'email associé ou choisissez un forfait payant.'
-      });
-    }
   }
   
   // Hash password

@@ -17,7 +17,7 @@ const VERTICALS = [
 function SignupForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const planParam = searchParams.get('plan') || 'or'
+  const planParam = searchParams.get('plan') || 'bronze'
   
   const [formData, setFormData] = useState({
     email: '',
