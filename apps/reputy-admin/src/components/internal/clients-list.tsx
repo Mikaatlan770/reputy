@@ -77,7 +77,7 @@ const planColors = {
   bronze: 'bg-amber-700/20 text-amber-400 border-amber-700/30',
   argent: 'bg-slate-400/20 text-slate-300 border-slate-400/30',
   or: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  platinum: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  platinum: 'bg-slate-300/20 text-slate-200 border-slate-300/30',
 }
 
 const planLabels = {
@@ -345,10 +345,10 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
             </p>
           </CardContent>
         </Card>
-        <Card className="bg-slate-800/50 border-purple-500/30">
+        <Card className="bg-slate-800/50 border-slate-300/30">
           <CardContent className="p-4">
-            <p className="text-xs text-purple-400 font-medium">💎 Platinum</p>
-            <p className="text-2xl font-bold text-purple-400">
+            <p className="text-xs text-slate-200 font-medium">💎 Platinum</p>
+            <p className="text-2xl font-bold text-slate-200">
               {orgs.filter(o => getPlanType(o) === 'platinum').length}
             </p>
           </CardContent>
