@@ -25,7 +25,7 @@ const planFilters = [
   { id: 'bronze', label: '🥉 Bronze', color: 'text-amber-400' },
   { id: 'argent', label: '🥈 Argent', color: 'text-slate-300' },
   { id: 'or', label: '🥇 Or', color: 'text-yellow-400' },
-  { id: 'platinum', label: '💎 Platinum', color: 'text-purple-400' },
+  { id: 'platinum', label: '💎 Platinum', color: 'text-slate-200' },
 ]
 
 interface BackofficeLayoutProps {
