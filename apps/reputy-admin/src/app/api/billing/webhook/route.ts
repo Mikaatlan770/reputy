@@ -42,8 +42,8 @@ export async function POST(request: NextRequest) {
     let stripeEvent
     try {
       stripeEvent = verifyStripeSignature(buf, signature, WEBHOOK_SECRET)
-    } catch (err: any) {
-      logAudit('invalid_signature', { message: String(err?.message || '') })
+    } catch (err: unknown) {
+      logAudit('invalid_signature', { message: err instanceof Error ? err.message : String(err) })
       return NextResponse.json({ error: 'invalid_signature' }, { status: 400 })
     }
 
@@ -116,8 +116,8 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json({ received: true })
-  } catch (err: any) {
-    logAudit('processing_failed', { message: String(err?.message || '') })
+  } catch (err: unknown) {
+    logAudit('processing_failed', { message: err instanceof Error ? err.message : String(err) })
     return NextResponse.json({ error: 'processing_failed' }, { status: 500 })
   }
 }

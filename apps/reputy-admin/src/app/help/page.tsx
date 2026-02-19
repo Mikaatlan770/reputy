@@ -122,8 +122,7 @@ export default function HelpPage() {
 
   const handleContactSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    // Mock: envoyer le message
-    console.log('Contact form:', contactForm)
+    // TODO: envoyer le message au backend
     setContactSent(true)
     setTimeout(() => {
       setContactOpen(false)

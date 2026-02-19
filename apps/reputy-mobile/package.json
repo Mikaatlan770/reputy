@@ -17,6 +17,7 @@
     "@capacitor/app": "^6.0.0",
     "@capacitor/splash-screen": "^6.0.0",
     "@capacitor/status-bar": "^6.0.0",
+    "@capacitor/haptics": "^6.0.0",
     "capacitor-secure-storage-plugin": "^0.10.0"
   },
   "devDependencies": {

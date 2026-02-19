@@ -185,6 +185,71 @@ const schemas = {
     token: z.string({ required_error: 'Token requis' }).min(1, 'Token requis'),
     newPassword: z.string().min(8, 'Mot de passe min 8 caractères').optional(),
   }),
+
+  // ============ Campaigns & Contacts ============
+
+  /**
+   * POST /client/contacts
+   */
+  contactCreate: z.object({
+    firstName: z.string().max(100).optional(),
+    lastName: z.string().max(100).optional(),
+    email: z.string().email('Email invalide').optional(),
+    phone: z.string().max(30).optional(),
+    tags: z.array(z.string()).optional(),
+  }).refine(data => data.email || data.phone, {
+    message: 'Email ou téléphone requis',
+  }),
+
+  /**
+   * POST /client/contacts/import
+   */
+  contactImport: z.object({
+    contacts: z.array(z.object({
+      firstName: z.string().max(100).optional(),
+      lastName: z.string().max(100).optional(),
+      email: z.string().email().optional(),
+      phone: z.string().max(30).optional(),
+    })).min(1, 'Au moins 1 contact requis').max(5000, 'Maximum 5000 contacts par import'),
+    source: z.enum(['import_csv', 'import_excel']).optional().default('import_csv'),
+  }),
+
+  /**
+   * POST /client/campaigns
+   */
+  campaignCreate: z.object({
+    name: z.string({ required_error: 'Nom requis' })
+      .min(2, 'Nom trop court (min 2)')
+      .max(200, 'Nom trop long (max 200)'),
+    type: z.enum(['review', 'marketing']).optional().default('review'),
+    channel: z.enum(['sms', 'email'], { required_error: 'Canal requis (sms ou email)' }),
+    template: z.string().max(2000).optional(),
+    subject: z.string().max(200).optional(),
+    scheduledAt: z.string().optional(),
+    spamThreshold: z.number().int().min(1).max(10).optional().default(3),
+  }),
+
+  /**
+   * PUT /client/campaigns/:id
+   */
+  campaignUpdate: z.object({
+    name: z.string().min(2).max(200).optional(),
+    template: z.string().max(2000).optional(),
+    subject: z.string().max(200).optional(),
+    scheduledAt: z.string().nullable().optional(),
+    spamThreshold: z.number().int().min(1).max(10).optional(),
+    status: z.enum(['draft', 'paused']).optional(),
+  }),
+
+  /**
+   * POST /client/campaigns/:id/send
+   */
+  campaignSend: z.object({
+    contactIds: z.array(z.string()).min(1, 'Au moins 1 destinataire requis').optional(),
+    sendAll: z.boolean().optional(),
+  }).refine(data => data.sendAll || (data.contactIds && data.contactIds.length > 0), {
+    message: 'contactIds ou sendAll requis',
+  }),
 };
 
 // ============ EXPORTS ============

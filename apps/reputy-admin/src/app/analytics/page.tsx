@@ -198,7 +198,7 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       {/* Header + Period Selector */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Statistiques</h1>
           <p className="text-muted-foreground mt-1">
@@ -207,8 +207,8 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Period Selector */}
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-muted-foreground" />
+        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
+          <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
           <div className="flex gap-1 rounded-lg border bg-muted/50 p-1">
             {PERIOD_OPTIONS.map((option) => (
               <Button
@@ -285,12 +285,14 @@ export default function AnalyticsPage() {
       )}
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Vue d&apos;ensemble</TabsTrigger>
-          <TabsTrigger value="themes">Thèmes & Sentiment</TabsTrigger>
-          <TabsTrigger value="response">Temps de réponse</TabsTrigger>
-          <TabsTrigger value="channels">Par source</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-4 px-4">
+          <TabsList className="inline-flex justify-start gap-1 w-max">
+            <TabsTrigger value="overview" className="text-xs sm:text-sm px-2 sm:px-3">Vue d&apos;ensemble</TabsTrigger>
+            <TabsTrigger value="themes" className="text-xs sm:text-sm px-2 sm:px-3">Thèmes &amp; Sentiment</TabsTrigger>
+            <TabsTrigger value="response" className="text-xs sm:text-sm px-2 sm:px-3">Temps de réponse</TabsTrigger>
+            <TabsTrigger value="channels" className="text-xs sm:text-sm px-2 sm:px-3">Par source</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* ============ OVERVIEW TAB ============ */}
         <TabsContent value="overview" className="space-y-6">
@@ -379,7 +381,7 @@ export default function AnalyticsPage() {
                   Les insights apparaîtront quand vous aurez des avis.
                 </p>
               ) : (
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {/* Tendance avis */}
                   <div className={`p-4 rounded-lg border ${
                     reviewsDelta != null && reviewsDelta >= 0
@@ -587,7 +589,7 @@ export default function AnalyticsPage() {
                   </div>
 
                   {/* KPI row */}
-                  <div className="mt-4 grid grid-cols-3 gap-4">
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="p-4 bg-muted/50 rounded-lg text-center">
                       <p className="text-xs text-muted-foreground">Délai moyen</p>
                       <p className="text-lg font-bold">
@@ -645,7 +647,7 @@ export default function AnalyticsPage() {
                   </div>
 
                   {/* Provider cards */}
-                  <div className={`grid gap-4 ${providerData.length <= 3 ? `grid-cols-${providerData.length}` : 'grid-cols-2 md:grid-cols-4'}`}>
+                  <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
                     {providerData.map((p) => (
                       <div key={p.provider} className="text-center p-4 bg-muted/50 rounded-lg">
                         <div

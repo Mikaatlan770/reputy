@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { getSecureToken } from '@/lib/auth/secure-token'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -98,15 +99,14 @@ export default function CollectPage() {
   const [nfcInstructionsOpen, setNfcInstructionsOpen] = useState(false)
   const [selectedShortlink, setSelectedShortlink] = useState<Shortlink | null>(null)
 
-  // Get auth token from localStorage
-  const getAuthToken = useCallback(() => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem('reputy_client_token')
+  // Token auth via secure-token (clé correcte: reputy_client_token_prod)
+  const getAuthToken = useCallback(async () => {
+    return await getSecureToken()
   }, [])
 
   // Fetch shortlinks from API
   const fetchShortlinks = useCallback(async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setLoadingShortlinks(true)
@@ -139,7 +139,7 @@ export default function CollectPage() {
 
   // Create shortlink
   const handleCreate = async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     if (!newTargetUrl) {
@@ -185,7 +185,7 @@ export default function CollectPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return
     
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setDeleting(true)
@@ -208,8 +208,8 @@ export default function CollectPage() {
   }
 
   // Download QR code
-  const downloadQr = useCallback((code: string, format: 'png' | 'svg' = 'png') => {
-    const token = getAuthToken()
+  const downloadQr = useCallback(async (code: string, format: 'png' | 'svg' = 'png') => {
+    const token = await getAuthToken()
     if (!token) return
     
     fetch(`${BACKEND_URL}/client/shortlinks/${code}/qr?format=${format}`, {
@@ -344,7 +344,7 @@ export default function CollectPage() {
       {/* Widget & Badge Section */}
       <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-purple-500/5">
         <CardContent className="p-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-primary/10 rounded-xl">
                 <Globe className="h-8 w-8 text-primary" />
@@ -356,7 +356,7 @@ export default function CollectPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-6">
               <div className="text-right">
                 <div className="flex items-center gap-4 text-sm">
                   <span className="flex items-center gap-1">
@@ -380,23 +380,25 @@ export default function CollectPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="qr" className="space-y-6">
-        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
-          <TabsTrigger value="qr" className="gap-1">
-            <QrCode className="h-4 w-4" /> QR
-          </TabsTrigger>
-          <TabsTrigger value="nfc" className="gap-1">
-            <Nfc className="h-4 w-4" /> NFC
-          </TabsTrigger>
-          <TabsTrigger value="sms" className="gap-1">
-            <MessageSquare className="h-4 w-4" /> SMS
-          </TabsTrigger>
-          <TabsTrigger value="email" className="gap-1">
-            <Mail className="h-4 w-4" /> Email
-          </TabsTrigger>
-          <TabsTrigger value="doctolib" className="gap-1">
-            <Stethoscope className="h-4 w-4" /> Doctolib
-          </TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-4 px-4">
+          <TabsList className="inline-flex justify-start gap-1 w-max">
+            <TabsTrigger value="qr" className="gap-1 text-xs sm:text-sm px-2 sm:px-3">
+              <QrCode className="h-4 w-4" /> QR
+            </TabsTrigger>
+            <TabsTrigger value="nfc" className="gap-1 text-xs sm:text-sm px-2 sm:px-3">
+              <Nfc className="h-4 w-4" /> NFC
+            </TabsTrigger>
+            <TabsTrigger value="sms" className="gap-1 text-xs sm:text-sm px-2 sm:px-3">
+              <MessageSquare className="h-4 w-4" /> SMS
+            </TabsTrigger>
+            <TabsTrigger value="email" className="gap-1 text-xs sm:text-sm px-2 sm:px-3">
+              <Mail className="h-4 w-4" /> Email
+            </TabsTrigger>
+            <TabsTrigger value="doctolib" className="gap-1 text-xs sm:text-sm px-2 sm:px-3">
+              <Stethoscope className="h-4 w-4" /> Doctolib
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* QR Code Tab - REAL DATA */}
         <TabsContent value="qr">
@@ -440,17 +442,14 @@ export default function CollectPage() {
                           </div>
                           <div>
                             <p className="font-medium">{link.label}</p>
-                            <p className="text-xs text-muted-foreground font-mono">
-                              {link.shortUrl}
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(link.createdAt).toLocaleDateString('fr-FR')}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="text-right">
                             <p className="text-sm font-medium">{link.clicks} clics</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(link.createdAt).toLocaleDateString('fr-FR')}
-                            </p>
                           </div>
                           <div className="flex gap-1">
                             <Button variant="ghost" size="icon" onClick={() => downloadQr(link.code, 'png')} title="Télécharger PNG">
@@ -536,17 +535,14 @@ export default function CollectPage() {
                         </div>
                         <div>
                           <p className="font-medium">{link.label}</p>
-                          <p className="text-xs text-muted-foreground font-mono">
-                            {link.shortUrl}
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(link.createdAt).toLocaleDateString('fr-FR')}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <p className="text-sm font-medium">{link.clicks} scans</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(link.createdAt).toLocaleDateString('fr-FR')}
-                          </p>
                         </div>
                         <Badge variant="success">Actif</Badge>
                         <div className="flex gap-1">

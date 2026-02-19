@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { getSecureToken } from '@/lib/auth/secure-token'
 import { useRouter } from 'next/navigation'
 import { useAuth, useIsClient } from '@/lib/auth'
 import { parseBackendError, isErrorResponse } from '@/lib/error-messages'
@@ -62,15 +63,14 @@ export default function InstallationsPage() {
   const [revokeTarget, setRevokeTarget] = useState<Installation | null>(null)
   const [revoking, setRevoking] = useState(false)
 
-  // Get auth token from localStorage
-  const getAuthToken = useCallback(() => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem('reputy_client_token')
+  // Token auth via secure-token (clé correcte: reputy_client_token_prod)
+  const getAuthToken = useCallback(async () => {
+    return await getSecureToken()
   }, [])
 
   // Fetch installations
   const fetchInstallations = useCallback(async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setLoading(true)
@@ -102,7 +102,7 @@ export default function InstallationsPage() {
 
   // Create installation
   const handleCreate = async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setCreating(true)
@@ -143,7 +143,7 @@ export default function InstallationsPage() {
   const handleRevoke = async () => {
     if (!revokeTarget) return
     
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setRevoking(true)

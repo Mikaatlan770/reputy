@@ -19,6 +19,12 @@ const reviewRepo = require('./review.repo');
 const emailOutboxRepo = require('./email-outbox.repo');
 const mrrSnapshotRepo = require('./mrr-snapshots.repo');
 const membershipRepo = require('./membership.repo');
+const contactRepo = require('./contact.repo');
+const campaignRepo = require('./campaign.repo');
+const scheduledSendRepo = require('./scheduled-send.repo');
+const aiAutoReplyRepo = require('./ai-auto-reply.repo');
+const workerHeartbeatRepo = require('./worker-heartbeat.repo');
+const cronLocksRepo = require('./cron-locks.repo');
 
 module.exports = {
   org: orgRepo,
@@ -35,5 +41,11 @@ module.exports = {
   review: reviewRepo,
   emailOutbox: emailOutboxRepo,
   mrrSnapshot: mrrSnapshotRepo,
-  membership: membershipRepo
+  membership: membershipRepo,
+  contact: contactRepo,
+  campaign: campaignRepo,
+  scheduledSend: scheduledSendRepo,
+  aiAutoReply: aiAutoReplyRepo,
+  workerHeartbeat: workerHeartbeatRepo,
+  cronLocks: cronLocksRepo,
 };

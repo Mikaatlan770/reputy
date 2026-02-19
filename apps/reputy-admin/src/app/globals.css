@@ -26,6 +26,14 @@
     --input: 214 32% 91%;
     --ring: 217 91% 60%;
     --radius: 0.75rem;
+
+    /* Mobile layout dimensions */
+    --topbar-h: 4rem;       /* 64px */
+    --bottomnav-h: 56px;
+
+    /* iOS safe areas (set by viewport-fit=cover) */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   * {
@@ -65,6 +73,25 @@
 /* Smooth transitions */
 .transition-sidebar {
   transition: padding-left 300ms ease-in-out, margin-left 300ms ease-in-out;
+}
+
+/* ============================================================
+ * MOBILE — Capacitor / iOS safe areas
+ * ============================================================ */
+
+/* Disable long-press context menu in WebView (Safari/WKWebView) */
+@media (max-width: 767px) {
+  * {
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Prevent text selection on nav elements (mobile only) */
+@media (max-width: 767px) {
+  nav, header, footer {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 

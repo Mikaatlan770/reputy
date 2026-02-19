@@ -1,14 +1,20 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useCallback } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store'
 import { useAuth } from '@/lib/auth'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
+import { MobileBottomNav } from './mobile-bottom-nav'
 import { cn } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
 import { LOGIN_URL } from '@/lib/constants'
+import { useNetworkStatus } from '@/lib/network-status'
+import { OfflineScreen } from '@/components/offline-screen'
+import { OfflineBanner } from '@/components/offline-banner'
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh'
+import { hapticImpact } from '@/lib/haptics'
 import type { Location, UserCivility } from '@/types'
 
 interface AppLayoutProps {
@@ -19,6 +25,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname()
   const { sidebarOpen, initialize, setMemberships, setUserLocations, setCurrentLocation, setCurrentUser, setOrgSettings } = useAppStore()
   const auth = useAuth()
+  const { online } = useNetworkStatus()
+
+  // Pull-to-refresh : reload + haptic feedback (V1)
+  const handlePullRefresh = useCallback(async () => {
+    await hapticImpact('light')
+    window.location.reload()
+  }, [])
+  usePullToRefresh(handlePullRefresh, { disabled: !online })
 
   useEffect(() => {
     initialize()
@@ -31,15 +45,24 @@ export function AppLayout({ children }: AppLayoutProps) {
       setMemberships(auth.memberships)
       
       // Map memberships → Location[] for rétrocompat with topbar/other pages
+      // Include lat/lng/specialty/address from clientOrg for the active org
+      const clientOrg = auth.clientOrg
       const locs: Location[] = auth.memberships.map(m => ({
         id: m.orgId,
         name: m.orgName,
-        address: '',
+        address: (m.orgId === clientOrg?.id ? clientOrg?.address : '') || '',
         city: '',
         country: 'France',
         googleConnected: false,
         googleSessionValid: false,
         reviewLink: '',
+        // Establishment info for competitor search
+        ...(m.orgId === clientOrg?.id ? {
+          lat: clientOrg?.lat ?? undefined,
+          lng: clientOrg?.lng ?? undefined,
+          specialty: (clientOrg?.specialty as Location['specialty']) ?? undefined,
+          establishmentType: (clientOrg?.vertical === 'health' ? 'health' : clientOrg?.vertical === 'food' ? 'restaurant' : 'commerce') as Location['establishmentType'],
+        } : {}),
         healthMode: m.orgVertical === 'health',
         createdAt: m.acceptedAt || '',
       }))
@@ -101,6 +124,12 @@ export function AppLayout({ children }: AppLayoutProps) {
     return <>{children}</>
   }
 
+  // Phase B: Offline screen — pas de réseau au launch
+  // SUPER_ADMIN garde l'accès (lecture cache navigateur possible)
+  if (!online && auth.mode !== 'SUPER_ADMIN') {
+    return <OfflineScreen onRetry={() => window.location.reload()} />
+  }
+
   // Loading state
   if (auth.loading) {
     return (
@@ -122,16 +151,33 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar />
+      {/* Phase B: Banner offline si perte réseau en cours d'utilisation */}
+      <OfflineBanner online={online} onRetry={() => window.location.reload()} />
+
+      {/* Sidebar — desktop only (hidden on mobile, bottom nav replaces it) */}
+      <div className="hidden md:flex">
+        <Sidebar />
+      </div>
+
       <Topbar />
+
       <main
         className={cn(
-          'pt-16 transition-all duration-300',
-          sidebarOpen ? 'pl-64' : 'pl-16'
+          'transition-all duration-300',
+          // Mobile: no left padding (sidebar hidden), bottom padding for bottom nav
+          'pl-0 pb-[calc(var(--bottomnav-h)+var(--safe-bottom))]',
+          // Mobile: top padding = topbar height + safe area
+          'pt-[calc(var(--topbar-h)+var(--safe-top))]',
+          // Desktop: left padding depends on sidebar state, normal top/bottom padding
+          sidebarOpen ? 'md:pl-64' : 'md:pl-16',
+          'md:pt-16 md:pb-0'
         )}
       >
-        <div className="p-6">{children}</div>
+        <div className="p-4 md:p-6">{children}</div>
       </main>
+
+      {/* Mobile bottom navigation — md:hidden built-in */}
+      <MobileBottomNav />
     </div>
   )
 }

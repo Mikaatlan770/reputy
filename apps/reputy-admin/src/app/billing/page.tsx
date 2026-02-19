@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { getSecureToken } from '@/lib/auth/secure-token'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -186,13 +187,8 @@ type CartItem = {
 // API Functions
 // ============================================================
 
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('reputy_client_token')
-}
-
 async function fetchBillingStatus(): Promise<BillingStatus> {
-  const token = getAuthToken()
+  const token = await getSecureToken()
   if (!token) throw new Error('Non authentifié')
 
   const response = await fetch(`${API_BASE_URL}/client/billing/status`, {
@@ -212,7 +208,7 @@ async function fetchBillingStatus(): Promise<BillingStatus> {
 }
 
 async function createCheckoutSession(planId: string): Promise<{ url: string }> {
-  const token = getAuthToken()
+  const token = await getSecureToken()
   if (!token) throw new Error('Non authentifié')
 
   const response = await fetch(`${API_BASE_URL}/client/billing/checkout`, {
@@ -233,7 +229,7 @@ async function createCheckoutSession(planId: string): Promise<{ url: string }> {
 }
 
 async function createPortalSession(): Promise<{ url: string }> {
-  const token = getAuthToken()
+  const token = await getSecureToken()
   if (!token) throw new Error('Non authentifié')
 
   const response = await fetch(`${API_BASE_URL}/client/billing/portal`, {
@@ -253,7 +249,7 @@ async function createPortalSession(): Promise<{ url: string }> {
 }
 
 async function createPackCheckoutSession(packId: string): Promise<{ url: string }> {
-  const token = getAuthToken()
+  const token = await getSecureToken()
   if (!token) throw new Error('Non authentifié')
 
   const response = await fetch(`${API_BASE_URL}/client/billing/pack/checkout`, {
@@ -274,7 +270,7 @@ async function createPackCheckoutSession(packId: string): Promise<{ url: string 
 }
 
 async function createMultiPackCheckoutSession(items: CartItem[]): Promise<{ url: string }> {
-  const token = getAuthToken()
+  const token = await getSecureToken()
   if (!token) throw new Error('Non authentifié')
 
   const response = await fetch(`${API_BASE_URL}/client/billing/pack/multi-checkout`, {
@@ -585,7 +581,7 @@ export default function BillingPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
               <div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-3xl font-bold">{billing.planLabel || billing.planName}</span>
@@ -900,7 +896,7 @@ export default function BillingPage() {
 
       {/* Dialog Changer de plan */}
       <Dialog open={changePlanOpen} onOpenChange={setChangePlanOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Changer de plan</DialogTitle>
             <DialogDescription>
@@ -908,7 +904,7 @@ export default function BillingPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 py-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-4">
             {Object.values(PLANS).map((plan) => (
               <div
                 key={plan.id}

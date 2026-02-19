@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useAuth } from '@/lib/auth'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { useAuth, useClientOrg } from '@/lib/auth'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Star,
   RefreshCw,
@@ -15,12 +16,9 @@ import {
   Calendar,
   TrendingUp,
   AlertCircle,
-  CheckCircle,
-  Clock,
-  ExternalLink,
   Globe,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, getInitials, formatDateTime } from '@/lib/utils'
 import { WebsiteWidgetManager } from '@/components/embed'
 
 interface PatientInfo {
@@ -52,28 +50,6 @@ function getPatientName(patient?: PatientInfo): string {
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
 
-function getInitials(name?: string | null): string {
-  if (!name || name.trim() === '') return '??'
-  return name
-    .split(' ')
-    .filter(n => n.length > 0)
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2) || '??'
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 function getRatingColor(rating: number): string {
   if (rating >= 4) return 'text-green-600 bg-green-100'
   if (rating >= 3) return 'text-amber-600 bg-amber-100'
@@ -90,6 +66,7 @@ function getRatingLabel(rating: number): string {
 
 export default function FeedbacksPage() {
   const { getClientToken } = useAuth()
+  const clientOrg = useClientOrg()
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -111,6 +88,10 @@ export default function FeedbacksPage() {
         },
       })
       if (!response.ok) {
+        if (response.status === 401) {
+          setError('Session expirée. Reconnectez-vous.')
+          return
+        }
         throw new Error(`HTTP ${response.status}`)
       }
       const data = await response.json()
@@ -127,7 +108,7 @@ export default function FeedbacksPage() {
     fetchFeedbacks()
   }, [fetchFeedbacks])
 
-  // Stats
+  // Stats computed from real data
   const stats = {
     total: feedbacks.length,
     positive: feedbacks.filter((f) => f.rating >= 4).length,
@@ -140,6 +121,10 @@ export default function FeedbacksPage() {
     withComment: feedbacks.filter((f) => f.comment).length,
   }
 
+  // Org info for the widget manager
+  const orgId = clientOrg?.id || 'default'
+  const orgName = clientOrg?.name || 'Mon établissement'
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -147,7 +132,7 @@ export default function FeedbacksPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Feedbacks Patients</h1>
           <p className="text-muted-foreground mt-1">
-            Retours collectés via l'extension Doctolib
+            Retours collectés via l&apos;extension Doctolib
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -176,7 +161,11 @@ export default function FeedbacksPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total</p>
-                <p className="text-2xl font-bold">{stats.total}</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-10 mt-1" />
+                ) : (
+                  <p className="text-2xl font-bold">{stats.total}</p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -189,7 +178,11 @@ export default function FeedbacksPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Note moyenne</p>
-                <p className="text-2xl font-bold">{stats.avgRating}/5</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-14 mt-1" />
+                ) : (
+                  <p className="text-2xl font-bold">{stats.avgRating}/5</p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -202,7 +195,11 @@ export default function FeedbacksPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Positifs (4-5★)</p>
-                <p className="text-2xl font-bold">{stats.positive}</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-10 mt-1" />
+                ) : (
+                  <p className="text-2xl font-bold">{stats.positive}</p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -215,7 +212,11 @@ export default function FeedbacksPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Négatifs (1-2★)</p>
-                <p className="text-2xl font-bold">{stats.negative}</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-10 mt-1" />
+                ) : (
+                  <p className="text-2xl font-bold">{stats.negative}</p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -227,8 +228,11 @@ export default function FeedbacksPage() {
         <Card className="border-red-200 bg-red-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3 text-red-700">
-              <AlertCircle className="h-5 w-5" />
+              <AlertCircle className="h-5 w-5 flex-shrink-0" />
               <p>{error}</p>
+              <Button variant="outline" size="sm" onClick={fetchFeedbacks} className="ml-auto">
+                Réessayer
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -236,12 +240,27 @@ export default function FeedbacksPage() {
 
       {/* Loading State */}
       {loading && !error && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <RefreshCw className="h-8 w-8 mx-auto text-muted-foreground animate-spin mb-4" />
-            <p className="text-muted-foreground">Chargement des feedbacks...</p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-5">
+                <div className="flex items-start gap-4">
+                  <Skeleton className="h-11 w-11 rounded-full flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-40" />
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-12 w-full" />
+                  </div>
+                  <div className="flex gap-0.5">
+                    {[...Array(5)].map((_, j) => (
+                      <Skeleton key={j} className="h-5 w-5" />
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
 
       {/* Empty State */}
@@ -251,7 +270,7 @@ export default function FeedbacksPage() {
             <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
             <h3 className="font-semibold text-foreground">Aucun feedback reçu</h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Les retours patients apparaîtront ici une fois collectés.
+              Les retours patients apparaîtront ici une fois collectés via l&apos;extension Doctolib.
             </p>
           </CardContent>
         </Card>
@@ -278,8 +297,8 @@ export default function FeedbacksPage() {
                         feedback.rating >= 4
                           ? 'bg-green-100 text-green-700'
                           : feedback.rating <= 2
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-amber-100 text-amber-700'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-amber-100 text-amber-700'
                       )}
                     >
                       {getInitials(getPatientName(feedback.patient))}
@@ -302,7 +321,7 @@ export default function FeedbacksPage() {
                         <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {formatDate(feedback.createdAt)}
+                            {formatDateTime(feedback.createdAt)}
                           </span>
                           {feedback.channel && (
                             <span className="flex items-center gap-1">
@@ -316,7 +335,7 @@ export default function FeedbacksPage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         {[1, 2, 3, 4, 5].map((star) => (
                           <Star
                             key={star}
@@ -332,7 +351,7 @@ export default function FeedbacksPage() {
                     </div>
                     {feedback.comment ? (
                       <p className="mt-3 text-sm text-foreground leading-relaxed bg-muted/50 p-3 rounded-lg">
-                        "{feedback.comment}"
+                        &ldquo;{feedback.comment}&rdquo;
                       </p>
                     ) : (
                       <p className="mt-3 text-sm text-muted-foreground italic">
@@ -364,8 +383,8 @@ export default function FeedbacksPage() {
 
       {/* Widget Manager Modal */}
       <WebsiteWidgetManager
-        locationId="loc-1"
-        locationName="Cabinet Dr. Atlan Michael"
+        locationId={orgId}
+        locationName={orgName}
         open={widgetManagerOpen}
         onOpenChange={setWidgetManagerOpen}
         availableReviews={feedbacks.map((f) => ({

@@ -28,6 +28,12 @@ export interface ClientOrg {
   status: 'active' | 'pending' | 'suspended' | 'cancelled'
   publicKey: string
   vertical: 'health' | 'food' | 'business'
+  // Establishment location (for competitor search)
+  lat?: number | null
+  lng?: number | null
+  specialty?: string | null
+  address?: string | null
+  googlePlaceId?: string | null
   billing?: {
     periodStart?: string
     periodEnd?: string

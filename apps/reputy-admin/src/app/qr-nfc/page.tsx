@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { getSecureToken } from '@/lib/auth/secure-token'
 import { useRouter } from 'next/navigation'
 import { useAuth, useIsClient } from '@/lib/auth'
 import { parseBackendError, isErrorResponse } from '@/lib/error-messages'
@@ -73,15 +74,14 @@ export default function QrNfcPage() {
   const [deleteTarget, setDeleteTarget] = useState<Shortlink | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  // Get auth token from localStorage
-  const getAuthToken = useCallback(() => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem('reputy_client_token')
+  // Token auth via secure-token (clé correcte: reputy_client_token_prod)
+  const getAuthToken = useCallback(async () => {
+    return await getSecureToken()
   }, [])
 
   // Fetch shortlinks
   const fetchShortlinks = useCallback(async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setLoading(true)
@@ -114,7 +114,7 @@ export default function QrNfcPage() {
 
   // Create shortlink
   const handleCreate = async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     if (!newTargetUrl) {
@@ -160,7 +160,7 @@ export default function QrNfcPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return
     
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setDeleting(true)
@@ -210,8 +210,8 @@ export default function QrNfcPage() {
   }
 
   // Download QR code (PNG) from backend endpoint
-  const downloadQr = useCallback((code: string) => {
-    const token = getAuthToken()
+  const downloadQr = useCallback(async (code: string) => {
+    const token = await getAuthToken()
     if (!token) return
     
     fetch(`${BACKEND_URL}/client/shortlinks/${code}/qr?format=png`, {
@@ -555,9 +555,9 @@ export default function QrNfcPage() {
                         <a 
                           href={`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=png`}
                           download={`qr-${newShortlink.code}.png`}
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.preventDefault()
-                            const token = getAuthToken()
+                            const token = await getAuthToken()
                             if (!token) return
                             fetch(`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=png`, {
                               headers: { 'Authorization': `Bearer ${token}` }
@@ -581,9 +581,9 @@ export default function QrNfcPage() {
                         <a 
                           href={`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=svg`}
                           download={`qr-${newShortlink.code}.svg`}
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.preventDefault()
-                            const token = getAuthToken()
+                            const token = await getAuthToken()
                             if (!token) return
                             fetch(`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=svg`, {
                               headers: { 'Authorization': `Bearer ${token}` }

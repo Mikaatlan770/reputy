@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { getSecureToken } from '@/lib/auth/secure-token'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useAppStore } from '@/lib/store'
+import { useAuth } from '@/lib/auth'
 import {
   Building2,
   Link2,
@@ -29,20 +31,27 @@ import {
   Filter,
   ToggleLeft,
   ToggleRight,
+  MapPin,
 } from 'lucide-react'
 import { WebsiteWidgetManager } from '@/components/embed'
+import { AddressAutocomplete } from '@/components/address-autocomplete'
+import { useConfigureCompetitors } from '@/lib/competitors/use-competitors'
+import type { PlaceGeometry } from '@/lib/competitors/use-competitors'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
 
 // Plan display labels — maps backend plan slugs to user-friendly names
 const planLabels: Record<string, string> = {
   health_bronze: 'Bronze',
-  health_basic: 'Bronze',  // Legacy alias
-  health_silver: 'Silver',
-  health_gold: 'Gold',
+  health_basic: 'Bronze',   // Legacy alias
+  health_argent: 'Argent',
+  health_or: 'Or',
   health_platinum: 'Platinum',
+  // Legacy aliases
+  health_silver: 'Argent',
+  health_gold: 'Or',
   starter: 'Bronze',
-  pro: 'Silver',
+  pro: 'Argent',
   free: 'Gratuit',
 }
 
@@ -51,14 +60,15 @@ function getPlanLabel(plan?: string): string {
   return planLabels[plan] || plan.charAt(0).toUpperCase() + plan.slice(1)
 }
 
-// Get session token from localStorage (client auth)
-const getAuthToken = () => {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem('reputy_client_token')
+// Token auth via secure-token (clé correcte: reputy_client_token_prod)
+const getAuthToken = async () => {
+  return await getSecureToken()
 }
 
 export default function SettingsPage() {
-  const { currentLocation, orgSettings } = useAppStore()
+  const { currentLocation, orgSettings, setCurrentLocation } = useAppStore()
+  const { clientOrg } = useAuth()
+  const credits = clientOrg?.creditsComputed
   
   // État pour les settings Reputy
   const [googleReviewUrl, setGoogleReviewUrl] = useState('')
@@ -78,14 +88,54 @@ export default function SettingsPage() {
   const [savingRouting, setSavingRouting] = useState(false)
   const [routingSaveSuccess, setRoutingSaveSuccess] = useState(false)
 
+  // État pour les informations d'établissement (adresse + GPS)
+  const [establishmentName, setEstablishmentName] = useState('')
+  const [establishmentAddress, setEstablishmentAddress] = useState('')
+  const [establishmentLat, setEstablishmentLat] = useState<number | null>(null)
+  const [establishmentLng, setEstablishmentLng] = useState<number | null>(null)
+  const [establishmentPlaceId, setEstablishmentPlaceId] = useState<string | null>(null)
+  const [savingEstablishment, setSavingEstablishment] = useState(false)
+  const [establishmentSaveSuccess, setEstablishmentSaveSuccess] = useState(false)
+  const { configure: configureCompetitors } = useConfigureCompetitors()
+
+  // État pour Google Business Profile
+  const [googleStatus, setGoogleStatus] = useState<{
+    configured: boolean
+    google: {
+      connected: boolean
+      accountId?: string | null
+      locationId?: string | null
+      locationName?: string | null
+      connectedAt?: string | null
+      lastSyncAt?: string | null
+      syncStatus?: string
+    }
+  } | null>(null)
+  const [googleLoading, setGoogleLoading] = useState(true)
+  const [googleSyncing, setGoogleSyncing] = useState(false)
+  const [googleConnecting, setGoogleConnecting] = useState(false)
+  const [googleError, setGoogleError] = useState<string | null>(null)
+  const [googleSyncResult, setGoogleSyncResult] = useState<string | null>(null)
+
   // Charger les settings au montage
   useEffect(() => {
     fetchSettings()
     fetchReviewRouting()
+    fetchGoogleStatus()
   }, [])
 
+  // Sync establishment info from store (currentLocation or clientOrg)
+  useEffect(() => {
+    if (currentLocation) {
+      setEstablishmentName(currentLocation.name || '')
+      setEstablishmentAddress(currentLocation.address || '')
+      setEstablishmentLat(currentLocation.lat ?? null)
+      setEstablishmentLng(currentLocation.lng ?? null)
+    }
+  }, [currentLocation])
+
   const fetchSettings = async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) {
       setLoadingSettings(false)
       return
@@ -108,7 +158,7 @@ export default function SettingsPage() {
   }
 
   const saveSettings = async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setSaving(true)
@@ -134,7 +184,7 @@ export default function SettingsPage() {
   }
 
   const fetchReviewRouting = async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) {
       setLoadingRouting(false)
       return
@@ -160,7 +210,7 @@ export default function SettingsPage() {
   }
 
   const saveReviewRouting = async () => {
-    const token = getAuthToken()
+    const token = await getAuthToken()
     if (!token) return
     
     setSavingRouting(true)
@@ -185,10 +235,199 @@ export default function SettingsPage() {
     }
   }
 
-  // Calcul du pourcentage de quota IA utilisé
-  const aiQuotaPercent = orgSettings?.aiQuota
-    ? Math.round((orgSettings.aiQuota.usedThisMonth / orgSettings.aiQuota.monthlyLimit) * 100)
-    : 0
+  // ===== Google Business Profile Functions =====
+
+  const fetchGoogleStatus = async () => {
+    const token = await getAuthToken()
+    if (!token) {
+      setGoogleLoading(false)
+      return
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/google/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setGoogleStatus({ configured: data.configured, google: data.google })
+      }
+    } catch (err) {
+      console.error('Failed to load Google status:', err)
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
+  const connectGoogle = async () => {
+    const token = await getAuthToken()
+    if (!token) return
+
+    setGoogleConnecting(true)
+    setGoogleError(null)
+
+    try {
+      // Step 1: Get auth URL from backend
+      const response = await fetch(`${BACKEND_URL}/client/google/auth-url`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await response.json()
+      
+      if (!data.ok || !data.authUrl) {
+        setGoogleError(data.message || 'Impossible de générer le lien Google')
+        setGoogleConnecting(false)
+        return
+      }
+
+      // Step 2: Open popup for Google OAuth
+      const width = 600
+      const height = 700
+      const left = window.screenX + (window.outerWidth - width) / 2
+      const top = window.screenY + (window.outerHeight - height) / 2
+      
+      const popup = window.open(
+        data.authUrl,
+        'google_oauth',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+      )
+
+      // Step 3: Listen for postMessage from the callback page
+      const handleMessage = async (event: MessageEvent) => {
+        // Validate message type (origin check removed: localhost vs 127.0.0.1 mismatch)
+        if (event.data?.type !== 'GOOGLE_OAUTH_CALLBACK') return
+
+        window.removeEventListener('message', handleMessage)
+
+        const { code, error: oauthError } = event.data as { code: string; state: string; error: string }
+
+        if (oauthError) {
+          setGoogleError(`Erreur Google: ${oauthError}`)
+          setGoogleConnecting(false)
+          return
+        }
+
+        if (code) {
+          try {
+            // Exchange code with backend
+            const callbackResponse = await fetch(`${BACKEND_URL}/client/google/callback`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ code, state: event.data.state }),
+            })
+            const callbackData = await callbackResponse.json()
+            
+            if (callbackData.ok) {
+              await fetchGoogleStatus()
+            } else {
+              setGoogleError(callbackData.message || 'Erreur lors de la connexion')
+            }
+          } catch (callbackErr) {
+            console.error('Google callback error:', callbackErr)
+            setGoogleError('Erreur lors de la connexion à Google')
+          }
+        }
+        setGoogleConnecting(false)
+      }
+
+      window.addEventListener('message', handleMessage)
+
+      // Also check for URL-based fallback (if popup navigates instead of postMessage)
+      const checkUrl = () => {
+        const urlParams = new URLSearchParams(window.location.search)
+        const googleCode = urlParams.get('google_code')
+        if (googleCode) {
+          handleMessage({ data: { type: 'GOOGLE_OAUTH_CALLBACK', code: googleCode, state: urlParams.get('google_state') || '' }, origin: new URL(BACKEND_URL).origin } as MessageEvent)
+          // Clean URL
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+      }
+      checkUrl()
+
+      // Safety: check if popup was closed without completing OAuth
+      const checkPopup = setInterval(() => {
+        try {
+          if (!popup || popup.closed) {
+            clearInterval(checkPopup)
+            // Give a small delay for postMessage to arrive
+            setTimeout(() => {
+              window.removeEventListener('message', handleMessage)
+              setGoogleConnecting(false)
+              fetchGoogleStatus() // Refresh status in case it worked
+            }, 2000)
+          }
+        } catch {
+          // Cross-Origin-Opener-Policy may block popup.closed — ignore
+        }
+      }, 1000)
+
+      // Safety timeout (2 minutes)
+      setTimeout(() => {
+        clearInterval(checkPopup)
+        window.removeEventListener('message', handleMessage)
+        setGoogleConnecting(false)
+      }, 120000)
+    } catch (err) {
+      console.error('Google connect error:', err)
+      setGoogleError('Erreur de connexion à Google')
+      setGoogleConnecting(false)
+    }
+  }
+
+  const disconnectGoogle = async () => {
+    const token = await getAuthToken()
+    if (!token) return
+
+    if (!confirm('Voulez-vous vraiment déconnecter Google Business ? Les avis déjà importés seront conservés.')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/google/disconnect`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.ok) {
+        setGoogleStatus({ configured: googleStatus?.configured || false, google: { connected: false } })
+        setGoogleSyncResult(null)
+      }
+    } catch (err) {
+      console.error('Google disconnect error:', err)
+    }
+  }
+
+  const syncGoogleReviews = async () => {
+    const token = await getAuthToken()
+    if (!token) return
+
+    setGoogleSyncing(true)
+    setGoogleError(null)
+    setGoogleSyncResult(null)
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/google/sync`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await response.json()
+      
+      if (data.ok) {
+        setGoogleSyncResult(`${data.sync.imported} nouveaux avis importés (${data.sync.skipped} déjà existants)`)
+        // Refresh status to update lastSyncAt
+        await fetchGoogleStatus()
+      } else {
+        setGoogleError(data.message || 'Erreur de synchronisation')
+      }
+    } catch (err) {
+      console.error('Google sync error:', err)
+      setGoogleError('Erreur de synchronisation')
+    } finally {
+      setGoogleSyncing(false)
+    }
+  }
+
 
   return (
     <div className="space-y-6">
@@ -417,51 +656,133 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Google Connection */}
-        <Card>
+        {/* Google Business Profile Connection */}
+        <Card className="border-blue-200">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Link2 className="h-5 w-5" />
-              Connexion Google Business
+              <Globe className="h-5 w-5 text-blue-600" />
+              Google Business Profile
             </CardTitle>
             <CardDescription>
-              Connectez votre fiche Google pour synchroniser les avis
+              Connectez votre fiche Google pour synchroniser et répondre aux avis
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {currentLocation?.googleSessionValid ? (
-              <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <div>
-                  <p className="font-medium text-green-800">Connecté</p>
-                  <p className="text-xs text-green-700">Session Google active</p>
-                </div>
+            {googleLoading ? (
+              <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border">
+                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                <p className="text-sm text-muted-foreground">Chargement...</p>
               </div>
-            ) : (
-              <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg border border-amber-200">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
-                <div>
-                  <p className="font-medium text-amber-800">Session expirée</p>
-                  <p className="text-xs text-amber-700">
-                    Reconnectez-vous pour synchroniser les avis
-                  </p>
+            ) : googleStatus?.google?.connected ? (
+              <>
+                {/* Connected state */}
+                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <div className="flex-1">
+                    <p className="font-medium text-green-800">Connecté</p>
+                    <p className="text-xs text-green-700">
+                      {googleStatus.google.locationName || 'Établissement Google'}
+                    </p>
+                    {googleStatus.google.lastSyncAt && (
+                      <p className="text-xs text-green-600 mt-0.5">
+                        Dernière synchro : {new Date(googleStatus.google.lastSyncAt).toLocaleString('fr-FR')}
+                      </p>
+                    )}
+                  </div>
+                  <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
+                    Actif
+                  </Badge>
                 </div>
+
+                {/* Sync controls */}
+                <div className="flex gap-2">
+                  <Button
+                    onClick={syncGoogleReviews}
+                    disabled={googleSyncing}
+                    className="flex-1 gap-2"
+                  >
+                    {googleSyncing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {googleSyncing ? 'Synchronisation...' : 'Synchroniser les avis'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={disconnectGoogle}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    Déconnecter
+                  </Button>
+                </div>
+
+                {/* Sync result */}
+                {googleSyncResult && (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                    <p className="text-sm text-green-700">{googleSyncResult}</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Not connected state */}
+                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  <div>
+                    <p className="font-medium text-gray-800">Non connecté</p>
+                    <p className="text-xs text-muted-foreground">
+                      Connectez votre compte Google pour importer vos avis automatiquement
+                    </p>
+                  </div>
+                </div>
+
+                {googleStatus?.configured ? (
+                  <Button
+                    onClick={connectGoogle}
+                    disabled={googleConnecting}
+                    className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
+                  >
+                    {googleConnecting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Globe className="h-4 w-4" />
+                    )}
+                    {googleConnecting ? 'Connexion en cours...' : 'Connecter Google Business'}
+                  </Button>
+                ) : (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-sm text-amber-700">
+                      <strong>Configuration requise :</strong> Google Business Profile n&apos;est pas encore configuré sur le serveur. Contactez le support pour activer cette fonctionnalité.
+                    </p>
+                  </div>
+                )}
+
+                {/* Info */}
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <Info className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-blue-700 space-y-1">
+                      <p className="font-medium">La connexion Google permet de :</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        <li>Importer automatiquement vos avis Google</li>
+                        <li>Répondre aux avis directement depuis Reputy</li>
+                        <li>Suivre vos statistiques en temps réel</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Error message */}
+            {googleError && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                <p className="text-sm text-red-700">{googleError}</p>
               </div>
             )}
-            <div className="flex gap-2">
-              <Button className="flex-1 gap-1">
-                <RefreshCw className="h-4 w-4" />
-                {currentLocation?.googleSessionValid ? 'Actualiser' : 'Reconnecter'}
-              </Button>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Lien de collecte Google</label>
-              <Input
-                value={currentLocation?.reviewLink || ''}
-                readOnly
-                className="mt-1"
-              />
-            </div>
           </CardContent>
         </Card>
 
@@ -476,12 +797,43 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div>
               <label className="text-sm font-medium">Nom</label>
-              <Input value={currentLocation?.name || ''} className="mt-1" />
+              <Input
+                value={establishmentName}
+                onChange={(e) => setEstablishmentName(e.target.value)}
+                className="mt-1"
+                placeholder="Nom de l'établissement"
+              />
             </div>
             <div>
               <label className="text-sm font-medium">Adresse</label>
-              <Input value={currentLocation?.address || ''} className="mt-1" />
+              <AddressAutocomplete
+                value={establishmentAddress}
+                onSelect={(place: PlaceGeometry) => {
+                  setEstablishmentAddress(place.address)
+                  setEstablishmentLat(place.lat)
+                  setEstablishmentLng(place.lng)
+                  setEstablishmentPlaceId(place.placeId)
+                }}
+                onInputChange={(val) => setEstablishmentAddress(val)}
+                placeholder="Rechercher l'adresse de votre établissement..."
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Saisissez l&apos;adresse pour activer la détection automatique des coordonnées GPS
+              </p>
             </div>
+
+            {/* GPS coordinates display */}
+            {establishmentLat && establishmentLng && (
+              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <MapPin className="h-4 w-4 text-green-600 flex-shrink-0" />
+                <div className="text-sm text-green-700">
+                  <span className="font-medium">Coordonnées GPS détectées :</span>{' '}
+                  {establishmentLat.toFixed(6)}, {establishmentLng.toFixed(6)}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
               <div>
                 <p className="font-medium">Mode Santé</p>
@@ -493,124 +845,126 @@ export default function SettingsPage() {
                 {currentLocation?.healthMode ? 'Activé' : 'Désactivé'}
               </Badge>
             </div>
-            <Button>Enregistrer les modifications</Button>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={async () => {
+                  if (!establishmentLat || !establishmentLng) {
+                    return
+                  }
+                  setSavingEstablishment(true)
+                  setEstablishmentSaveSuccess(false)
+                  try {
+                    const result = await configureCompetitors({
+                      lat: establishmentLat,
+                      lng: establishmentLng,
+                      address: establishmentAddress,
+                      googlePlaceId: establishmentPlaceId || undefined,
+                    })
+                    if (result) {
+                      setEstablishmentSaveSuccess(true)
+                      setTimeout(() => setEstablishmentSaveSuccess(false), 3000)
+                      // Mettre à jour le store pour que la page Concurrence ait les bonnes données
+                      if (currentLocation) {
+                        setCurrentLocation({
+                          ...currentLocation,
+                          address: establishmentAddress,
+                          lat: establishmentLat,
+                          lng: establishmentLng,
+                        })
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Failed to save establishment info:', err)
+                  } finally {
+                    setSavingEstablishment(false)
+                  }
+                }}
+                disabled={savingEstablishment || (!establishmentLat && !establishmentLng)}
+                className="gap-2"
+              >
+                {savingEstablishment ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Enregistrer
+              </Button>
+              {establishmentSaveSuccess && (
+                <span className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" />
+                  Adresse et coordonnées enregistrées !
+                </span>
+              )}
+              {!establishmentLat && !establishmentLng && establishmentAddress && (
+                <span className="text-xs text-amber-600">
+                  Sélectionnez une adresse dans la liste pour détecter les coordonnées GPS
+                </span>
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        {/* Assistant IA - NOUVELLE SECTION */}
-        <Card className="border-violet-200 bg-gradient-to-br from-violet-50/50 to-purple-50/30">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-violet-600" />
-              Assistant IA de réponse
-              {orgSettings?.aiEnabled ? (
+        {/* Assistant IA */}
+        {(credits?.subscription?.aiTotal ?? 0) > 0 && (
+          <Card className="border-violet-200 bg-gradient-to-br from-violet-50/50 to-purple-50/30">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-violet-600" />
+                Assistant IA de réponse
                 <Badge className="bg-violet-600 ml-2">Actif</Badge>
-              ) : (
-                <Badge variant="secondary" className="ml-2">
-                  <Crown className="h-3 w-3 mr-1 text-amber-500" />
-                  Plan Pro
-                </Badge>
-              )}
-            </CardTitle>
-            <CardDescription>
-              Générez des suggestions de réponse intelligentes
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {orgSettings?.aiEnabled ? (
-              <>
-                {/* IA Activée */}
-                <div className="flex items-center gap-3 p-4 bg-violet-100/50 rounded-lg border border-violet-200">
-                  <CheckCircle className="h-5 w-5 text-violet-600" />
-                  <div>
-                    <p className="font-medium text-violet-900">Assistant IA activé</p>
-                    <p className="text-xs text-violet-700">
-                      Générez des suggestions de réponse personnalisées
-                    </p>
-                  </div>
-                </div>
-
-                {/* Quota IA */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="flex items-center gap-1">
-                      <Zap className="h-4 w-4 text-violet-600" />
-                      Suggestions IA ce mois
-                    </span>
-                    <span className="font-medium">
-                      {orgSettings.aiQuota.usedThisMonth} / {orgSettings.aiQuota.monthlyLimit}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-violet-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all"
-                      style={{ width: `${aiQuotaPercent}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {orgSettings.aiQuota.resetDate
-                      ? `Réinitialisation le ${new Date(orgSettings.aiQuota.resetDate).toLocaleDateString('fr-FR')}`
-                      : 'Réinitialisation en fin de période'}
+              </CardTitle>
+              <CardDescription>
+                Générez des suggestions de réponse intelligentes
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-violet-100/50 rounded-lg border border-violet-200">
+                <CheckCircle className="h-5 w-5 text-violet-600" />
+                <div>
+                  <p className="font-medium text-violet-900">Assistant IA activé</p>
+                  <p className="text-xs text-violet-700">
+                    Générez des suggestions de réponse personnalisées
                   </p>
                 </div>
+              </div>
 
-                {/* Info Mode Santé */}
-                {currentLocation?.healthMode && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start gap-2">
-                    <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                    <span>
-                      <strong>Mode Santé actif :</strong> Les suggestions IA respectent automatiquement
-                      les règles déontologiques et n&apos;évoquent jamais d&apos;informations médicales.
-                    </span>
-                  </div>
-                )}
-
-                {/* Options */}
-                <div className="pt-2">
-                  <Button variant="outline" className="w-full">
-                    Gérer les consignes par défaut
-                  </Button>
+              {/* Quota IA réel */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="flex items-center gap-1">
+                    <Zap className="h-4 w-4 text-violet-600" />
+                    Suggestions IA ce mois
+                  </span>
+                  <span className="font-medium">
+                    {credits?.subscription?.aiUsed ?? 0} / {credits?.subscription?.aiTotal ?? 0}
+                  </span>
                 </div>
-              </>
-            ) : (
-              <>
-                {/* IA Non activée - Paywall */}
-                <div className="space-y-4">
-                  <div className="space-y-3">
-                    {[
-                      'Générez 3 suggestions de réponse en 1 clic',
-                      'Choisissez le ton : professionnel, chaleureux, court...',
-                      'Mode Santé intégré (respect déontologie)',
-                      '100 suggestions / mois incluses',
-                    ].map((feature, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                        <span className="text-sm">{feature}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="p-4 bg-gradient-to-r from-violet-100 to-purple-100 rounded-xl border border-violet-200">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-violet-900">Plan Pro</span>
-                      <Badge className="bg-violet-600">Recommandé</Badge>
-                    </div>
-                    <p className="text-xl font-bold text-violet-900">
-                      59€<span className="text-sm font-normal text-violet-600">/mois HT</span>
-                    </p>
-                  </div>
-
-                  <Button className="w-full gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700">
-                    <Crown className="h-4 w-4" />
-                    Passer au Plan Pro
-                  </Button>
+                <div className="h-2 bg-violet-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all"
+                    style={{ width: `${(credits?.subscription?.aiTotal ?? 0) > 0 ? Math.min(100, Math.round(((credits?.subscription?.aiUsed ?? 0) / (credits?.subscription?.aiTotal ?? 1)) * 100)) : 0}%` }}
+                  />
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                <p className="text-xs text-muted-foreground">
+                  Réinitialisation en fin de période
+                </p>
+              </div>
 
-        {/* Plan */}
+              {/* Info Mode Santé */}
+              {currentLocation?.healthMode && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start gap-2">
+                  <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Mode Santé actif :</strong> Les suggestions IA respectent automatiquement
+                    les règles déontologiques et n&apos;évoquent jamais d&apos;informations médicales.
+                  </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Plan & Quotas — données réelles */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -622,34 +976,73 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between p-4 bg-primary/5 rounded-lg border border-primary/20">
               <div>
                 <p className="font-semibold text-primary">
-                  Plan {getPlanLabel(orgSettings?.plan)}
+                  Plan {getPlanLabel(clientOrg?.plan?.code || orgSettings?.plan)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {orgSettings?.plan ? 'Abonnement actif' : 'Gratuit'}
+                  {(clientOrg?.plan?.code || orgSettings?.plan) ? 'Abonnement actif' : 'Gratuit'}
                 </p>
               </div>
               <Badge variant="default">Actif</Badge>
             </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Avis traités</span>
-                <span className="font-medium">1,523 / 2,000</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div className="h-full w-3/4 bg-primary rounded-full" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>SMS envoyés</span>
-                <span className="font-medium">89 / 200</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div className="h-full w-[44%] bg-green-500 rounded-full" />
-              </div>
-            </div>
-            <Button variant="outline" className="w-full">
-              Gérer l&apos;abonnement
+
+            {credits?.subscription ? (
+              <>
+                {/* SMS */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>SMS envoyés</span>
+                    <span className="font-medium">
+                      {credits?.subscription?.smsUsed ?? 0} / {credits?.subscription?.smsTotal ?? 0}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all"
+                      style={{ width: `${(credits?.subscription?.smsTotal ?? 0) > 0 ? Math.min(100, Math.round(((credits?.subscription?.smsUsed ?? 0) / credits?.subscription?.smsTotal) * 100)) : 0}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Emails envoyés</span>
+                    <span className="font-medium">
+                      {credits?.subscription?.emailUsed ?? 0} / {credits?.subscription?.emailTotal ?? 0}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded-full transition-all"
+                      style={{ width: `${(credits?.subscription?.emailTotal ?? 0) > 0 ? Math.min(100, Math.round(((credits?.subscription?.emailUsed ?? 0) / credits?.subscription?.emailTotal) * 100)) : 0}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* IA (si inclus) */}
+                {(credits?.subscription?.aiTotal ?? 0) > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Suggestions IA</span>
+                      <span className="font-medium">
+                        {credits?.subscription?.aiUsed ?? 0} / {credits?.subscription?.aiTotal ?? 0}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-violet-500 rounded-full transition-all"
+                        style={{ width: `${(credits?.subscription?.aiTotal ?? 0) > 0 ? Math.min(100, Math.round(((credits?.subscription?.aiUsed ?? 0) / (credits?.subscription?.aiTotal ?? 1)) * 100)) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Chargement des quotas...</p>
+            )}
+
+            <Button variant="outline" className="w-full" asChild>
+              <a href="/billing">Gérer l&apos;abonnement</a>
             </Button>
           </CardContent>
         </Card>
@@ -769,7 +1162,7 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {['Professionnel', 'Chaleureux', 'Court'].map((tone) => (
               <div key={tone} className="p-4 bg-muted/50 rounded-lg">
                 <p className="font-medium mb-2">{tone}</p>

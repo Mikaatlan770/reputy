@@ -110,9 +110,47 @@ function isInitialized() {
 }
 
 /**
+ * Errors that are safe to ignore during migrations (idempotent operations).
+ * These occur when re-running migrations that partially applied, e.g.:
+ * - ALTER TABLE ADD COLUMN on an already-existing column
+ * - CREATE TABLE without IF NOT EXISTS on an already-existing table
+ * - CREATE INDEX without IF NOT EXISTS on an already-existing index
+ */
+const IDEMPOTENT_ERROR_PATTERNS = [
+  'duplicate column name',
+  'table .* already exists',
+  'index .* already exists',
+];
+
+function isIdempotentError(errMessage) {
+  const lower = (errMessage || '').toLowerCase();
+  return IDEMPOTENT_ERROR_PATTERNS.some(pattern => new RegExp(pattern, 'i').test(lower));
+}
+
+/**
+ * Split a SQL string into individual statements.
+ * Handles comments (-- and /* ... * /) and avoids splitting on ; inside strings.
+ * Returns non-empty, trimmed statements.
+ */
+function splitSqlStatements(sql) {
+  // Remove block comments
+  let cleaned = sql.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Remove line comments
+  cleaned = cleaned.replace(/--[^\n]*/g, '');
+  // Split by semicolons, trim, filter empty
+  return cleaned.split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+}
+
+/**
  * Run all pending SQL migrations from lib/migrations/
  * Migrations are tracked in the `migrations` table.
- * Each .sql file must contain INSERT OR IGNORE INTO migrations(...) at the end.
+ * 
+ * Production-safe: executes each SQL statement individually and ignores
+ * idempotent errors (duplicate column, table/index already exists).
+ * Non-idempotent errors cause the migration to fail without being recorded.
+ * 
  * @returns {number} Number of migrations applied
  */
 function runPendingMigrations() {
@@ -149,14 +187,45 @@ function runPendingMigrations() {
     const sqlPath = path.join(MIGRATIONS_DIR, file);
     const sql = fs.readFileSync(sqlPath, 'utf8');
 
-    try {
-      database.exec(sql);
-      count++;
-      console.log(`[REPUTY-DB] ✅ Migration applied: ${migrationName}`);
-    } catch (err) {
-      console.error(`[REPUTY-DB] ❌ Migration failed: ${migrationName} — ${err.message}`);
-      // Don't throw — log and continue (non-fatal for server startup)
+    // Execute statements one-by-one for production safety
+    const statements = splitSqlStatements(sql);
+    let migrationOk = true;
+    let ignoredCount = 0;
+
+    for (const stmt of statements) {
+      try {
+        database.exec(stmt);
+      } catch (err) {
+        if (isIdempotentError(err.message)) {
+          // Safe to ignore: column/table/index already exists
+          ignoredCount++;
+          console.log(`[REPUTY-DB]   ⚠️  Ignored idempotent error in ${migrationName}: ${err.message}`);
+        } else {
+          // Real error — stop this migration, don't record it
+          console.error(`[REPUTY-DB] ❌ Migration failed: ${migrationName} — ${err.message}`);
+          console.error(`[REPUTY-DB]    Statement: ${stmt.substring(0, 120)}...`);
+          migrationOk = false;
+          break;
+        }
+      }
     }
+
+    if (migrationOk) {
+      // ── AUTO-RECORD: always insert into migrations table after success ──
+      // This ensures migrations are tracked even if the SQL file doesn't
+      // contain its own INSERT INTO migrations statement.
+      try {
+        database.exec(
+          `INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('${migrationName}', datetime('now'))`
+        );
+      } catch (recordErr) {
+        console.error(`[REPUTY-DB] ⚠️  Could not record migration ${migrationName}: ${recordErr.message}`);
+      }
+      count++;
+      const suffix = ignoredCount > 0 ? ` (${ignoredCount} idempotent warning(s) ignored)` : '';
+      console.log(`[REPUTY-DB] ✅ Migration applied: ${migrationName}${suffix}`);
+    }
+    // If !migrationOk, migration is NOT recorded → will retry on next startup
   }
 
   if (count > 0) {

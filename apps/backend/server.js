@@ -33,6 +33,18 @@
 //  - GET    /internal/admin/mrr-history            -> MRR snapshots history (P2)
 //  - POST   /telemetry/extension       -> log depuis extension
 //
+// Google Business Profile (OAuth + API):
+//  - GET  /google/oauth/callback           -> Google OAuth redirect (renders HTML)
+//  - GET  /client/google/status            -> connection status
+//  - GET  /client/google/auth-url          -> generate OAuth URL
+//  - POST /client/google/callback          -> exchange code for tokens
+//  - GET  /client/google/accounts          -> list GBP accounts/locations
+//  - POST /client/google/select-location   -> select a location
+//  - POST /client/google/sync              -> sync reviews from Google
+//  - POST /client/google/post-reply/:id    -> post reply to Google
+//  - POST /client/google/disconnect        -> disconnect Google
+//  - GET  /client/google/sync-log          -> sync history
+//
 // Public API (lecture seule, pas d'auth):
 //  - GET    /public/org/by-key/:publicKey -> info org par publicKey
 //
@@ -84,6 +96,15 @@ const sentry = require('./lib/sentry');
 
 // Zod validation helper (PR-5)
 const { validateBody, schemas } = require('./lib/validate-body');
+
+// Google Business Profile integration
+const googleOAuth = require('./lib/google/google-oauth');
+const googleBusiness = require('./lib/google/google-business');
+const googleSync = require('./lib/google/google-sync');
+
+// Health monitoring & resilience
+const heartbeatRepo = require('./lib/repositories/worker-heartbeat.repo');
+const circuitBreaker = require('./lib/resilience/circuit-breaker');
 
 // ============ ENVIRONMENT ============
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -242,6 +263,11 @@ const CABINET_API_TOKEN_OLD_HASH = CABINET_API_TOKEN_OLD
 // P1.4: Set version in logger
 logger.setVersion(VERSION);
 
+// ============ P1.6: MESSAGING KILL SWITCH ============
+// If enabled, all SMS/email sends are silently skipped (simulated success).
+// Set MESSAGING_DISABLED=1 or MESSAGING_DISABLED=true to activate.
+const MESSAGING_DISABLED = ['1', 'true'].includes((process.env.MESSAGING_DISABLED || '').toLowerCase());
+
 // ============ AUTH CONFIG ============
 const JWT_SECRET = process.env.JWT_SECRET || DEV_FALLBACKS.JWT_SECRET;
 const SESSION_EXPIRY_DAYS = 7;
@@ -316,9 +342,13 @@ function checkRateLimit(key, maxAttempts = AUTH_RATE_LIMIT_MAX_ATTEMPTS) {
 
 /**
  * Apply rate limiting to a request
+ * @param {object} req
+ * @param {object} res
+ * @param {string} route - Rate limit bucket name
+ * @param {number} [maxAttempts] - Override default max attempts per window
  * @returns {boolean} true if request should be blocked
  */
-function applyAuthRateLimit(req, res, route) {
+function applyAuthRateLimit(req, res, route, maxAttempts) {
   // En dev, désactiver le rate limiting pour localhost
   if (!IS_PRODUCTION) {
     const ip = getClientIp(req);
@@ -329,7 +359,7 @@ function applyAuthRateLimit(req, res, route) {
   
   const ip = getClientIp(req);
   const key = `${route}:${ip}`;
-  const result = checkRateLimit(key);
+  const result = checkRateLimit(key, maxAttempts);
   
   if (!result.allowed) {
     // P1.4: Log rate limit blocked
@@ -407,6 +437,15 @@ function applyCors(req, res) {
 
   // No Origin → server-to-server / curl → skip CORS headers
   if (!origin) return 'pass';
+
+  // P1.5: Block 'null' origin in production (sandbox iframes, local file://)
+  if (IS_PRODUCTION && origin === 'null') {
+    logger.logError('CORS_BLOCKED_NULL', { origin, url: req.url, method: req.method });
+    res.statusCode = 403;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'Origin not allowed' }));
+    return 'blocked';
+  }
 
   const isAllowed = ALLOWED_ORIGINS.includes(origin);
 
@@ -990,7 +1029,7 @@ function initSubscriptionCredits(org, periodStart, periodEnd) {
   const nfcIncludedThisPeriod = nfcMonthlyBase;
   
   if (isProrata) {
-    logger.info(`[BILLING] Prorata applied: ratio=${(ratio * 100).toFixed(1)}%, SMS: ${smsMonthlyBase} → ${smsIncludedThisPeriod}, Email: ${emailMonthlyBase} → ${emailIncludedThisPeriod}, AI: ${aiMonthlyBase} → ${aiIncludedThisPeriod}`);
+    logger.logInfo('BILLING_PRORATA', `Prorata applied: ratio=${(ratio * 100).toFixed(1)}%, SMS: ${smsMonthlyBase} → ${smsIncludedThisPeriod}, Email: ${emailMonthlyBase} → ${emailIncludedThisPeriod}, AI: ${aiMonthlyBase} → ${aiIncludedThisPeriod}`);
   }
   
   return {
@@ -1782,6 +1821,28 @@ function enrichOrg(data, org, debugNow = null) {
   const emailIncludedEffective = Math.round(emailMonthlyBase * ratio) + emailGift;
   const aiIncludedEffective = Math.round(aiMonthlyBase * ratio) + aiGift;
   
+  // Get effective billing from centralized function (source of truth for quotas)
+  const eb = effectiveBilling.computeEffectiveBilling({ 
+    org, 
+    now: debugNow ? new Date(debugNow) : new Date(),
+    ensurePeriod: false // Already ensured above
+  });
+
+  // *** creditsComputed: aligned with computeEffectiveBilling (source of truth) ***
+  // Uses eb.quotasEffective (catalog + bonus) for "included" values
+  // Uses eb.monthlyUsed for "used" values
+  // Computes "remaining" from (catalog_included - used) to avoid stale DB values
+  const ebSmsIncluded = eb.quotasEffective.smsIncluded;
+  const ebEmailIncluded = eb.quotasEffective.emailIncluded;
+  const ebAiIncluded = eb.quotasEffective.aiIncluded;
+  const ebSmsUsed = eb.monthlyUsed.sms;
+  const ebEmailUsed = eb.monthlyUsed.email;
+  const ebAiUsed = eb.monthlyUsed.ai;
+  // Remaining = catalog included - used (not from DB smsTotal which may be stale)
+  const ebSmsRemaining = Math.max(0, ebSmsIncluded - ebSmsUsed);
+  const ebEmailRemaining = Math.max(0, ebEmailIncluded - ebEmailUsed);
+  const ebAiRemaining = Math.max(0, ebAiIncluded - ebAiUsed);
+
   const creditsComputed = {
     // Period info
     periodStart: org.billing.periodStart,
@@ -1793,62 +1854,56 @@ function enrichOrg(data, org, debugNow = null) {
     ratioPercent: Math.round(ratio * 100),
     
     // Subscription credits (monthly, expiring)
+    // Source of truth: plan-catalog quotas + bonus (not stale DB subscriptionCredits.smsTotal)
     subscription: {
       // Base monthly values (from plan-catalog)
-      smsMonthlyBase,
-      emailMonthlyBase,
-      aiMonthlyBase,
-      // Effective included values for this period (catalog * prorata)
-      smsIncludedMonthly: Math.round(smsMonthlyBase * ratio),
-      emailIncludedMonthly: Math.round(emailMonthlyBase * ratio),
-      aiIncludedMonthly: Math.round(aiMonthlyBase * ratio),
-      // Gift credits (stored in DB)
-      smsGiftMonthly: smsGift,
-      emailGiftMonthly: emailGift,
-      aiGiftMonthly: aiGift,
-      // Totals and usage (using effective values from plan-catalog)
-      smsTotal: smsIncludedEffective,
-      emailTotal: emailIncludedEffective,
-      aiTotal: aiIncludedEffective,
-      smsUsed: org.subscriptionCredits?.smsUsedThisPeriod || 0,
-      emailUsed: org.subscriptionCredits?.emailUsedThisPeriod || 0,
-      aiUsed: org.subscriptionCredits?.aiUsedThisPeriod || 0,
-      smsRemaining: Math.max(0, smsIncludedEffective - (org.subscriptionCredits?.smsUsedThisPeriod || 0)),
-      emailRemaining: Math.max(0, emailIncludedEffective - (org.subscriptionCredits?.emailUsedThisPeriod || 0)),
-      aiRemaining: Math.max(0, aiIncludedEffective - (org.subscriptionCredits?.aiUsedThisPeriod || 0)),
+      smsMonthlyBase: smsMonthlyBase,
+      emailMonthlyBase: emailMonthlyBase,
+      aiMonthlyBase: aiMonthlyBase,
+      // Effective included values for this period (catalog + bonus)
+      smsIncludedMonthly: ebSmsIncluded,
+      emailIncludedMonthly: ebEmailIncluded,
+      aiIncludedMonthly: ebAiIncluded,
+      // Gift credits
+      smsGiftMonthly: eb.bonusMonthly?.sms || smsGift,
+      emailGiftMonthly: eb.bonusMonthly?.email || emailGift,
+      aiGiftMonthly: eb.bonusMonthly?.ai || aiGift,
+      // Totals and usage — catalog as source of truth
+      smsTotal: ebSmsIncluded,
+      emailTotal: ebEmailIncluded,
+      aiTotal: ebAiIncluded,
+      smsUsed: ebSmsUsed,
+      emailUsed: ebEmailUsed,
+      aiUsed: ebAiUsed,
+      smsRemaining: ebSmsRemaining,
+      emailRemaining: ebEmailRemaining,
+      aiRemaining: ebAiRemaining,
       // Prorata specific
       isProrata,
       ratio,
       expiresAt: org.billing.periodEnd
     },
     
-    // Pack wallet (persistent)
+    // Pack wallet (persistent) — from effectiveBilling
     pack: {
-      smsRemaining: pack.sms,
-      emailRemaining: pack.email,
-      aiRemaining: pack.ai,
+      smsRemaining: eb.packsBalance.sms,
+      emailRemaining: eb.packsBalance.email,
+      aiRemaining: eb.packsBalance.ai,
       persistent: true,
       requiresActiveSubscription: true
     },
     
-    // Totals (subscription + packs)
+    // Totals (subscription remaining + packs) — consistent with catalog
     total: {
-      smsRemaining: Math.max(0, smsIncludedEffective - (org.subscriptionCredits?.smsUsedThisPeriod || 0)) + pack.sms,
-      emailRemaining: Math.max(0, emailIncludedEffective - (org.subscriptionCredits?.emailUsedThisPeriod || 0)) + pack.email,
-      aiRemaining: Math.max(0, aiIncludedEffective - (org.subscriptionCredits?.aiUsedThisPeriod || 0)) + pack.ai
+      smsRemaining: ebSmsRemaining + eb.packsBalance.sms,
+      emailRemaining: ebEmailRemaining + eb.packsBalance.email,
+      aiRemaining: ebAiRemaining + eb.packsBalance.ai
     },
     
     // Status check
-    canSend: org.status === 'active' && (total.sms > 0 || total.email > 0),
+    canSend: org.status === 'active' && ((ebSmsRemaining + eb.packsBalance.sms) > 0 || (ebEmailRemaining + eb.packsBalance.email) > 0),
     subscriptionActive: org.status === 'active'
   };
-  
-  // Get effective billing from new centralized function
-  const eb = effectiveBilling.computeEffectiveBilling({ 
-    org, 
-    now: debugNow ? new Date(debugNow) : new Date(),
-    ensurePeriod: false // Already ensured above
-  });
   
   // Legacy billingComputed for backward compat with old UI
   // Now enriched with effective billing data
@@ -2662,6 +2717,31 @@ function validatePayload(body) {
 
 // ============ PAGE HTML PATIENT ============
 
+/**
+ * XSS Prevention: escape user-supplied values before injecting into HTML.
+ * Prevents script injection via patient names, cabinet names, etc.
+ */
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Validate that a URL is safe for use in HTML href attributes.
+ * Only allows https:// URLs to prevent javascript: or data: injection.
+ */
+function sanitizeUrl(url) {
+  if (!url) return '#';
+  const trimmed = String(url).trim();
+  if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) return trimmed;
+  return '#';
+}
+
 function generateRatingPage(requestId, request, existingFeedback, settings) {
   const patientName = request?.patient?.name || 'Patient';
   const patientFirstName = request?.patient?.firstName || '';
@@ -2673,6 +2753,12 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
   const firstName = patientFirstName || patientName.split(' ')[0]; // Pour le message de remerciement
   const CABINET_NAME = settings?.cabinetName || DEFAULT_SETTINGS.cabinetName;
   const GOOGLE_REVIEW_URL = settings?.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl;
+
+  // XSS-safe versions for HTML injection
+  const displayNameSafe = escapeHtml(displayName);
+  const firstNameSafe = escapeHtml(firstName);
+  const CABINET_NAME_SAFE = escapeHtml(CABINET_NAME);
+  const GOOGLE_REVIEW_URL_SAFE = sanitizeUrl(GOOGLE_REVIEW_URL);
   
   // Si feedback déjà soumis
   if (existingFeedback) {
@@ -2681,7 +2767,7 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Merci ! - ${CABINET_NAME}</title>
+  <title>Merci ! - ${CABINET_NAME_SAFE}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital@1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -2753,7 +2839,7 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
       <span class="logo-text">health</span>
     </div>
     <p class="slogan">La réputation qui inspire confiance</p>
-    <h1>Merci ${displayName} !</h1>
+    <h1>Merci ${displayNameSafe} !</h1>
     <p>Votre avis a déjà été enregistré. Nous vous remercions pour votre retour.</p>
     <div class="rating-display">
       ${[1,2,3,4,5].map(i => `<span class="star ${i <= existingFeedback.rating ? 'filled' : 'empty'}">★</span>`).join('')}
@@ -2769,7 +2855,7 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Donnez votre avis - ${CABINET_NAME}</title>
+  <title>Donnez votre avis - ${CABINET_NAME_SAFE}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital@1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -2952,9 +3038,9 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
     </div>
     <p class="slogan">La réputation qui inspire confiance</p>
     <h1>Votre avis compte</h1>
-    <p class="cabinet-name">${CABINET_NAME}</p>
+    <p class="cabinet-name">${CABINET_NAME_SAFE}</p>
     
-    <p class="greeting">Bonjour ${displayName},</p>
+    <p class="greeting">Bonjour ${displayNameSafe},</p>
     <p class="question">Comment s'est passée votre visite ?</p>
     
     <div class="stars" id="stars">
@@ -2974,7 +3060,7 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
       Envoyer mon avis
     </button>
     
-    <a href="${GOOGLE_REVIEW_URL}" target="_blank" class="btn btn-google" id="googleBtn" style="display:none;text-decoration:none;">
+    <a href="${GOOGLE_REVIEW_URL_SAFE}" target="_blank" rel="noopener noreferrer" class="btn btn-google" id="googleBtn" style="display:none;text-decoration:none;">
       <svg viewBox="0 0 24 24">
         <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
         <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -2992,11 +3078,11 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
   </div>
 
   <script>
-    const requestId = '${requestId}';
+    const requestId = ${JSON.stringify(requestId)};
     const STORAGE_KEY = 'reputy_submitted_' + requestId;
     const ROUTING_THRESHOLD = ${settings?.reviewRouting?.threshold ?? 4};
     const ROUTING_ENABLED = ${settings?.reviewRouting?.enabled !== false};
-    const GOOGLE_URL = '${GOOGLE_REVIEW_URL}';
+    const GOOGLE_URL = ${JSON.stringify(GOOGLE_REVIEW_URL_SAFE)};
     let selectedRating = 0;
     let isSubmitting = false;
     
@@ -3146,7 +3232,7 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
             document.getElementById('successMessage').classList.add('visible');
           }
           
-          document.querySelector('.greeting').textContent = 'Merci ${firstName} !';
+          document.querySelector('.greeting').textContent = 'Merci ' + ${JSON.stringify(firstName)} + ' !';
         } else {
           alert(result.error || 'Une erreur est survenue');
           submitBtn.disabled = false;
@@ -3277,10 +3363,53 @@ function generateExpiredPage() {
 // ============ ROUTE HANDLERS ============
 
 function handleHealth(res) {
-  sendJson(res, 200, { 
-    ok: true, 
+  // ── Deep health check ──
+  // 1) DB check
+  let dbOk = false;
+  try {
+    const db = require('./lib/db');
+    db.get("SELECT 1 AS ok");
+    dbOk = true;
+  } catch (_) { /* db down */ }
+
+  // 2) Worker heartbeats
+  let workers = [];
+  let workersHealthy = true;
+  try {
+    workers = heartbeatRepo.getAll();
+    const unhealthy = heartbeatRepo.getUnhealthy();
+    if (unhealthy.length > 0) workersHealthy = false;
+  } catch (_) { /* heartbeat table may not exist yet */ }
+
+  // 3) Circuit breakers
+  const circuits = circuitBreaker.getStatus();
+  const circuitsOk = Object.values(circuits).every(c => c.state === 'closed');
+
+  // Overall status
+  const ok = dbOk; // DB is critical; workers/circuits are warnings
+  const status = !dbOk ? 'critical'
+    : (!workersHealthy || !circuitsOk) ? 'degraded'
+    : 'healthy';
+
+  sendJson(res, ok ? 200 : 503, {
+    ok,
+    status,
     version: VERSION,
-    storage: storage.USE_SQLITE ? 'sqlite' : 'json'
+    storage: storage.USE_SQLITE ? 'sqlite' : 'json',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    checks: {
+      database: dbOk,
+      workers: workers.map(w => ({
+        name: w.workerName,
+        status: w.status,
+        lastOkAt: w.lastOkAt,
+        lastError: w.lastError,
+        itemsProcessed: w.itemsProcessed,
+        durationMs: w.runDurationMs,
+      })),
+      circuitBreakers: circuits,
+    },
   });
 }
 
@@ -3330,6 +3459,18 @@ async function handleSendReview(req, res) {
   
   const org = auth.org;
   const orgId = org.id;
+
+  // P1.6: Kill switch — silently skip all messaging when MESSAGING_DISABLED
+  if (MESSAGING_DISABLED) {
+    logger.logInfo('MESSAGING_DISABLED', { orgId, reqId, route: '/api/send-review-request' });
+    return sendJson(res, 200, {
+      ok: true,
+      message: 'Messaging is temporarily disabled (maintenance mode)',
+      sent: false,
+      _killSwitch: true
+    });
+  }
+
   const data = loadData();
   
   // STATE MACHINE GUARD: Check if org can send SMS/email
@@ -3539,10 +3680,11 @@ async function handleSendReview(req, res) {
       }
     });
     
-    // ---- Lifecycle: created → queued (email_outbox + review_requests) ----
+    // ---- Lifecycle: created → queued (email_outbox / scheduled_sends + review_requests) ----
     const recipient = channel === 'email' ? body.patientEmail : body.patientPhone;
 
     if (channel === 'email' && body.patientEmail) {
+      // Email: goes to email_outbox (immediate processing by email worker)
       const dbModule = storage.getDb();
       dbModule.transaction(() => {
         repos.emailOutbox.createOutbox({
@@ -3558,6 +3700,46 @@ async function handleSendReview(req, res) {
         });
         repos.request.setLifecycleStatus(dbRequest.id, 'queued');
       });
+    } else if (channel === 'sms' && body.patientPhone) {
+      // SMS: goes to scheduled_sends (60 min delay, processed by SMS worker)
+      
+      // Idempotence: check if already queued for this request
+      if (repos.scheduledSend.hasExistingForRequest(dbRequest.id)) {
+        console.log(`[REPUTY][API] ⚡ SMS already scheduled for request ${dbRequest.id}`);
+        return sendJson(res, 200, {
+          ok: true,
+          requestId: dbRequest.idempotencyKey,
+          feedbackUrl: dbRequest.feedbackUrl,
+          duplicate: true,
+          message: 'SMS déjà programmé pour cette demande'
+        });
+      }
+      
+      // Anti-spam: max 1 SMS per recipient per 7 days (per org)
+      if (repos.scheduledSend.hasRecentSend(orgId, body.patientPhone)) {
+        console.log(`[REPUTY][API] ⛔ Anti-spam: ${body.patientPhone} already contacted recently`);
+        return sendJson(res, 429, {
+          ok: false,
+          error: 'ANTI_SPAM',
+          message: 'Ce destinataire a déjà été contacté par SMS récemment (max 1 par semaine).'
+        });
+      }
+      
+      // Create scheduled SMS (delayed by 60 minutes)
+      repos.scheduledSend.create({
+        orgId: orgId,
+        recipient: body.patientPhone,
+        payload: {
+          patientName: body.patientName,
+          patientFirstName: body.patientFirstName || '',
+          requestId: dbRequest.idempotencyKey,
+          feedbackUrl: dbRequest.feedbackUrl,
+        },
+        requestDbId: dbRequest.id,
+      });
+      repos.request.setLifecycleStatus(dbRequest.id, 'queued');
+      
+      console.log(`[REPUTY][API] 📱 SMS scheduled for ${body.patientPhone} (in 60 min)`);
     }
 
     // Legacy message tracking (backward compat)
@@ -7129,7 +7311,13 @@ function handleClientGetOrg(req, res) {
       createdAt: enrichedOrg.createdAt,
       // Credits info
       creditsComputed: enrichedOrg.creditsComputed,
-      billingComputed: enrichedOrg.billingComputed
+      billingComputed: enrichedOrg.billingComputed,
+      // Establishment location (for competitor search)
+      lat: enrichedOrg.lat || null,
+      lng: enrichedOrg.lng || null,
+      specialty: enrichedOrg.specialty || null,
+      address: enrichedOrg.address || null,
+      googlePlaceId: enrichedOrg.googlePlaceId || null,
     }
   });
 }
@@ -7902,6 +8090,383 @@ function handleShortlinkRedirect(req, res, code) {
 }
 
 // ============================================================
+// CONTACTS & CAMPAIGNS HANDLERS
+// ============================================================
+
+/**
+ * GET /client/contacts — List contacts for current org
+ * Query: ?search=&source=&limit=&offset=&hasEmail=1&hasPhone=1
+ */
+async function handleClientGetContacts(req, res, urlParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  const opts = {
+    search: urlParams.get('search') || undefined,
+    source: urlParams.get('source') || undefined,
+    limit: parseInt(urlParams.get('limit') || '50', 10),
+    offset: parseInt(urlParams.get('offset') || '0', 10),
+    hasEmail: urlParams.get('hasEmail') === '1',
+    hasPhone: urlParams.get('hasPhone') === '1',
+  };
+
+  const result = repos.contact.listByOrg(orgId, opts);
+  const counts = repos.contact.countBySource(orgId);
+
+  return sendJson(res, 200, { ok: true, ...result, counts });
+}
+
+/**
+ * POST /client/contacts — Create a contact
+ */
+async function handleClientCreateContact(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const body = await parseBody(req);
+  const v = validateBody(schemas.contactCreate, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+
+  const orgId = auth.org?.id || auth.user.orgId;
+
+  try {
+    const result = repos.contact.create(orgId, v.data);
+    return sendJson(res, result.created ? 201 : 200, {
+      ok: true,
+      contact: result.contact,
+      created: result.created,
+      message: result.created ? 'Contact créé' : 'Contact existant (doublon)',
+    });
+  } catch (err) {
+    logger.logError('Contact create error:', err);
+    return sendJson(res, 400, { ok: false, error: 'INVALID_DATA', message: err.message });
+  }
+}
+
+/**
+ * POST /client/contacts/import — Bulk import contacts
+ */
+async function handleClientImportContacts(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const body = await parseBody(req);
+  const v = validateBody(schemas.contactImport, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+
+  const orgId = auth.org?.id || auth.user.orgId;
+
+  try {
+    const stats = repos.contact.bulkImport(orgId, v.data.contacts, v.data.source);
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Import terminé : ${stats.imported} importé(s), ${stats.duplicates} doublon(s), ${stats.invalid} invalide(s)`,
+      stats,
+    });
+  } catch (err) {
+    logger.logError('Contact import error:', err);
+    return sendJson(res, 500, { ok: false, error: 'IMPORT_FAILED', message: err.message });
+  }
+}
+
+/**
+ * POST /client/contacts/sync — Sync contacts from review_requests
+ */
+async function handleClientSyncContacts(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+
+  try {
+    const stats = repos.contact.syncFromReviewRequests(orgId);
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Synchronisation terminée : ${stats.imported} nouveau(x) contact(s)`,
+      stats,
+    });
+  } catch (err) {
+    logger.logError('Contact sync error:', err);
+    return sendJson(res, 500, { ok: false, error: 'SYNC_FAILED', message: err.message });
+  }
+}
+
+/**
+ * DELETE /client/contacts/:id — Delete a contact
+ */
+async function handleClientDeleteContact(req, res, contactId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const contact = repos.contact.getById(contactId);
+  if (!contact) return sendJson(res, 404, { ok: false, error: 'NOT_FOUND', message: 'Contact introuvable' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  if (contact.orgId !== orgId) return sendJson(res, 403, { ok: false, error: 'FORBIDDEN' });
+
+  repos.contact.remove(contactId);
+  return sendJson(res, 200, { ok: true, message: 'Contact supprimé' });
+}
+
+/**
+ * GET /client/campaigns — List campaigns for current org
+ * Query: ?status=&type=&limit=&offset=
+ */
+async function handleClientGetCampaigns(req, res, urlParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  const opts = {
+    status: urlParams.get('status') || undefined,
+    type: urlParams.get('type') || undefined,
+    limit: parseInt(urlParams.get('limit') || '50', 10),
+    offset: parseInt(urlParams.get('offset') || '0', 10),
+  };
+
+  const result = repos.campaign.listByOrg(orgId, opts);
+  return sendJson(res, 200, { ok: true, ...result });
+}
+
+/**
+ * GET /client/campaigns/:id — Get single campaign with stats
+ */
+async function handleClientGetCampaign(req, res, campaignId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const campaign = repos.campaign.getById(campaignId);
+  if (!campaign) return sendJson(res, 404, { ok: false, error: 'NOT_FOUND' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  if (campaign.orgId !== orgId) return sendJson(res, 403, { ok: false, error: 'FORBIDDEN' });
+
+  const stats = repos.campaign.getStats(campaignId);
+  const recipients = repos.campaign.listRecipients(campaignId);
+
+  return sendJson(res, 200, { ok: true, campaign, stats, recipients });
+}
+
+/**
+ * POST /client/campaigns — Create a campaign
+ */
+async function handleClientCreateCampaign(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const body = await parseBody(req);
+  const v = validateBody(schemas.campaignCreate, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+
+  const orgId = auth.org?.id || auth.user.orgId;
+
+  try {
+    const campaign = repos.campaign.create(orgId, v.data);
+    return sendJson(res, 201, { ok: true, campaign, message: 'Campagne créée' });
+  } catch (err) {
+    logger.logError('Campaign create error:', err);
+    return sendJson(res, 500, { ok: false, error: 'CREATE_FAILED', message: err.message });
+  }
+}
+
+/**
+ * PUT /client/campaigns/:id — Update a campaign
+ */
+async function handleClientUpdateCampaign(req, res, campaignId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const campaign = repos.campaign.getById(campaignId);
+  if (!campaign) return sendJson(res, 404, { ok: false, error: 'NOT_FOUND' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  if (campaign.orgId !== orgId) return sendJson(res, 403, { ok: false, error: 'FORBIDDEN' });
+
+  if (campaign.status === 'sending' || campaign.status === 'completed') {
+    return sendJson(res, 409, { ok: false, error: 'CAMPAIGN_LOCKED', message: 'Campagne en cours ou terminée, modification impossible' });
+  }
+
+  const body = await parseBody(req);
+  const v = validateBody(schemas.campaignUpdate, body);
+  if (!v.ok) return sendJson(res, 400, v.payload);
+
+  try {
+    const updated = repos.campaign.update(campaignId, v.data);
+    return sendJson(res, 200, { ok: true, campaign: updated, message: 'Campagne mise à jour' });
+  } catch (err) {
+    logger.logError('Campaign update error:', err);
+    return sendJson(res, 500, { ok: false, error: 'UPDATE_FAILED', message: err.message });
+  }
+}
+
+/**
+ * DELETE /client/campaigns/:id — Delete a campaign
+ */
+async function handleClientDeleteCampaign(req, res, campaignId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const campaign = repos.campaign.getById(campaignId);
+  if (!campaign) return sendJson(res, 404, { ok: false, error: 'NOT_FOUND' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  if (campaign.orgId !== orgId) return sendJson(res, 403, { ok: false, error: 'FORBIDDEN' });
+
+  if (campaign.status === 'sending') {
+    return sendJson(res, 409, { ok: false, error: 'CAMPAIGN_LOCKED', message: 'Campagne en cours d\'envoi' });
+  }
+
+  repos.campaign.remove(campaignId);
+  return sendJson(res, 200, { ok: true, message: 'Campagne supprimée' });
+}
+
+/**
+ * POST /client/campaigns/:id/recipients — Add recipients to a campaign
+ */
+async function handleClientAddCampaignRecipients(req, res, campaignId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const campaign = repos.campaign.getById(campaignId);
+  if (!campaign) return sendJson(res, 404, { ok: false, error: 'NOT_FOUND' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  if (campaign.orgId !== orgId) return sendJson(res, 403, { ok: false, error: 'FORBIDDEN' });
+
+  const body = await parseBody(req);
+
+  try {
+    let recipients = [];
+    if (body.sendAll) {
+      // Get all eligible contacts for this channel with anti-spam
+      const eligible = repos.contact.listEligibleForReviewCampaign(orgId, campaign.channel, campaign.spamThreshold);
+      const excluded = repos.contact.listExcludedFromReviewCampaign(orgId, campaign.channel, campaign.spamThreshold);
+
+      for (const c of eligible) {
+        recipients.push({ contactId: c.id });
+      }
+      for (const c of excluded.spamExcluded) {
+        recipients.push({ contactId: c.id, excludedReason: 'spam_threshold' });
+      }
+      for (const c of excluded.reviewedExcluded) {
+        recipients.push({ contactId: c.id, excludedReason: 'already_reviewed' });
+      }
+    } else if (body.contactIds && Array.isArray(body.contactIds)) {
+      for (const contactId of body.contactIds) {
+        const contact = repos.contact.getById(contactId);
+        if (!contact || contact.orgId !== orgId) continue;
+        recipients.push({ contactId });
+      }
+    } else {
+      return sendJson(res, 400, { ok: false, error: 'INVALID_DATA', message: 'contactIds ou sendAll requis' });
+    }
+
+    const result = repos.campaign.addRecipients(campaignId, recipients);
+    return sendJson(res, 200, {
+      ok: true,
+      message: `${result.added} destinataire(s) ajouté(s), ${result.excluded} exclu(s)`,
+      ...result,
+    });
+  } catch (err) {
+    logger.logError('Campaign recipients error:', err);
+    return sendJson(res, 500, { ok: false, error: 'ADD_RECIPIENTS_FAILED', message: err.message });
+  }
+}
+
+/**
+ * POST /client/campaigns/:id/send — Launch campaign send
+ * (For now: marks as 'sending' + updates recipients — actual send is separate)
+ */
+async function handleClientSendCampaign(req, res, campaignId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+
+  const repos = storage.getRepos();
+  if (!repos) return sendJson(res, 501, { ok: false, error: 'NOT_IMPLEMENTED' });
+
+  const campaign = repos.campaign.getById(campaignId);
+  if (!campaign) return sendJson(res, 404, { ok: false, error: 'NOT_FOUND' });
+
+  const orgId = auth.org?.id || auth.user.orgId;
+  if (campaign.orgId !== orgId) return sendJson(res, 403, { ok: false, error: 'FORBIDDEN' });
+
+  if (campaign.status !== 'draft' && campaign.status !== 'scheduled') {
+    return sendJson(res, 409, { ok: false, error: 'INVALID_STATUS', message: 'Campagne doit être en brouillon ou programmée' });
+  }
+
+  // Check that there are pending recipients
+  const pendingRecipients = repos.campaign.listRecipients(campaignId, { status: 'pending', excludeExcluded: true });
+  if (pendingRecipients.length === 0) {
+    return sendJson(res, 400, { ok: false, error: 'NO_RECIPIENTS', message: 'Aucun destinataire éligible' });
+  }
+
+  // Check credits
+  const org = repos.org.getById(orgId);
+  if (!org) return sendJson(res, 404, { ok: false, error: 'ORG_NOT_FOUND' });
+
+  // Mark campaign as sending
+  repos.campaign.update(campaignId, { status: 'active' });
+
+  // TODO: Actual send logic (process recipients one by one, check credits, send email/sms)
+  // For now: mark campaign as active, actual send will be background job
+
+  const stats = repos.campaign.getStats(campaignId);
+
+  return sendJson(res, 200, {
+    ok: true,
+    message: `Campagne lancée avec ${pendingRecipients.length} destinataire(s) éligible(s)`,
+    campaign: repos.campaign.getById(campaignId),
+    stats,
+  });
+}
+
+// ============================================================
 // LIFECYCLE STATS HANDLER (P1a — KPI client lifecycle)
 // ============================================================
 
@@ -8141,6 +8706,459 @@ async function handleAiSuggestReply(req, res) {
 }
 
 // ============================================================
+// GOOGLE BUSINESS PROFILE HANDLERS
+// ============================================================
+
+/**
+ * GET /client/google/status - Get Google connection status
+ */
+function handleGoogleStatus(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  const isGoogleConfigured = googleOAuth.isConfigured();
+
+  // Read google_oauth_json from org
+  const repos = storage.getRepos();
+  let googleStatus = null;
+
+  if (repos) {
+    const org = repos.org.getById(auth.user.orgId);
+    if (org && org.googleOauthJson) {
+      try {
+        const oauthRaw = JSON.parse(org.googleOauthJson);
+        googleStatus = {
+          connected: true,
+          accountId: oauthRaw.accountId || null,
+          locationId: oauthRaw.locationId || null,
+          locationName: oauthRaw.locationName || null,
+          connectedAt: oauthRaw.connectedAt || null,
+          lastSyncAt: oauthRaw.lastSyncAt || null,
+          syncStatus: oauthRaw.syncStatus || 'idle',
+        };
+      } catch (e) {
+        googleStatus = null;
+      }
+    }
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    configured: isGoogleConfigured,
+    google: googleStatus || { connected: false },
+  });
+}
+
+/**
+ * GET /client/google/auth-url - Generate Google OAuth URL
+ */
+function handleGoogleAuthUrl(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  if (!googleOAuth.isConfigured()) {
+    return sendJson(res, 503, {
+      ok: false,
+      errorCode: 'GOOGLE_NOT_CONFIGURED',
+      message: 'Google Business Profile n\'est pas configuré. Contactez le support.',
+    });
+  }
+
+  try {
+    const { url, state } = googleOAuth.getAuthUrl(auth.user.orgId);
+    return sendJson(res, 200, { ok: true, authUrl: url, state });
+  } catch (err) {
+    return sendJson(res, 500, { ok: false, errorCode: 'GOOGLE_AUTH_ERROR', message: err.message });
+  }
+}
+
+/**
+ * POST /client/google/callback - Handle OAuth callback (exchange code for tokens)
+ * Body: { code, state }
+ */
+async function handleGoogleCallback(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  const body = await parseBody(req);
+  if (!body.code) {
+    return sendJson(res, 400, { ok: false, errorCode: 'MISSING_CODE', message: 'Code d\'autorisation manquant' });
+  }
+
+  // Step 1: Exchange code for tokens (standard OAuth — should always work)
+  let tokens;
+  try {
+    tokens = await googleOAuth.exchangeCode(body.code);
+  } catch (err) {
+    logger.logError('GOOGLE_TOKEN_EXCHANGE_ERROR', {
+      orgId: auth.user.orgId,
+      error: err.message,
+      statusCode: err.statusCode,
+      body: err.body ? JSON.stringify(err.body).slice(0, 500) : undefined,
+    });
+    return sendJson(res, 400, {
+      ok: false,
+      errorCode: 'TOKEN_EXCHANGE_FAILED',
+      message: `Échec de l'échange de tokens Google: ${err.message}`,
+    });
+  }
+
+  if (!tokens.accessToken) {
+    return sendJson(res, 400, { ok: false, errorCode: 'TOKEN_EXCHANGE_FAILED', message: 'Aucun access token reçu de Google' });
+  }
+
+  // Step 2: Try to list accounts (may fail if GBP API quota = 0 — non-blocking)
+  let accounts = [];
+  let accountId = null;
+  let locations = [];
+  let apiWarning = null;
+
+  try {
+    accounts = await googleBusiness.listAccounts(tokens.accessToken);
+    if (accounts && accounts.length > 0) {
+      accountId = accounts[0].name; // e.g. "accounts/123456789"
+
+      // Step 3: Try to list locations (also non-blocking)
+      try {
+        locations = await googleBusiness.listLocations(tokens.accessToken, accountId);
+      } catch (locErr) {
+        logger.logError('GOOGLE_LIST_LOCATIONS_WARN', { orgId: auth.user.orgId, error: locErr.message });
+        apiWarning = 'Impossible de lister les établissements. Le quota GBP API est peut-être à 0.';
+      }
+    }
+  } catch (accErr) {
+    logger.logError('GOOGLE_LIST_ACCOUNTS_WARN', {
+      orgId: auth.user.orgId,
+      error: accErr.message,
+      statusCode: accErr.statusCode,
+      body: accErr.body ? JSON.stringify(accErr.body).slice(0, 500) : undefined,
+    });
+    apiWarning = `Impossible de lister les comptes GBP (${accErr.message}). Le quota API est peut-être à 0. Remplissez le formulaire Google pour demander l'accès.`;
+  }
+
+  // Step 4: Save tokens in database (ALWAYS — even if listAccounts failed)
+  try {
+    const oauthJson = googleOAuth.buildOAuthJson({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresIn: tokens.expiresIn,
+      accountId: accountId || null,
+      locationId: locations.length > 0 ? locations[0].name : null,
+      locationName: locations.length > 0 ? locations[0].title : null,
+    });
+
+    const repos = storage.getRepos();
+    if (repos) {
+      const db = storage.getDb();
+      db.run('UPDATE orgs SET google_oauth_json = $json, updated_at = $now WHERE id = $id', {
+        json: oauthJson,
+        now: db.nowISO(),
+        id: auth.user.orgId,
+      });
+
+      if (locations.length > 0 && locations[0].placeId) {
+        db.run('UPDATE orgs SET google_place_id = $placeId WHERE id = $id', {
+          placeId: locations[0].placeId,
+          id: auth.user.orgId,
+        });
+      }
+    }
+
+    // Log the event
+    googleSync.logSyncEvent(auth.user.orgId, 'connect', 'success', {
+      accountId,
+      locationCount: locations.length,
+      apiWarning: apiWarning || undefined,
+    });
+
+    logger.logAudit('GOOGLE_CONNECTED', {
+      orgId: auth.user.orgId,
+      userId: auth.user.id,
+      accountId,
+      locationCount: locations.length,
+    });
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: apiWarning
+        ? `Google connecté (avec avertissement: ${apiWarning})`
+        : 'Google Business connecté avec succès',
+      warning: apiWarning || undefined,
+      account: accountId ? {
+        accountId,
+        accountName: accounts[0]?.accountName || accounts[0]?.name || accountId,
+      } : null,
+      locations: locations.map(l => ({
+        id: l.name,
+        title: l.title,
+        address: l.address,
+        placeId: l.placeId,
+      })),
+    });
+  } catch (err) {
+    logger.logError('GOOGLE_CALLBACK_ERROR', { orgId: auth.user.orgId, error: err.message });
+    return sendJson(res, 500, {
+      ok: false,
+      errorCode: 'GOOGLE_CALLBACK_ERROR',
+      message: `Erreur lors de la sauvegarde: ${err.message}`,
+    });
+  }
+}
+
+/**
+ * GET /client/google/accounts - List Google Business accounts and locations
+ */
+async function handleGoogleListAccounts(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 500, { ok: false, errorCode: 'STORAGE_ERROR', message: 'Storage not available' });
+  }
+
+  try {
+    const { accessToken, oauthData } = await googleSync.getValidToken(repos.org, auth.user.orgId);
+
+    const accounts = await googleBusiness.listAccounts(accessToken);
+    const result = [];
+
+    for (const account of accounts) {
+      let locations = [];
+      try {
+        locations = await googleBusiness.listLocations(accessToken, account.name);
+      } catch (err) {
+        logger.logError('GOOGLE_LIST_LOCATIONS_ERROR', { account: account.name, error: err.message });
+      }
+
+      result.push({
+        accountId: account.name,
+        accountName: account.accountName || account.name,
+        type: account.type,
+        locations,
+      });
+    }
+
+    return sendJson(res, 200, { ok: true, accounts: result });
+  } catch (err) {
+    return sendJson(res, 500, { ok: false, errorCode: 'GOOGLE_API_ERROR', message: err.message });
+  }
+}
+
+/**
+ * POST /client/google/select-location - Select a Google Business location
+ * Body: { accountId, locationId, locationName }
+ */
+async function handleGoogleSelectLocation(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  const body = await parseBody(req);
+  if (!body.accountId || !body.locationId) {
+    return sendJson(res, 400, {
+      ok: false,
+      errorCode: 'MISSING_FIELDS',
+      message: 'accountId et locationId requis',
+    });
+  }
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 500, { ok: false, errorCode: 'STORAGE_ERROR' });
+  }
+
+  const org = repos.org.getById(auth.user.orgId);
+  if (!org || !org.googleOauthJson) {
+    return sendJson(res, 400, { ok: false, errorCode: 'GOOGLE_NOT_CONNECTED', message: 'Google non connecté' });
+  }
+
+  try {
+    // Parse existing OAuth data, update account/location
+    const oauthRaw = JSON.parse(org.googleOauthJson);
+    oauthRaw.accountId = body.accountId;
+    oauthRaw.locationId = body.locationId;
+    oauthRaw.locationName = body.locationName || null;
+
+    const dbInstance = storage.getDb();
+    dbInstance.run('UPDATE orgs SET google_oauth_json = $json, updated_at = $now WHERE id = $id', {
+      json: JSON.stringify(oauthRaw),
+      now: dbInstance.nowISO(),
+      id: auth.user.orgId,
+    });
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: 'Établissement Google sélectionné',
+      location: {
+        accountId: body.accountId,
+        locationId: body.locationId,
+        locationName: body.locationName,
+      },
+    });
+  } catch (err) {
+    return sendJson(res, 500, { ok: false, errorCode: 'UPDATE_ERROR', message: err.message });
+  }
+}
+
+/**
+ * POST /client/google/sync - Trigger manual review sync from Google
+ */
+async function handleGoogleSync(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 500, { ok: false, errorCode: 'STORAGE_ERROR' });
+  }
+
+  try {
+    const result = await googleSync.syncReviews(repos.org, repos.review, auth.user.orgId, {
+      logSync: googleSync.logSyncEvent,
+    });
+
+    logger.logAudit('GOOGLE_SYNC_TRIGGERED', {
+      orgId: auth.user.orgId,
+      userId: auth.user.id,
+      imported: result.imported,
+      skipped: result.skipped,
+    });
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Synchronisation terminée: ${result.imported} nouveaux avis importés`,
+      sync: result,
+    });
+  } catch (err) {
+    logger.logError('GOOGLE_SYNC_ERROR', { orgId: auth.user.orgId, error: err.message });
+    return sendJson(res, 500, {
+      ok: false,
+      errorCode: 'SYNC_ERROR',
+      message: `Erreur de synchronisation: ${err.message}`,
+    });
+  }
+}
+
+/**
+ * POST /client/google/post-reply/:reviewId - Post a queued reply to Google
+ */
+async function handleGooglePostReply(req, res, reviewId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 500, { ok: false, errorCode: 'STORAGE_ERROR' });
+  }
+
+  try {
+    const updated = await googleSync.postReplyToGoogle(repos.org, repos.review, auth.user.orgId, reviewId, {
+      logSync: googleSync.logSyncEvent,
+    });
+
+    logger.logAudit('GOOGLE_REPLY_POSTED', {
+      orgId: auth.user.orgId,
+      userId: auth.user.id,
+      reviewId,
+    });
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: 'Réponse publiée sur Google',
+      review: updated,
+    });
+  } catch (err) {
+    return sendJson(res, 500, {
+      ok: false,
+      errorCode: 'POST_REPLY_ERROR',
+      message: `Erreur publication réponse: ${err.message}`,
+    });
+  }
+}
+
+/**
+ * POST /client/google/disconnect - Disconnect Google account
+ */
+function handleGoogleDisconnect(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  googleSync.disconnectGoogle(auth.user.orgId, {
+    logSync: googleSync.logSyncEvent,
+  });
+
+  logger.logAudit('GOOGLE_DISCONNECTED', {
+    orgId: auth.user.orgId,
+    userId: auth.user.id,
+  });
+
+  return sendJson(res, 200, {
+    ok: true,
+    message: 'Google Business déconnecté',
+  });
+}
+
+/**
+ * GET /client/google/sync-log - Get sync history
+ */
+function handleGoogleSyncLog(req, res, urlParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  const dbInstance = storage.getDb();
+  if (!dbInstance) {
+    return sendJson(res, 200, { ok: true, logs: [] });
+  }
+
+  const limit = Math.min(parseInt(urlParams.get('limit')) || 20, 100);
+
+  const logs = dbInstance.all(`
+    SELECT * FROM google_sync_log 
+    WHERE org_id = $orgId 
+    ORDER BY created_at DESC 
+    LIMIT $limit
+  `, { orgId: auth.user.orgId, limit });
+
+  return sendJson(res, 200, {
+    ok: true,
+    logs: (logs || []).map(log => ({
+      id: log.id,
+      action: log.action,
+      status: log.status,
+      details: JSON.parse(log.details_json || '{}'),
+      createdAt: log.created_at,
+    })),
+  });
+}
+
+// ============================================================
 // REVIEWS HANDLERS (Phase 1A)
 // ============================================================
 
@@ -8360,7 +9378,7 @@ async function handleClientReplyReview(req, res, reviewId) {
   }
   
   // Parse body
-  const body = await parseJsonBody(req);
+  const body = await parseBody(req);
   
   if (!body.replyText || typeof body.replyText !== 'string' || !body.replyText.trim()) {
     return sendJson(res, 400, { 
@@ -8382,7 +9400,7 @@ async function handleClientReplyReview(req, res, reviewId) {
   }
   
   // Update reply with status 'queued' (will be processed async)
-  const updated = repos.review.updateReply(auth.user.orgId, reviewId, {
+  let updated = repos.review.updateReply(auth.user.orgId, reviewId, {
     replyText: body.replyText.trim(),
     replyStatus: 'queued',
     replyError: null
@@ -8395,11 +9413,34 @@ async function handleClientReplyReview(req, res, reviewId) {
     userId: auth.user.id,
     replyLength: body.replyText.length
   });
+
+  // Auto-post to Google if connected and review is from Google provider
+  let googlePosted = false;
+  if (existing.provider === 'google' && existing.providerReviewId) {
+    try {
+      const org = repos.org.getById(auth.user.orgId);
+      if (org && org.googleOauthJson) {
+        updated = await googleSync.postReplyToGoogle(repos.org, repos.review, auth.user.orgId, reviewId, {
+          logSync: googleSync.logSyncEvent,
+        });
+        googlePosted = true;
+        logger.logInfo('REVIEW_REPLY_AUTO_POSTED_GOOGLE', { reviewId, orgId: auth.user.orgId });
+      }
+    } catch (googleErr) {
+      // Don't fail the whole reply if Google post fails — it stays 'queued' for retry
+      logger.logError('REVIEW_REPLY_GOOGLE_AUTO_POST_FAILED', {
+        reviewId,
+        orgId: auth.user.orgId,
+        error: googleErr.message,
+      });
+    }
+  }
   
   return sendJson(res, 200, {
     ok: true,
     review: updated,
-    message: 'Reply queued for processing'
+    message: googlePosted ? 'Reply posted to Google' : 'Reply queued for processing',
+    googlePosted,
   });
 }
 
@@ -8426,7 +9467,7 @@ async function handleClientUpdateReviewStatus(req, res, reviewId) {
     return sendJson(res, 404, { ok: false, error: 'Review not found' });
   }
   
-  const body = await parseJsonBody(req);
+  const body = await parseBody(req);
   
   const validStatuses = ['pending', 'replied', 'ignored'];
   if (!body.status || !validStatuses.includes(body.status)) {
@@ -8486,7 +9527,7 @@ async function handleClientCreateReview(req, res) {
     return sendJson(res, 500, { ok: false, error: 'Storage not available' });
   }
   
-  const body = await parseJsonBody(req);
+  const body = await parseBody(req);
   
   // Validate required fields
   if (!body.authorName) {
@@ -8549,7 +9590,7 @@ async function handleClientBulkImportReviews(req, res) {
     return sendJson(res, 500, { ok: false, error: 'Storage not available' });
   }
   
-  const body = await parseJsonBody(req);
+  const body = await parseBody(req);
   
   if (!body.reviews || !Array.isArray(body.reviews)) {
     return sendJson(res, 400, { ok: false, error: 'reviews array is required' });
@@ -8573,6 +9614,320 @@ async function handleClientBulkImportReviews(req, res) {
     inserted: result.inserted,
     skipped: result.skipped
   });
+}
+
+// ============================================================
+// COMPETITORS HANDLERS (Google Places API)
+// ============================================================
+
+const googlePlaces = require('./lib/google/google-places');
+const competitorRepo = require('./lib/repositories/competitor.repo');
+const placesProfiles = require('./lib/google/places-profiles');
+
+/**
+ * GET /client/competitors?radius=1000|2000|5000
+ * Returns server-side buckets with estimated 30d reviews.
+ */
+function handleClientGetCompetitors(req, res, urlParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN',
+    });
+  }
+
+  const org = auth.org;
+  if (!org) {
+    return sendJson(res, 404, { ok: false, error: 'Organisation non trouvée' });
+  }
+
+  // Parse optional radius filter (default 5000)
+  const requestedRadius = parseInt(urlParams.get('radius') || '5000', 10);
+  const maxRadius = [1000, 2000, 5000].includes(requestedRadius) ? requestedRadius : 5000;
+
+  // Check if org has coordinates
+  if (!org.lat || !org.lng) {
+    return sendJson(res, 200, {
+      ok: true,
+      configured: false,
+      message: 'Coordonnées GPS non configurées. Renseignez latitude/longitude dans les paramètres.',
+      buckets: { 1000: [], 2000: [], 5000: [] },
+      updatedAt: null,
+      isEstimated30d: false,
+      placesApiConfigured: googlePlaces.isConfigured(),
+    });
+  }
+
+  // Derive profile from org vertical + specialty
+  const searchProfile = placesProfiles.getSearchProfile(org.vertical, org.specialty);
+  const profileName = searchProfile.profileName;
+
+  // Build buckets from stored snapshots
+  const result = competitorRepo.buildBuckets(org.id, profileName, maxRadius);
+
+  // Compute aggregated stats per bucket
+  const computeStats = (items) => {
+    if (items.length === 0) return null;
+    const avgRating = items.reduce((acc, c) => acc + (c.rating || 0), 0) / items.length;
+    const avgReviews = items.reduce((acc, c) => acc + (c.userRatingsTotal || 0), 0) / items.length;
+    return {
+      avgRating: Math.round(avgRating * 10) / 10,
+      avgReviews: Math.round(avgReviews),
+      totalCompetitors: items.length,
+    };
+  };
+
+  return sendJson(res, 200, {
+    ok: true,
+    configured: true,
+    radius: maxRadius,
+    updatedAt: result.updatedAt,
+    isEstimated30d: result.isEstimated30d,
+    placesApiConfigured: googlePlaces.isConfigured(),
+    buckets: {
+      1000: result.buckets[1000].map(formatCompetitorForApi),
+      2000: result.buckets[2000].map(formatCompetitorForApi),
+      5000: result.buckets[5000].map(formatCompetitorForApi),
+    },
+    stats: {
+      1000: computeStats(result.buckets[1000]),
+      2000: computeStats(result.buckets[2000]),
+      5000: computeStats(result.buckets[5000]),
+    },
+  });
+}
+
+/**
+ * GET /client/competitors/:placeId/details
+ * Returns cached Place Details, fetching from Google if expired.
+ */
+async function handleClientGetCompetitorDetails(req, res, placeId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN',
+    });
+  }
+
+  if (!placeId) {
+    return sendJson(res, 400, { ok: false, error: 'placeId is required' });
+  }
+
+  try {
+    // Check cache first (TTL 30 days)
+    let details = competitorRepo.getCachedPlaceDetails(placeId, 30);
+
+    if (!details) {
+      // Fetch from Google Places API
+      if (!googlePlaces.isConfigured()) {
+        return sendJson(res, 503, {
+          ok: false,
+          error: 'Google Places API non configurée (GOOGLE_PLACES_API_KEY manquant)',
+        });
+      }
+
+      const freshDetails = await googlePlaces.getPlaceDetails(placeId);
+      competitorRepo.cachePlaceDetails(freshDetails);
+      details = freshDetails;
+    }
+
+    return sendJson(res, 200, { ok: true, details });
+  } catch (err) {
+    console.error(`[COMPETITORS] Error fetching details for ${placeId}:`, err.message);
+    return sendJson(res, 500, { ok: false, error: `Erreur récupération détails: ${err.message}` });
+  }
+}
+
+/**
+ * GET /client/places/autocomplete?input=<query>
+ * Proxy for Google Places Autocomplete API (New).
+ * Keeps GOOGLE_PLACES_API_KEY server-side only.
+ */
+async function handleClientPlacesAutocomplete(req, res, urlParams) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN',
+    });
+  }
+
+  const input = urlParams.get('input');
+  if (!input || input.length < 2) {
+    return sendJson(res, 400, { ok: false, error: 'Le paramètre "input" doit contenir au moins 2 caractères' });
+  }
+
+  if (!googlePlaces.isConfigured()) {
+    return sendJson(res, 503, { ok: false, error: 'Google Places API non configurée' });
+  }
+
+  try {
+    const suggestions = await googlePlaces.autocomplete({ input });
+    return sendJson(res, 200, { ok: true, suggestions });
+  } catch (err) {
+    console.error('[PLACES] Autocomplete error:', err.message);
+    return sendJson(res, 500, { ok: false, error: `Erreur autocomplete: ${err.message}` });
+  }
+}
+
+/**
+ * GET /client/places/:placeId/geometry
+ * Get lat/lng + address from a Google Place ID.
+ * Used after autocomplete selection.
+ */
+async function handleClientPlaceGeometry(req, res, placeId) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN',
+    });
+  }
+
+  if (!placeId) {
+    return sendJson(res, 400, { ok: false, error: 'placeId is required' });
+  }
+
+  if (!googlePlaces.isConfigured()) {
+    return sendJson(res, 503, { ok: false, error: 'Google Places API non configurée' });
+  }
+
+  try {
+    const geo = await googlePlaces.getPlaceGeometry(placeId);
+    return sendJson(res, 200, { ok: true, place: geo });
+  } catch (err) {
+    console.error(`[PLACES] Geometry error for ${placeId}:`, err.message);
+    return sendJson(res, 500, { ok: false, error: `Erreur géométrie: ${err.message}` });
+  }
+}
+
+/**
+ * POST /client/competitors/configure
+ * Set org lat/lng/specialty for competitor search.
+ * Body: { lat, lng, specialty?, address?, googlePlaceId? }
+ *
+ * Security:
+ * - RBAC: owner/admin only
+ * - Validates lat ∈ [-90,90], lng ∈ [-180,180]
+ * - Whitelist specialty against known profiles
+ */
+async function handleClientConfigureCompetitors(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN',
+    });
+  }
+
+  // RBAC: only owner/admin can configure competitor settings
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 500, { ok: false, error: 'Storage not available' });
+  }
+
+  const body = await parseBody(req);
+
+  // Allow specialty-only update if lat/lng are already configured on the org
+  const currentOrg = repos.org.getById(auth.org.id);
+  const updates = {};
+
+  if (body.lat !== undefined && body.lng !== undefined) {
+    const lat = parseFloat(body.lat);
+    const lng = parseFloat(body.lng);
+
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return sendJson(res, 400, { ok: false, error: 'Coordonnées invalides (lat: -90 à 90, lng: -180 à 180)' });
+    }
+    updates.lat = lat;
+    updates.lng = lng;
+  } else if (!currentOrg?.lat || !currentOrg?.lng) {
+    // lat/lng not provided and not already on org → error
+    return sendJson(res, 400, { ok: false, error: 'lat and lng are required (org has no coordinates configured)' });
+  }
+
+  // Whitelist specialty against known profiles
+  if (body.specialty !== undefined) {
+    const validSpecialties = placesProfiles.getValidSpecialties();
+    if (body.specialty !== null && body.specialty !== '' && !validSpecialties.includes(body.specialty)) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: `Spécialité invalide: "${body.specialty}". Valeurs acceptées: ${validSpecialties.join(', ')}`,
+      });
+    }
+    updates.specialty = body.specialty || null;
+  }
+
+  // Optional: address and googlePlaceId from autocomplete selection
+  if (body.address !== undefined) {
+    updates.address = body.address || null;
+  }
+  if (body.googlePlaceId !== undefined) {
+    updates.googlePlaceId = body.googlePlaceId || null;
+  }
+
+  const updatedOrg = repos.org.update(auth.org.id, updates);
+
+  return sendJson(res, 200, {
+    ok: true,
+    message: 'Coordonnées mises à jour',
+    org: {
+      id: updatedOrg.id,
+      lat: updatedOrg.lat,
+      lng: updatedOrg.lng,
+      specialty: updatedOrg.specialty,
+      address: updatedOrg.address,
+      googlePlaceId: updatedOrg.googlePlaceId,
+    },
+  });
+}
+
+/**
+ * Format a competitor snapshot for the API response
+ */
+function formatCompetitorForApi(snap) {
+  return {
+    id: snap.id,
+    placeId: snap.placeId,
+    name: snap.name,
+    // NOTE: address is NOT in snapshots — fetch via /client/competitors/:placeId/details
+    rating: snap.rating,
+    reviewsCount: snap.userRatingsTotal,
+    estimated30d: snap.estimated30d ?? null,
+    distanceM: snap.distanceM,
+    distanceKm: Math.round((snap.distanceM / 1000) * 10) / 10,
+    types: snap.types,
+    source: 'google_places',
+  };
 }
 
 // ============================================================
@@ -10272,8 +11627,58 @@ const server = http.createServer(async (req, res) => {
     return handleHealth(res);
   }
 
+  // Google OAuth callback redirect (public GET from Google)
+  // Google redirects here with ?code=...&state=...
+  if (method === 'GET' && url.startsWith('/google/oauth/callback')) {
+    const cbParams = new URLSearchParams(url.split('?')[1] || '');
+    const code = cbParams.get('code') || '';
+    const state = cbParams.get('state') || '';
+    const error = cbParams.get('error') || '';
+    const adminUrl = process.env.REPUTY_DOMAIN || 'http://localhost:3002';
+    // P0: Extract strict origin for postMessage (prevents code exfiltration to other domains)
+    const adminOrigin = (() => {
+      try { return new URL(adminUrl).origin; } catch { return adminUrl; }
+    })();
+    
+    // Render a minimal HTML page that sends the code back to the opener window
+    const html = `<!DOCTYPE html>
+<html><head><title>Connexion Google - Reputy</title></head>
+<body>
+<p style="font-family:sans-serif;text-align:center;margin-top:40px;">
+  ${error ? 'Erreur de connexion Google. Vous pouvez fermer cette fenêtre.' : 'Connexion réussie ! Fermeture automatique...'}
+</p>
+<script>
+  try {
+    if (window.opener) {
+      window.opener.postMessage({
+        type: 'GOOGLE_OAUTH_CALLBACK',
+        code: ${JSON.stringify(code)},
+        state: ${JSON.stringify(state)},
+        error: ${JSON.stringify(error)}
+      }, ${JSON.stringify(adminOrigin)});
+      setTimeout(function() { window.close(); }, 1500);
+    } else {
+      // Fallback: redirect to admin settings with code in URL
+      window.location.href = ${JSON.stringify(adminUrl)} + '/settings?google_code=' + encodeURIComponent(${JSON.stringify(code)}) + '&google_state=' + encodeURIComponent(${JSON.stringify(state)});
+    }
+  } catch(e) {
+    document.body.innerHTML = '<p style="font-family:sans-serif;text-align:center;margin-top:40px;">Connexion terminée. Retournez dans Reputy.</p>';
+  }
+</script>
+</body></html>`;
+    
+    // Override security headers for this HTML page: allow inline script + allow window.opener
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'");
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
   // Send review request (from extension)
   if (method === 'POST' && url === '/api/send-review-request') {
+    // P1.4: Rate limit send-review — 10 req/min per IP (anti-abuse)
+    if (applyAuthRateLimit(req, res, 'send_review', 10)) return;
     return handleSendReview(req, res);
   }
 
@@ -10448,6 +11853,56 @@ const server = http.createServer(async (req, res) => {
     return handleClientDeleteShortlink(req, res, deleteShortlinkMatch[1]);
   }
   
+  // ============ CLIENT CONTACTS ROUTES ============
+
+  if (method === 'GET' && pathname === '/client/contacts') {
+    return handleClientGetContacts(req, res, urlParams);
+  }
+  if (method === 'POST' && pathname === '/client/contacts') {
+    return handleClientCreateContact(req, res);
+  }
+  if (method === 'POST' && pathname === '/client/contacts/import') {
+    return handleClientImportContacts(req, res);
+  }
+  if (method === 'POST' && pathname === '/client/contacts/sync') {
+    return handleClientSyncContacts(req, res);
+  }
+  // Delete contact: /client/contacts/:id
+  const deleteContactMatch = pathname.match(/^\/client\/contacts\/([a-zA-Z0-9]+)$/);
+  if (deleteContactMatch && method === 'DELETE') {
+    return handleClientDeleteContact(req, res, deleteContactMatch[1]);
+  }
+
+  // ============ CLIENT CAMPAIGNS ROUTES ============
+
+  if (method === 'GET' && pathname === '/client/campaigns') {
+    return handleClientGetCampaigns(req, res, urlParams);
+  }
+  if (method === 'POST' && pathname === '/client/campaigns') {
+    return handleClientCreateCampaign(req, res);
+  }
+  // Campaign by ID: /client/campaigns/:id
+  const campaignIdMatch = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)$/);
+  if (campaignIdMatch && method === 'GET') {
+    return handleClientGetCampaign(req, res, campaignIdMatch[1]);
+  }
+  if (campaignIdMatch && method === 'PUT') {
+    return handleClientUpdateCampaign(req, res, campaignIdMatch[1]);
+  }
+  if (campaignIdMatch && method === 'DELETE') {
+    return handleClientDeleteCampaign(req, res, campaignIdMatch[1]);
+  }
+  // Campaign recipients: /client/campaigns/:id/recipients
+  const campaignRecipientsMatch = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/recipients$/);
+  if (campaignRecipientsMatch && method === 'POST') {
+    return handleClientAddCampaignRecipients(req, res, campaignRecipientsMatch[1]);
+  }
+  // Campaign send: /client/campaigns/:id/send
+  const campaignSendMatch = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/send$/);
+  if (campaignSendMatch && method === 'POST') {
+    return handleClientSendCampaign(req, res, campaignSendMatch[1]);
+  }
+
   // ============ CLIENT LIFECYCLE STATS (P1a) ============
   
   if (method === 'GET' && pathname === '/client/lifecycle-stats') {
@@ -10460,6 +11915,83 @@ const server = http.createServer(async (req, res) => {
     return handleAiSuggestReply(req, res);
   }
   
+  // ============ CLIENT GOOGLE BUSINESS ROUTES ============
+  
+  // Google connection status
+  if (method === 'GET' && pathname === '/client/google/status') {
+    return await handleGoogleStatus(req, res);
+  }
+  
+  // Generate OAuth URL
+  if (method === 'GET' && pathname === '/client/google/auth-url') {
+    return await handleGoogleAuthUrl(req, res);
+  }
+  
+  // OAuth callback (exchange code)
+  if (method === 'POST' && pathname === '/client/google/callback') {
+    return await handleGoogleCallback(req, res);
+  }
+  
+  // List Google accounts/locations
+  if (method === 'GET' && pathname === '/client/google/accounts') {
+    return await handleGoogleListAccounts(req, res);
+  }
+  
+  // Select a Google location
+  if (method === 'POST' && pathname === '/client/google/select-location') {
+    return await handleGoogleSelectLocation(req, res);
+  }
+  
+  // Trigger manual sync
+  if (method === 'POST' && pathname === '/client/google/sync') {
+    return await handleGoogleSync(req, res);
+  }
+  
+  // Post a reply to Google
+  const googlePostReplyMatch = pathname.match(/^\/client\/google\/post-reply\/([a-zA-Z0-9_-]+)$/);
+  if (googlePostReplyMatch && method === 'POST') {
+    return await handleGooglePostReply(req, res, googlePostReplyMatch[1]);
+  }
+  
+  // Disconnect Google
+  if (method === 'POST' && pathname === '/client/google/disconnect') {
+    return await handleGoogleDisconnect(req, res);
+  }
+  
+  // Sync log
+  if (method === 'GET' && pathname === '/client/google/sync-log') {
+    return await handleGoogleSyncLog(req, res, urlParams);
+  }
+  
+  // ============ CLIENT COMPETITORS ROUTES ============
+  
+  // Get competitors with server-side buckets
+  if (method === 'GET' && pathname === '/client/competitors') {
+    return handleClientGetCompetitors(req, res, urlParams);
+  }
+  
+  // Configure org coordinates for competitor search
+  if (method === 'POST' && pathname === '/client/competitors/configure') {
+    return await handleClientConfigureCompetitors(req, res);
+  }
+  
+  // Get competitor place details (cached + Google Places)
+  const competitorDetailsMatch = pathname.match(/^\/client\/competitors\/([a-zA-Z0-9_-]+)\/details$/);
+  if (competitorDetailsMatch && method === 'GET') {
+    return await handleClientGetCompetitorDetails(req, res, competitorDetailsMatch[1]);
+  }
+  
+  // Places Autocomplete (proxy — keeps API key server-side)
+  if (method === 'GET' && pathname === '/client/places/autocomplete') {
+    return await handleClientPlacesAutocomplete(req, res, urlParams);
+  }
+  
+  // Places Geometry (get lat/lng from placeId)
+  const placeGeometryMatch = pathname.match(/^\/client\/places\/([a-zA-Z0-9_-]+)\/geometry$/);
+  if (placeGeometryMatch && method === 'GET') {
+    return await handleClientPlaceGeometry(req, res, placeGeometryMatch[1]);
+  }
+
   // ============ CLIENT REVIEWS ROUTES (Phase 1A) ============
   
   // List reviews with filters and pagination
@@ -10719,9 +12251,13 @@ const server = http.createServer(async (req, res) => {
   if (ratingMatch) {
     const requestId = ratingMatch[1];
     if (method === 'GET') {
+      // P1.4: Rate limit patient page — 30 req/min per IP (anti-scraping)
+      if (applyAuthRateLimit(req, res, 'rating_page', 30)) return;
       return handleGetRatingPage(requestId, res);
     }
     if (method === 'POST') {
+      // P1.4: Rate limit feedback submit — 5 req/min per IP (anti-spam)
+      if (applyAuthRateLimit(req, res, 'rating_submit', 5)) return;
       return handleSubmitFeedback(requestId, req, res);
     }
   }
@@ -10760,6 +12296,9 @@ try {
     console.log(`[REPUTY][API] Page de notation: ${REVIEWS_BASE_URL}/r/{id}`);
     console.log(`[REPUTY][API] Cabinet: ${settings.cabinetName}`);
     console.log(`[REPUTY][API] Google Review: ${settings.googleReviewUrl}`);
+    if (MESSAGING_DISABLED) {
+      console.warn(`[REPUTY][API] ⚠️  MESSAGING_DISABLED=true — all SMS/email sends are BLOCKED (kill switch active)`);
+    }
   });
 } catch (error) {
   console.error('[REPUTY][FATAL] Server startup failed:', error.message);

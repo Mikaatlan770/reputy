@@ -188,6 +188,26 @@ function update(id, updates) {
     fields.push('status = $status');
     params.status = updates.status;
   }
+  if (updates.lat !== undefined) {
+    fields.push('lat = $lat');
+    params.lat = updates.lat;
+  }
+  if (updates.lng !== undefined) {
+    fields.push('lng = $lng');
+    params.lng = updates.lng;
+  }
+  if (updates.specialty !== undefined) {
+    fields.push('specialty = $specialty');
+    params.specialty = updates.specialty;
+  }
+  if (updates.address !== undefined) {
+    fields.push('address = $address');
+    params.address = updates.address;
+  }
+  if (updates.googlePlaceId !== undefined) {
+    fields.push('google_place_id = $googlePlaceId');
+    params.googlePlaceId = updates.googlePlaceId;
+  }
   
   // JSON fields
   if (updates.billing !== undefined) {
@@ -320,6 +340,13 @@ function parseOrgRow(row) {
     quotas: db.parseJson(row.quotas_json),
     balances: db.parseJson(row.balances_json),
     subscriptionCredits: db.parseJson(row.subscription_credits_json),
+    lat: row.lat || null,
+    lng: row.lng || null,
+    specialty: row.specialty || null,
+    address: row.address || null,
+    googlePlaceId: row.google_place_id || null,
+    googleReviewsUrl: row.google_reviews_url || null,
+    googleOauthJson: row.google_oauth_json || null,
     activatedAt: row.activated_at || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at

@@ -196,7 +196,7 @@ export default function ReviewsPage() {
             </div>
             <div className="flex gap-2">
               <Select value={filterRating} onValueChange={(v) => handleFilterChange('rating', v)}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-full sm:w-[140px]">
                   <Star className="h-4 w-4 mr-2 text-amber-500" />
                   <SelectValue placeholder="Note" />
                 </SelectTrigger>
@@ -210,7 +210,7 @@ export default function ReviewsPage() {
                 </SelectContent>
               </Select>
               <Select value={filterStatus} onValueChange={(v) => handleFilterChange('status', v)}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-full sm:w-[160px]">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue placeholder="Statut" />
                 </SelectTrigger>
@@ -297,9 +297,11 @@ export default function ReviewsPage() {
                             <span className="font-semibold text-foreground">
                               {review.authorName}
                             </span>
-                            <Badge variant="google" className="text-[10px]">
-                              Google
-                            </Badge>
+                            {review.provider === 'google' && (
+                              <Badge variant="google" className="text-[10px]">
+                                Google
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
                             <div className="flex">
@@ -355,6 +357,7 @@ export default function ReviewsPage() {
                         <div className="mt-4 p-3 bg-muted/50 rounded-lg border-l-2 border-primary">
                           <p className="text-xs font-medium text-muted-foreground mb-1">
                             Votre réponse {review.replySentAt && `• ${formatDate(review.replySentAt)}`}
+                            {review.replyStatus === 'sent' && review.provider === 'google' && ' • ✓ Publiée sur Google'}
                             {review.replyStatus === 'queued' && ' • En attente d\'envoi'}
                             {review.replyStatus === 'failed' && ' • Échec d\'envoi'}
                           </p>
@@ -372,7 +375,7 @@ export default function ReviewsPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-4">
               <p className="text-sm text-muted-foreground">
                 Page {currentPage + 1} sur {totalPages} ({totalReviews} avis)
               </p>
@@ -403,7 +406,7 @@ export default function ReviewsPage() {
 
       {/* Response Dialog */}
       <Dialog open={!!selectedReview} onOpenChange={() => setSelectedReview(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Répondre à l&apos;avis

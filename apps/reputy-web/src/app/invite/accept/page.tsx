@@ -41,19 +41,20 @@ function InviteAcceptContent() {
           setResolvedToken(response.token)
           setStatus('success')
         }
-      } catch (err: any) {
-        if (err.error === 'PASSWORD_REQUIRED') {
+      } catch (err: unknown) {
+        const e = err as { error?: string; message?: string }
+        if (e.error === 'PASSWORD_REQUIRED') {
           // New user: must set password first
           setStatus('set-password')
-        } else if (err.error === 'INVITE_NOT_FOUND') {
+        } else if (e.error === 'INVITE_NOT_FOUND') {
           setStatus('error')
           setError("Invitation invalide ou expirée. Demandez une nouvelle invitation.")
-        } else if (err.error === 'INVITE_ALREADY_USED') {
+        } else if (e.error === 'INVITE_ALREADY_USED') {
           setStatus('error')
           setError("Cette invitation a déjà été acceptée. Connectez-vous directement.")
         } else {
           setStatus('error')
-          setError(err.message || 'Une erreur est survenue')
+          setError(e.message || 'Une erreur est survenue')
         }
       }
     }
@@ -97,12 +98,13 @@ function InviteAcceptContent() {
       } else {
         setError(response.message || 'Erreur lors de la création du compte')
       }
-    } catch (err: any) {
-      if (err.error === 'INVITE_ALREADY_USED') {
+    } catch (err: unknown) {
+      const e = err as { error?: string; message?: string }
+      if (e.error === 'INVITE_ALREADY_USED') {
         setStatus('error')
         setError("Cette invitation a déjà été acceptée. Connectez-vous directement.")
       } else {
-        setError(err.message || 'Une erreur est survenue')
+        setError(e.message || 'Une erreur est survenue')
       }
     } finally {
       setSubmitting(false)

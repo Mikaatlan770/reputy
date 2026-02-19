@@ -75,5 +75,102 @@ module.exports = {
         REPUTY_STORAGE: 'sqlite',
       },
     },
+
+    // ── Worker: Email Outbox (every 5 min) ──
+    // Processes pending emails from email_outbox table
+    {
+      name: 'worker-email',
+      script: 'apps/backend/lib/scripts/process-email-outbox.js',
+      cwd: './',
+      cron_restart: '*/5 * * * *',
+      autorestart: false,
+      watch: false,
+      error_file: './logs/worker-email-error.log',
+      out_file: './logs/worker-email-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        REPUTY_STORAGE: 'sqlite',
+      },
+    },
+
+    // ── Worker: SMS Scheduled Sends (every 5 min) ──
+    // Processes delayed SMS sends from scheduled_sends table
+    {
+      name: 'worker-sms',
+      script: 'apps/backend/lib/scripts/process-scheduled-sends.js',
+      cwd: './',
+      cron_restart: '*/5 * * * *',
+      autorestart: false,
+      watch: false,
+      error_file: './logs/worker-sms-error.log',
+      out_file: './logs/worker-sms-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        REPUTY_STORAGE: 'sqlite',
+      },
+    },
+
+    // ── Worker: AI Auto-Reply (every 10 min) ──
+    // Generates AI draft replies for eligible reviews (4-5★)
+    {
+      name: 'worker-auto-reply',
+      script: 'apps/backend/lib/scripts/process-auto-replies.js',
+      cwd: './',
+      cron_restart: '*/10 * * * *',
+      autorestart: false,
+      watch: false,
+      error_file: './logs/worker-auto-reply-error.log',
+      out_file: './logs/worker-auto-reply-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        REPUTY_STORAGE: 'sqlite',
+      },
+    },
+
+    // ── Watchdog: System Health Monitor (every 10 min) ──
+    // Checks /health endpoint via HTTP, outputs JSON for alerting
+    // Adjust --url to your public domain in production
+    {
+      name: 'watchdog',
+      script: 'apps/backend/lib/scripts/watchdog.js',
+      args: '--json',
+      cwd: './',
+      cron_restart: '*/10 * * * *',
+      autorestart: false,
+      watch: false,
+      error_file: './logs/watchdog-error.log',
+      out_file: './logs/watchdog-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        REPUTY_STORAGE: 'sqlite',
+      },
+    },
+
+    // ── DB Backup (daily at 02:00 UTC) ──
+    // Creates a WAL-safe SQLite backup with rotation
+    {
+      name: 'db-backup',
+      script: 'apps/backend/lib/scripts/db-backup.js',
+      cwd: './',
+      cron_restart: '0 2 * * *',
+      autorestart: false,
+      watch: false,
+      error_file: './logs/db-backup-error.log',
+      out_file: './logs/db-backup-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        REPUTY_STORAGE: 'sqlite',
+      },
+    },
   ],
 };

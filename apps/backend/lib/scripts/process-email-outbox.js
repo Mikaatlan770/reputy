@@ -27,7 +27,15 @@ const emailQuotas = require('../email/quotas');
 const emailSigner = require('../email/signer');
 const emailWarmup = require('../email/warmup');
 
+const heartbeatRepo = require('../repositories/worker-heartbeat.repo');
+const cronLocks = require('../repositories/cron-locks.repo');
+const sentry = require('../sentry');
+sentry.setTag('worker', 'email_worker');
+
 const REVIEWS_BASE_URL = process.env.REVIEWS_BASE_URL || 'http://127.0.0.1:8787';
+const WORKER_NAME = 'email_worker';
+const LOCK_TTL_SECONDS = 600; // 10 min
+const lockOwner = cronLocks.makeOwner();
 
 // ============ CLI ARGS ============
 const args = process.argv.slice(2);
@@ -44,12 +52,27 @@ console.log(`Dry-run:     ${FORCE_DRY || emailProvider.EMAIL_DRY_RUN}`);
 console.log(`Warm-up:     ${emailWarmup.EMAIL_WARMUP_ENABLED ? 'ENABLED' : 'DISABLED'}`);
 console.log();
 
+// ============ P1.6: MESSAGING KILL SWITCH ============
+const MESSAGING_DISABLED = ['1', 'true'].includes((process.env.MESSAGING_DISABLED || '').toLowerCase());
+if (MESSAGING_DISABLED) {
+  console.warn('⚠️  MESSAGING_DISABLED=true — worker exiting without processing.');
+  process.exit(0);
+}
+
 // ============ INIT DB ============
 // Ensure schema + migrations are applied (tables must exist)
 if (!db.isInitialized()) {
   console.error('❌ Database not initialized. Run "npm run db:init && npm run db:migrate-v2" first.');
   process.exit(1);
 }
+
+// ============ CRON LOCK ============
+if (!cronLocks.acquire(WORKER_NAME, LOCK_TTL_SECONDS, lockOwner)) {
+  const existing = cronLocks.getInfo(WORKER_NAME);
+  console.log(`⏳ Lock held by ${existing?.owner || '?'} until ${existing?.lockedUntil || '?'} — skipping this run`);
+  process.exit(0);
+}
+console.log(`🔒 Lock acquired (owner: ${lockOwner}, TTL: ${LOCK_TTL_SECONDS}s)`);
 
 // ============ LIFECYCLE HELPER ============
 
@@ -260,12 +283,47 @@ async function processOutbox() {
 }
 
 // Run
+const startMs = Date.now();
+
 processOutbox()
-  .then(result => {
-    console.log('\n✅ Done.');
+  .then(async (result) => {
+    const durationMs = Date.now() - startMs;
+
+    // Record heartbeat
+    try {
+      heartbeatRepo.upsert(WORKER_NAME, {
+        ok: true,
+        itemsProcessed: result.sent,
+        durationMs,
+      });
+    } catch (e) {
+      console.error(`⚠️ Heartbeat write failed: ${e.message}`);
+    }
+
+    // Release cron lock
+    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (_) { /* best-effort */ }
+
+    console.log(`\n✅ Done. (${durationMs}ms)`);
+    await sentry.flush();
     process.exit(result.failed > 0 ? 1 : 0);
   })
-  .catch(err => {
+  .catch(async (err) => {
+    const durationMs = Date.now() - startMs;
+
+    // Report fatal to Sentry + heartbeat
+    sentry.captureException(err, { worker: WORKER_NAME });
+    try {
+      heartbeatRepo.upsert(WORKER_NAME, {
+        ok: false,
+        error: err.message,
+        durationMs,
+      });
+    } catch (_) { /* ignore */ }
+
+    // Release cron lock
+    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (_) { /* best-effort */ }
+
     console.error('\n❌ Fatal error:', err.message);
+    await sentry.flush();
     process.exit(1);
   });

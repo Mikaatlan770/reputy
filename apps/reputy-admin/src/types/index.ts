@@ -5,16 +5,58 @@ export type EstablishmentType = 'health' | 'commerce' | 'restaurant'
 
 // Spécialités médicales
 export type HealthSpecialty = 
+  // Médecine générale
   | 'generaliste'
+  // Dentaire
   | 'dentiste'
-  | 'dermatologue'
+  | 'centre_dentaire'
+  | 'centre_medico_dentaire'
+  | 'orthodontiste'
+  // Ophtalmologie
   | 'ophtalmologue'
+  | 'centre_ophtalmologique'
+  // Centre médical
+  | 'centre_medical'
+  // Spécialistes
+  | 'dermatologue'
   | 'kinesitherapeute'
   | 'pharmacien'
   | 'cardiologue'
   | 'pediatre'
   | 'gynecologue'
   | 'osteopathe'
+  | 'orl'
+  | 'radiologue'
+  | 'allergologue'
+  | 'rhumatologue'
+  | 'neurologue'
+  | 'urologue'
+  | 'gastro_enterologue'
+  | 'pneumologue'
+  | 'endocrinologue'
+  | 'psychiatre'
+  | 'psychologue'
+  // Chirurgie
+  | 'chirurgien'
+  | 'anesthesiste'
+  | 'stomatologue'
+  // Paramédical
+  | 'sage_femme'
+  | 'infirmier'
+  | 'podologue'
+  | 'orthophoniste'
+  | 'dieteticien'
+  | 'chiropracteur'
+  | 'medecin_du_sport'
+  // Médecines complémentaires
+  | 'acupuncteur'
+  | 'naturopathe'
+  | 'sophrologue'
+  // Structures
+  | 'clinique'
+  | 'laboratoire'
+  // Vétérinaire
+  | 'veterinaire'
 
 export interface Location {
   id: string
@@ -54,17 +96,78 @@ export interface Review {
 
 export interface Campaign {
   id: string
-  locationId: string
+  orgId: string
   name: string
+  type: 'review' | 'marketing'
   channel: 'sms' | 'email'
-  status: 'draft' | 'scheduled' | 'active' | 'completed' | 'paused'
-  scheduledAt?: string
-  sent: number
-  clicks: number
-  reviewsGenerated: number
-  conversionRate: number
-  createdAt: string
+  status: 'draft' | 'scheduled' | 'active' | 'sending' | 'completed' | 'paused'
   template?: string
+  subject?: string
+  scheduledAt?: string
+  startedAt?: string
+  completedAt?: string
+  spamThreshold: number
+  totalRecipients: number
+  totalSent: number
+  totalClicks: number
+  totalReviews: number
+  createdAt: string
+  updatedAt: string
+  // Legacy compat (mapped from totalSent, totalClicks, totalReviews)
+  sent?: number
+  clicks?: number
+  reviewsGenerated?: number
+  conversionRate?: number
+  // Kept for backward compat
+  locationId?: string
+}
+
+export interface Contact {
+  id: string
+  orgId: string
+  firstName: string | null
+  lastName: string | null
+  email: string | null
+  phone: string | null
+  source: 'manual' | 'import_csv' | 'import_excel' | 'review_request' | 'sync'
+  tags: string[]
+  reviewSolicitationsNoReply: number
+  hasLeftReview: boolean
+  lastSolicitedAt: string | null
+  lastReviewAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ContactCounts {
+  total: number
+  manual: number
+  import_csv: number
+  import_excel: number
+  review_request: number
+  sync: number
+  withEmail: number
+  withPhone: number
+}
+
+export interface CampaignStats {
+  total: number
+  eligible: number
+  sent: number
+  clicked: number
+  reviewed: number
+  failed: number
+  excludedSpam: number
+  excludedReviewed: number
+  clickRate: number
+  conversionRate: number
+}
+
+export interface ImportResult {
+  imported: number
+  duplicates: number
+  invalid: number
+  total: number
 }
 
 export interface Competitor {

@@ -283,7 +283,7 @@ function CreditsSection() {
         <CardContent className="py-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Total disponible ce mois</span>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
               <div className="flex items-center gap-1">
                 <MessageSquare className="h-4 w-4 text-blue-500" />
                 <span className="font-bold">{credits.total.smsRemaining}</span>
@@ -334,7 +334,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
           <p className="text-muted-foreground mt-1">Chargement des données...</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
           {[...Array(6)].map((_, i) => (
             <Skeleton key={i} className="h-32 w-full rounded-lg" />
           ))}
@@ -430,7 +430,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Google Reviews KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard
           title="Note moyenne"
           value={kpi.averageRating.toFixed(1)}

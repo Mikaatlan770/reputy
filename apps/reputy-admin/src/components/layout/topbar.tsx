@@ -79,17 +79,21 @@ export function Topbar() {
   return (
     <header
       className={cn(
-        'fixed top-0 right-0 z-30 h-16 bg-card border-b border-border transition-all duration-300',
-        sidebarOpen ? 'left-64' : 'left-16'
+        'fixed top-0 right-0 z-40 h-16 bg-card border-b border-border transition-all duration-300',
+        // Mobile: full-width (sidebar hidden). Desktop: respect sidebar width.
+        'left-0',
+        sidebarOpen ? 'md:left-64' : 'md:left-16'
       )}
+      style={{ paddingTop: 'var(--safe-top)' }}
     >
-      <div className="flex h-full items-center justify-between px-6">
-        {/* Left: Mobile menu + Org selector */}
-        <div className="flex items-center gap-4">
+      <div className="flex h-full items-center justify-between px-4 md:px-6">
+        {/* Left: Org selector (mobile compact) */}
+        <div className="flex items-center gap-2 md:gap-4 min-w-0">
+          {/* Desktop sidebar toggle — hidden on mobile (bottom nav instead) */}
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
+            className="hidden md:inline-flex lg:hidden"
             onClick={toggleSidebar}
           >
             <Menu className="h-5 w-5" />
@@ -101,15 +105,16 @@ export function Topbar() {
               value={clientOrg?.id || ''}
               onValueChange={handleOrgSwitch}
             >
-              <SelectTrigger className="w-[300px] bg-background">
-                <SelectValue placeholder="Sélectionner un établissement" />
+              {/* Mobile: compact / Desktop: full width */}
+              <SelectTrigger className="max-w-[200px] md:max-w-[300px] bg-background truncate">
+                <SelectValue placeholder="Établissement" />
               </SelectTrigger>
               <SelectContent>
                 {memberships.map((m) => (
                   <SelectItem key={m.orgId} value={m.orgId}>
                     <div className="flex items-center gap-2">
-                      <span>{m.orgName}</span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                      <span className="truncate">{m.orgName}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
                         {roleLabels[m.role] || m.role}
                       </Badge>
                     </div>
@@ -118,14 +123,14 @@ export function Topbar() {
               </SelectContent>
             </Select>
           ) : isClient && clientOrg ? (
-            // Single org: just show the name, no dropdown
-            <div className="flex items-center gap-2 px-3 py-1.5">
-              <span className="font-medium text-sm">{clientOrg.name}</span>
+            // Single org: just show the name
+            <div className="flex items-center gap-2 px-2 md:px-3 py-1.5 min-w-0">
+              <span className="font-medium text-sm truncate">{clientOrg.name}</span>
             </div>
           ) : null}
         </div>
 
-        {/* Center: Search */}
+        {/* Center: Search — hidden on mobile */}
         <div className="hidden md:flex flex-1 max-w-md mx-8">
           <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -137,7 +142,7 @@ export function Topbar() {
         </div>
 
         {/* Right: Notifications + Profile */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {/* Notifications */}
           <Button variant="ghost" size="icon" className="relative">
             <Bell className="h-5 w-5" />
@@ -147,16 +152,17 @@ export function Topbar() {
           </Button>
 
           {/* Profile */}
-          <div className="flex items-center gap-3 pl-3 border-l border-border">
+          <div className="flex items-center gap-2 md:gap-3 pl-2 md:pl-3 border-l border-border">
+            {/* Name/role — hidden on small screens */}
             <div className="hidden sm:block text-right">
-              <p className="text-sm font-medium">
+              <p className="text-sm font-medium truncate max-w-[150px]">
                 {displayName}
               </p>
               <p className="text-xs text-muted-foreground capitalize">
                 {displayRole}
               </p>
             </div>
-            <Avatar className="h-9 w-9">
+            <Avatar className="h-8 w-8 md:h-9 md:w-9">
               <AvatarImage src={currentUser?.avatar} />
               <AvatarFallback className="bg-primary text-primary-foreground text-sm">
                 {initials}
@@ -170,6 +176,7 @@ export function Topbar() {
                 size="icon"
                 onClick={handleLogout}
                 title="Déconnexion"
+                className="h-8 w-8 md:h-9 md:w-9"
               >
                 <LogOut className="h-4 w-4" />
               </Button>

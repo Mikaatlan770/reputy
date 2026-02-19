@@ -45,14 +45,40 @@ function computeEffectiveBilling({ org, now = new Date(), repos = null, ensurePe
   const stripeCouponId = org.billing?.stripeCouponId || null;
   const { priceEffectiveCents, discount } = calculateDiscountedPrice(priceCatalogCents, stripeCouponId);
   
-  // Get monthly remaining from subscriptionCredits
   const subCredits = org.subscriptionCredits || {};
+  
+  // Bonus monthly (from gifts)
+  const bonusMonthly = {
+    sms: subCredits.smsGiftMonthly || subCredits.gifts?.smsGiftMonthly || 0,
+    email: subCredits.emailGiftMonthly || subCredits.gifts?.emailGiftMonthly || 0,
+    ai: subCredits.aiGiftMonthly || subCredits.gifts?.aiGiftMonthly || 0,
+  };
+  
+  // Quotas effective (catalog + bonus) — SOURCE OF TRUTH for included values
+  const quotasEffective = {
+    smsIncluded: quotasCatalog.smsIncluded + bonusMonthly.sms,
+    emailIncluded: quotasCatalog.emailIncluded + bonusMonthly.email,
+    aiIncluded: quotasCatalog.aiIncluded + bonusMonthly.ai,
+    qrIncluded: quotasCatalog.qrIncluded,
+    nfcIncluded: quotasCatalog.nfcIncluded,
+  };
+  
+  // Monthly usage
+  const monthlyUsed = {
+    sms: subCredits.smsUsedThisPeriod || 0,
+    email: subCredits.emailUsedThisPeriod || 0,
+    ai: subCredits.aiUsedThisPeriod || 0,
+    qr: subCredits.qrUsedThisPeriod || 0,
+    nfc: subCredits.nfcUsedThisPeriod || 0,
+  };
+  
+  // Monthly remaining = catalog included - used (NOT from stale DB subCredits.smsTotal)
   const monthlyRemaining = {
-    sms: Math.max(0, (subCredits.smsTotal || 0) - (subCredits.smsUsedThisPeriod || 0)),
-    email: Math.max(0, (subCredits.emailTotal || 0) - (subCredits.emailUsedThisPeriod || 0)),
-    ai: Math.max(0, (subCredits.aiTotal || 0) - (subCredits.aiUsedThisPeriod || 0)),
-    qr: Math.max(0, (subCredits.qrIncludedMonthly || 0) - (subCredits.qrUsedThisPeriod || 0)),
-    nfc: Math.max(0, (subCredits.nfcIncludedMonthly || 0) - (subCredits.nfcUsedThisPeriod || 0)),
+    sms: Math.max(0, quotasEffective.smsIncluded - monthlyUsed.sms),
+    email: Math.max(0, quotasEffective.emailIncluded - monthlyUsed.email),
+    ai: Math.max(0, quotasEffective.aiIncluded - monthlyUsed.ai),
+    qr: Math.max(0, quotasEffective.qrIncluded - monthlyUsed.qr),
+    nfc: Math.max(0, quotasEffective.nfcIncluded - monthlyUsed.nfc),
   };
   
   // Get pack balances (persistent, not monthly)
@@ -70,31 +96,6 @@ function computeEffectiveBilling({ org, now = new Date(), repos = null, ensurePe
     ai: monthlyRemaining.ai + packsBalance.ai,
     qr: monthlyRemaining.qr,
     nfc: monthlyRemaining.nfc,
-  };
-  
-  // Bonus monthly (from gifts)
-  const bonusMonthly = {
-    sms: subCredits.smsGiftMonthly || subCredits.gifts?.smsGiftMonthly || 0,
-    email: subCredits.emailGiftMonthly || subCredits.gifts?.emailGiftMonthly || 0,
-    ai: subCredits.aiGiftMonthly || subCredits.gifts?.aiGiftMonthly || 0,
-  };
-  
-  // Monthly usage
-  const monthlyUsed = {
-    sms: subCredits.smsUsedThisPeriod || 0,
-    email: subCredits.emailUsedThisPeriod || 0,
-    ai: subCredits.aiUsedThisPeriod || 0,
-    qr: subCredits.qrUsedThisPeriod || 0,
-    nfc: subCredits.nfcUsedThisPeriod || 0,
-  };
-  
-  // Quotas effective (catalog + bonus)
-  const quotasEffective = {
-    smsIncluded: quotasCatalog.smsIncluded + bonusMonthly.sms,
-    emailIncluded: quotasCatalog.emailIncluded + bonusMonthly.email,
-    aiIncluded: quotasCatalog.aiIncluded + bonusMonthly.ai,
-    qrIncluded: quotasCatalog.qrIncluded,
-    nfcIncluded: quotasCatalog.nfcIncluded,
   };
   
   // Billing period

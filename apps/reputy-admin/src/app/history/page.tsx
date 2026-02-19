@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Send,
   MessageSquare,
@@ -18,15 +19,12 @@ import {
   Star,
   ExternalLink,
   Search,
-  Filter,
   TrendingUp,
-  AlertTriangle,
   Calendar,
   Phone,
-  User,
   ArrowUpRight,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, getInitials, formatDateTime } from '@/lib/utils'
 
 interface PatientInfo {
   name: string
@@ -72,26 +70,6 @@ interface Stats {
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
-
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 function formatDateShort(dateString: string): string {
   const date = new Date(dateString)
@@ -161,7 +139,7 @@ export default function HistoryPage() {
     try {
       const token = getClientToken()
       if (!token) {
-        setError('Authentification requise.')
+        setError('Session expirée. Reconnectez-vous.')
         setLoading(false)
         return
       }
@@ -169,13 +147,16 @@ export default function HistoryPage() {
       const response = await fetch(`${BACKEND_URL}/api/requests`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (response.ok) {
-        const data = await response.json()
-        setRequests(data.requests || [])
-        setStats(data.stats || null)
-      } else {
+      if (!response.ok) {
+        if (response.status === 401) {
+          setError('Session expirée. Reconnectez-vous.')
+          return
+        }
         throw new Error(`HTTP ${response.status}`)
       }
+      const data = await response.json()
+      setRequests(data.requests || [])
+      setStats(data.stats || null)
     } catch (err) {
       console.error('Failed to load requests:', err)
       setError('Impossible de charger l\'historique. Vérifiez que le backend est lancé.')
@@ -198,34 +179,50 @@ export default function HistoryPage() {
       const matchesEmail = request.patient.email?.toLowerCase().includes(search)
       if (!matchesName && !matchesPhone && !matchesEmail) return false
     }
-    
+
     // Filtre statut
     if (filterStatus !== 'all' && request.status !== filterStatus) return false
-    
+
     // Filtre canal
     if (filterChannel !== 'all' && request.channel !== filterChannel) return false
-    
+
     return true
   })
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Historique des envois</h1>
           <p className="text-muted-foreground mt-1">
-            Traçabilité complète des demandes d'avis envoyées
+            Traçabilité complète des demandes d&apos;avis envoyées
           </p>
         </div>
-        <Button onClick={fetchRequests} variant="outline" className="gap-2">
+        <Button onClick={fetchRequests} disabled={loading} variant="outline" className="gap-2">
           <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
           Actualiser
         </Button>
       </div>
 
       {/* Stats */}
-      {stats && (
+      {loading && !stats ? (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-9 w-9 rounded-lg" />
+                  <div className="space-y-1">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-8 w-10" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : stats ? (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Card>
             <CardContent className="p-4">
@@ -240,7 +237,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -254,7 +251,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -268,7 +265,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -282,7 +279,7 @@ export default function HistoryPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -297,6 +294,21 @@ export default function HistoryPage() {
             </CardContent>
           </Card>
         </div>
+      ) : null}
+
+      {/* Error */}
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3 text-red-700">
+              <XCircle className="h-5 w-5 flex-shrink-0" />
+              <p className="flex-1">{error}</p>
+              <Button variant="outline" size="sm" onClick={fetchRequests}>
+                Réessayer
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Filtres */}
@@ -341,7 +353,7 @@ export default function HistoryPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Demandes d'avis ({filteredRequests.length})
+            Demandes d&apos;avis ({filteredRequests.length})
           </CardTitle>
           <CardDescription>
             Liste chronologique de toutes les demandes envoyées
@@ -349,8 +361,21 @@ export default function HistoryPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="space-y-3">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex items-start gap-4 p-4 rounded-xl border">
+                  <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-40" />
+                    <Skeleton className="h-3 w-32" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : filteredRequests.length === 0 ? (
             <div className="text-center py-12">
@@ -379,7 +404,7 @@ export default function HistoryPage() {
                       request.status === 'expired' && 'border-gray-200 bg-gray-50/30'
                     )}
                   >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
                       {/* Info principale */}
                       <div className="flex items-start gap-4 flex-1">
                         <Avatar className="h-10 w-10">
@@ -387,7 +412,7 @@ export default function HistoryPage() {
                             {getInitials(request.patient.name || 'N/A')}
                           </AvatarFallback>
                         </Avatar>
-                        
+
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">
@@ -403,7 +428,7 @@ export default function HistoryPage() {
                               <ChannelIcon className="h-3 w-3" />
                             </div>
                           </div>
-                          
+
                           <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                             {request.patient.phone && (
                               <span className="flex items-center gap-1">
@@ -418,7 +443,7 @@ export default function HistoryPage() {
                               </span>
                             )}
                           </div>
-                          
+
                           <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
@@ -433,7 +458,7 @@ export default function HistoryPage() {
                           </div>
                         </div>
                       </div>
-                      
+
                       {/* Feedback info */}
                       <div className="flex flex-col items-end gap-2">
                         {request.feedback ? (
@@ -455,14 +480,20 @@ export default function HistoryPage() {
                               Répondu le {formatDateShort(request.feedback.submittedAt)}
                             </span>
                             {request.feedback.routing?.mode === 'PUBLIC_REVIEW' && (
-                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-600 border-blue-200">
+                              <Badge
+                                variant="outline"
+                                className="text-xs bg-blue-50 text-blue-600 border-blue-200"
+                              >
                                 <ArrowUpRight className="h-3 w-3 mr-1" />
                                 Redirigé Google
                               </Badge>
                             )}
                             {request.feedback.comment && (
-                              <p className="text-xs text-muted-foreground max-w-[200px] truncate" title={request.feedback.comment}>
-                                "{request.feedback.comment}"
+                              <p
+                                className="text-xs text-muted-foreground max-w-[200px] truncate"
+                                title={request.feedback.comment}
+                              >
+                                &ldquo;{request.feedback.comment}&rdquo;
                               </p>
                             )}
                           </>
@@ -477,9 +508,7 @@ export default function HistoryPage() {
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         ) : (
-                          <span className="text-xs text-muted-foreground">
-                            Pas de réponse
-                          </span>
+                          <span className="text-xs text-muted-foreground">Pas de réponse</span>
                         )}
                       </div>
                     </div>
