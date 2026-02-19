@@ -17,13 +17,14 @@ const VERTICALS = [
 function SignupForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const planParam = searchParams.get('plan')
+  const planParam = searchParams.get('plan') || 'or'
   
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     orgName: '',
-    vertical: planParam || 'health',
+    vertical: 'health',
+    plan: planParam,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -43,6 +44,7 @@ function SignupForm() {
         password: formData.password,
         orgName: formData.orgName,
         vertical: formData.vertical,
+        plan: formData.plan,
       })
       
       if (response.ok && response.next === 'verify') {

@@ -113,6 +113,7 @@ export async function signup(data: {
   password: string
   orgName: string
   vertical?: string
+  plan?: string
 }): Promise<AuthResponse> {
   return apiCall('/auth/signup', {
     method: 'POST',
