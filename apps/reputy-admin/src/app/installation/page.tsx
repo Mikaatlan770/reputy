@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth, useIsClient } from '@/lib/auth'
 import { 
@@ -16,11 +16,16 @@ import {
   Mail,
   Package,
   Calendar,
-  Shield
+  Shield,
+  RotateCw,
+  Eye,
+  EyeOff,
+  Lock
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
 const CHROME_EXTENSION_URL = 'https://chrome.google.com/webstore/detail/reputy/EXTENSION_ID'
 
 /**
@@ -29,9 +34,18 @@ const CHROME_EXTENSION_URL = 'https://chrome.google.com/webstore/detail/reputy/E
  */
 export default function InstallationPage() {
   const router = useRouter()
-  const { mode, loading, clientOrg, clientUser } = useAuth()
+  const { mode, loading, clientOrg, clientUser, getClientToken } = useAuth()
   const isClient = useIsClient()
   const [copied, setCopied] = useState(false)
+  const [copiedToken, setCopiedToken] = useState(false)
+  const [apiToken, setApiToken] = useState<string | null>(null)
+  const [tokenLoading, setTokenLoading] = useState(false)
+  const [tokenRevealed, setTokenRevealed] = useState(false)
+  const [hasToken, setHasToken] = useState(false)
+  const [tokenMeta, setTokenMeta] = useState<{
+    apiTokenCreatedAt: string | null
+    apiTokenLastRotatedAt: string | null
+  }>({ apiTokenCreatedAt: null, apiTokenLastRotatedAt: null })
 
   // Rediriger si pas client
   useEffect(() => {
@@ -57,6 +71,80 @@ export default function InstallationPage() {
       document.body.removeChild(textarea)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  // Fetch token metadata
+  const fetchTokenInfo = useCallback(async () => {
+    const token = getClientToken()
+    if (!token) return
+    try {
+      const res = await fetch(`${BACKEND_URL}/client/api-token`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setHasToken(data.hasApiToken)
+        setTokenMeta({
+          apiTokenCreatedAt: data.apiTokenCreatedAt,
+          apiTokenLastRotatedAt: data.apiTokenLastRotatedAt,
+        })
+      }
+    } catch {
+      // silent
+    }
+  }, [getClientToken])
+
+  useEffect(() => {
+    if (isClient && clientOrg) {
+      fetchTokenInfo()
+    }
+  }, [isClient, clientOrg, fetchTokenInfo])
+
+  const handleRotateToken = async () => {
+    if (!confirm('⚠️ Générer un nouveau Token API ?\n\nL\'ancien token restera valide 24h.\nVous devrez mettre à jour l\'extension avec le nouveau token.')) return
+    
+    setTokenLoading(true)
+    try {
+      const token = getClientToken()
+      const res = await fetch(`${BACKEND_URL}/client/api-token/rotate`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+      const data = await res.json()
+      if (res.ok && data.newApiToken) {
+        setApiToken(data.newApiToken)
+        setTokenRevealed(true)
+        setHasToken(true)
+        await fetchTokenInfo()
+      } else {
+        alert(data.message || 'Erreur lors de la génération du token')
+      }
+    } catch {
+      alert('Erreur de connexion au serveur')
+    } finally {
+      setTokenLoading(false)
+    }
+  }
+
+  const handleCopyToken = async () => {
+    if (!apiToken) return
+    try {
+      await navigator.clipboard.writeText(apiToken)
+      setCopiedToken(true)
+      setTimeout(() => setCopiedToken(false), 2000)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = apiToken
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopiedToken(true)
+      setTimeout(() => setCopiedToken(false), 2000)
     }
   }
 
@@ -213,6 +301,104 @@ export default function InstallationPage() {
         </CardContent>
       </Card>
 
+      {/* API Token Card */}
+      <Card className="bg-gradient-to-br from-amber-900 to-amber-800 text-white border-0">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-white">
+            <Lock className="h-5 w-5" />
+            Token API (Extension)
+          </CardTitle>
+          <CardDescription className="text-amber-200">
+            Ce token secret est nécessaire pour connecter l&apos;extension Chrome à votre compte.
+            Collez-le dans le champ &quot;Token API&quot; des paramètres de l&apos;extension.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {apiToken ? (
+            <div className="space-y-3">
+              <div className="bg-white/10 backdrop-blur rounded-xl p-4 flex items-center justify-between gap-4">
+                <code className="font-mono text-sm text-green-300 break-all">
+                  {tokenRevealed ? apiToken : '••••••••••••••••••••••••••••••••'}
+                </code>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setTokenRevealed(!tokenRevealed)}
+                    variant="ghost"
+                    size="icon"
+                    className="text-white hover:text-white hover:bg-white/10"
+                    title={tokenRevealed ? 'Masquer' : 'Afficher'}
+                  >
+                    {tokenRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    onClick={handleCopyToken}
+                    variant={copiedToken ? 'default' : 'secondary'}
+                    className={copiedToken ? 'bg-green-500 hover:bg-green-600' : ''}
+                  >
+                    {copiedToken ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Copié !
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4 mr-2" />
+                        Copier
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div className="flex items-start gap-2 text-sm text-amber-200">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  ⚠️ Copiez ce token maintenant ! Il ne sera plus affiché après avoir quitté cette page.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {hasToken && (
+                <div className="bg-white/10 backdrop-blur rounded-xl p-4">
+                  <p className="text-sm text-amber-200">
+                    Un token API existe déjà pour votre organisation.
+                    {tokenMeta.apiTokenLastRotatedAt && (
+                      <span className="block mt-1 text-xs text-amber-300">
+                        Dernière rotation : {new Date(tokenMeta.apiTokenLastRotatedAt).toLocaleString('fr-FR')}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+              <Button
+                onClick={handleRotateToken}
+                disabled={tokenLoading}
+                variant="secondary"
+                className="w-full"
+              >
+                {tokenLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Génération...
+                  </>
+                ) : (
+                  <>
+                    <RotateCw className="h-4 w-4 mr-2" />
+                    {hasToken ? 'Régénérer le Token API' : 'Générer le Token API'}
+                  </>
+                )}
+              </Button>
+              <p className="text-xs text-amber-300">
+                {hasToken 
+                  ? "L'ancien token restera valide 24h après la rotation."
+                  : "Vous devrez copier ce token dans les paramètres de l'extension Chrome."
+                }
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Setup Instructions */}
       <Card>
         <CardHeader>
@@ -268,23 +454,33 @@ export default function InstallationPage() {
               <span className="text-primary font-bold text-sm">3</span>
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold mb-1">Collez votre clé publique</h3>
+              <h3 className="font-semibold mb-1">Configurez l&apos;extension</h3>
               <p className="text-muted-foreground text-sm mb-3">
-                Copiez la clé ci-dessus et collez-la dans le champ "Clé publique" de l'extension.
+                Renseignez les 3 champs dans les paramètres de l&apos;extension :
               </p>
-              <div className="flex items-center gap-2">
-                <code className="px-3 py-1.5 bg-muted rounded-lg text-sm font-mono">
-                  {clientOrg.publicKey}
-                </code>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleCopyKey}
-                  title="Copier"
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
+              <ul className="text-sm text-muted-foreground space-y-2 mb-3">
+                <li className="flex items-start gap-2">
+                  <span className="font-medium text-foreground min-w-[130px]">URL Backend :</span>
+                  <code className="px-2 py-0.5 bg-muted rounded text-xs">https://api.reputyapp.com</code>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="font-medium text-foreground min-w-[130px]">Token API :</span>
+                  <span>Générez-le ci-dessus puis collez-le</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="font-medium text-foreground min-w-[130px]">Clé publique :</span>
+                  <code className="px-2 py-0.5 bg-muted rounded text-xs font-mono">{clientOrg.publicKey}</code>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={handleCopyKey}
+                    title="Copier"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </li>
+              </ul>
             </div>
           </div>
 

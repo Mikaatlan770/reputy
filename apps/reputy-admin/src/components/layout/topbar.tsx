@@ -143,12 +143,9 @@ export function Topbar() {
 
         {/* Right: Notifications + Profile */}
         <div className="flex items-center gap-2 md:gap-3">
-          {/* Notifications */}
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-destructive text-[10px] font-bold text-white rounded-full flex items-center justify-center">
-              3
-            </span>
+          {/* Notifications — placeholder, fonctionnalité à venir */}
+          <Button variant="ghost" size="icon" className="relative" title="Notifications (bientôt disponible)">
+            <Bell className="h-5 w-5 text-muted-foreground" />
           </Button>
 
           {/* Profile */}

@@ -6679,7 +6679,25 @@ function requireMembershipRole(repos, userId, orgId, allowedRoles, res) {
     sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Membership service unavailable' });
     return null;
   }
-  const m = repos.membership.getByUserAndOrg(userId, orgId);
+  let m = repos.membership.getByUserAndOrg(userId, orgId);
+  
+  // Self-heal: auto-create membership for legacy accounts (created before PR-8b)
+  if (!m) {
+    const user = repos.user.getById(userId);
+    if (user && user.orgId === orgId && user.role === 'owner') {
+      console.log(`[MEMBERSHIP] Self-heal: creating owner membership for user ${userId} on org ${orgId}`);
+      repos.membership.create({
+        orgId,
+        userId,
+        role: 'owner',
+        status: 'active',
+        invitedAt: user.createdAt || nowISO(),
+        acceptedAt: user.createdAt || nowISO(),
+      });
+      m = repos.membership.getByUserAndOrg(userId, orgId);
+    }
+  }
+  
   if (!m || m.status !== 'active') {
     sendJson(res, 403, { ok: false, error: 'FORBIDDEN', message: 'Vous n\'avez pas accès à cet établissement' });
     return null;
@@ -7019,6 +7037,73 @@ async function handleClientDeleteOrg(req, res, targetOrgId) {
     if (!res.headersSent) {
       return sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Erreur lors de la suppression de l\'établissement' });
     }
+  }
+}
+
+// ============ CLIENT API TOKEN ============
+
+/**
+ * GET /client/api-token — Get masked API token info for current org
+ * Only owner/admin can view
+ */
+function handleClientGetApiToken(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+  const membership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
+  if (!membership) return;
+
+  const org = repos.org.getById(auth.org.id);
+  if (!org) {
+    return sendJson(res, 404, { ok: false, error: 'NOT_FOUND', message: 'Organisation non trouvée' });
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    publicKey: org.publicKey,
+    apiTokenMasked: maskApiToken(org.apiTokenHash ? '••••••••' : null),
+    apiTokenCreatedAt: org.apiTokenCreatedAt || null,
+    apiTokenLastRotatedAt: org.apiTokenLastRotatedAt || null,
+    hasApiToken: !!org.apiTokenHash,
+  });
+}
+
+/**
+ * POST /client/api-token/rotate — Generate/rotate API token for current org
+ * Only owner can rotate. Returns new plain token ONCE.
+ */
+function handleClientRotateApiToken(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
+  }
+
+  const repos = storage.getRepos();
+  const membership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner'], res);
+  if (!membership) return;
+
+  try {
+    const result = repos.org.rotateApiToken(auth.org.id, 24);
+    
+    logger.logAudit('CLIENT_ROTATE_API_TOKEN', {
+      orgId: auth.org.id,
+      userId: auth.user.id,
+      message: 'API token rotated by client',
+    });
+
+    return sendJson(res, 200, {
+      ok: true,
+      newApiToken: result.newToken,
+      message: "Nouveau token généré. Copiez-le maintenant, il ne sera plus affiché.",
+      warning: "⚠️ L'ancien token reste valide 24h pour vous laisser le temps de mettre à jour l'extension.",
+    });
+  } catch (err) {
+    return sendJson(res, 500, { ok: false, error: 'SERVER_ERROR', message: 'Erreur lors de la rotation du token' });
   }
 }
 
@@ -11756,7 +11841,7 @@ const server = http.createServer(async (req, res) => {
     const code = cbParams.get('code') || '';
     const state = cbParams.get('state') || '';
     const error = cbParams.get('error') || '';
-    const adminUrl = process.env.REPUTY_DOMAIN || 'http://localhost:3002';
+    const adminUrl = process.env.ADMIN_URL || process.env.REPUTY_DOMAIN || 'http://localhost:3002';
     // P0: Extract strict origin for postMessage (prevents code exfiltration to other domains)
     const adminOrigin = (() => {
       try { return new URL(adminUrl).origin; } catch { return adminUrl; }
@@ -11900,6 +11985,14 @@ const server = http.createServer(async (req, res) => {
   const deleteOrgMatch = pathname.match(/^\/client\/orgs\/([a-f0-9]+)$/);
   if (deleteOrgMatch && method === 'DELETE') {
     return handleClientDeleteOrg(req, res, deleteOrgMatch[1]);
+  }
+
+  // Client API Token management (owner only)
+  if (method === 'GET' && pathname === '/client/api-token') {
+    return handleClientGetApiToken(req, res);
+  }
+  if (method === 'POST' && pathname === '/client/api-token/rotate') {
+    return handleClientRotateApiToken(req, res);
   }
 
   if (method === 'GET' && pathname === '/client/team') {
