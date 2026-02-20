@@ -441,6 +441,23 @@ function applyCors(req, res) {
   // No Origin → server-to-server / curl → skip CORS headers
   if (!origin) return 'pass';
 
+  // Allow Chrome extension origins (they authenticate via API token, not cookies)
+  if (origin.startsWith('chrome-extension://')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-Requested-With, x-admin-token, x-api-token, x-public-key, X-Internal-Admin-Token, X-Cabinet-Api-Token, X-Public-Key'
+    );
+    res.setHeader('Access-Control-Max-Age', '86400');
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return 'preflight';
+    }
+    return 'pass';
+  }
+
   // P1.5: Block 'null' origin in production (sandbox iframes, local file://)
   if (IS_PRODUCTION && origin === 'null') {
     logger.logError('CORS_BLOCKED_NULL', { origin, url: req.url, method: req.method });
@@ -6647,7 +6664,22 @@ function handleClientGetMemberships(req, res) {
     });
   }
 
-  const memberships = repos.membership.getActiveByUserId(auth.user.id);
+  let memberships = repos.membership.getActiveByUserId(auth.user.id);
+
+  // Self-heal: if user has no memberships but has an org, create owner membership
+  // (fixes accounts created before PR-8b membership migration)
+  if (memberships.length === 0 && auth.org && auth.user.role === 'owner') {
+    console.log(`[MEMBERSHIP] Self-heal (memberships): creating owner membership for user ${auth.user.id} on org ${auth.org.id}`);
+    repos.membership.create({
+      orgId: auth.org.id,
+      userId: auth.user.id,
+      role: 'owner',
+      status: 'active',
+      invitedAt: auth.user.createdAt || nowISO(),
+      acceptedAt: auth.user.createdAt || nowISO(),
+    });
+    memberships = repos.membership.getActiveByUserId(auth.user.id);
+  }
 
   return sendJson(res, 200, {
     ok: true,
