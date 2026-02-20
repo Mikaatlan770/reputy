@@ -2554,15 +2554,20 @@ function validateAuth(req) {
  * @returns {{ ok: boolean, org?: object, error?: string }}
  */
 function validateExtensionAuth(req, publicKey) {
-  const data = loadData();
-  
   // 1) publicKey is REQUIRED
   if (!publicKey) {
     return { ok: false, error: 'PUBLIC_KEY_REQUIRED', message: 'publicKey manquante' };
   }
   
-  // 2) Resolve org ONLY via publicKey
-  const org = getOrgByPublicKey(data, publicKey);
+  // 2) Resolve org — SQLite repos first, fallback to data.json
+  let org;
+  if (storage.USE_SQLITE) {
+    const repos = storage.getRepos();
+    org = repos.org.getByPublicKey(publicKey);
+  } else {
+    const data = loadData();
+    org = getOrgByPublicKey(data, publicKey);
+  }
   if (!org) {
     return { ok: false, error: 'ORG_NOT_FOUND', message: 'Organisation non trouvée' };
   }
