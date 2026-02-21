@@ -50,27 +50,15 @@ const typeLabels: Partial<Record<EstablishmentType, string>> = {
   // restaurant: 'Restaurant',   // Masqué — Reputy Food à venir
 }
 
+// Labels plats pour affichage (badges, etc.)
 const specialtyLabels: Record<HealthSpecialty, string> = {
-  // Médecine générale
+  // Médecins
   generaliste: 'Médecin généraliste',
-  // Dentaire
-  dentiste: 'Dentiste',
-  centre_dentaire: 'Centre dentaire',
-  centre_medico_dentaire: 'Centre médico-dentaire',
-  orthodontiste: 'Orthodontiste',
-  // Ophtalmologie
-  ophtalmologue: 'Ophtalmologue',
-  centre_ophtalmologique: 'Centre ophtalmologique',
-  // Centre médical
-  centre_medical: 'Centre médical',
-  // Spécialistes
   dermatologue: 'Dermatologue',
-  kinesitherapeute: 'Kinésithérapeute',
-  pharmacien: 'Pharmacien',
   cardiologue: 'Cardiologue',
   pediatre: 'Pédiatre',
   gynecologue: 'Gynécologue',
-  osteopathe: 'Ostéopathe',
+  ophtalmologue: 'Ophtalmologue',
   orl: 'ORL',
   radiologue: 'Radiologue',
   allergologue: 'Allergologue',
@@ -81,29 +69,152 @@ const specialtyLabels: Record<HealthSpecialty, string> = {
   pneumologue: 'Pneumologue',
   endocrinologue: 'Endocrinologue',
   psychiatre: 'Psychiatre',
-  psychologue: 'Psychologue',
-  // Chirurgie
-  chirurgien: 'Chirurgien',
   anesthesiste: 'Anesthésiste',
+  medecin_du_sport: 'Médecin du sport',
+  medecin_esthetique: 'Médecin esthétique',
+  medecin_nutritionniste: 'Médecin nutritionniste',
+  medecin_du_travail: 'Médecin du travail',
+  geriarte: 'Gériatre',
+  medecin_vasculaire: 'Médecin vasculaire (angiologue)',
+  // Chirurgiens
+  chirurgien: 'Chirurgien (général)',
+  chirurgien_esthetique: 'Chirurgien esthétique / plasticien',
+  chirurgien_orthopedique: 'Chirurgien orthopédique',
+  chirurgien_cardiaque: 'Chirurgien cardiaque',
+  chirurgien_digestif: 'Chirurgien digestif / viscéral',
+  chirurgien_vasculaire: 'Chirurgien vasculaire',
+  neurochirurgien: 'Neurochirurgien',
+  chirurgien_maxillo_facial: 'Chirurgien maxillo-facial',
+  chirurgien_urologue: 'Chirurgien urologue',
   stomatologue: 'Stomatologue',
-  // Paramédical
+  // Dentaire
+  dentiste: 'Dentiste',
+  centre_dentaire: 'Centre dentaire',
+  centre_medico_dentaire: 'Centre médico-dentaire',
+  orthodontiste: 'Orthodontiste',
+  // Auxiliaires médicaux
+  kinesitherapeute: 'Kinésithérapeute',
+  osteopathe: 'Ostéopathe',
   sage_femme: 'Sage-femme',
   infirmier: 'Infirmier(e)',
   podologue: 'Podologue',
   orthophoniste: 'Orthophoniste',
   dieteticien: 'Diététicien(ne)',
   chiropracteur: 'Chiropracteur',
-  medecin_du_sport: 'Médecin du sport',
+  psychologue: 'Psychologue',
+  orthoptiste: 'Orthoptiste',
+  ergotherapeute: 'Ergothérapeute',
+  psychomotricien: 'Psychomotricien(ne)',
   // Médecines complémentaires
   acupuncteur: 'Acupuncteur',
   naturopathe: 'Naturopathe',
   sophrologue: 'Sophrologue',
-  // Structures
+  // Établissements
+  centre_medical: 'Centre médical',
+  centre_ophtalmologique: 'Centre ophtalmologique',
   clinique: 'Clinique',
   laboratoire: 'Laboratoire d\'analyses',
+  pharmacien: 'Pharmacie',
   // Vétérinaire
   veterinaire: 'Vétérinaire',
 }
+
+// Spécialités organisées par catégories pour le sélecteur <select>
+const specialtyCategories: { label: string; items: { value: HealthSpecialty; label: string }[] }[] = [
+  {
+    label: 'Médecin',
+    items: [
+      { value: 'generaliste', label: 'Médecin généraliste' },
+      { value: 'dermatologue', label: 'Dermatologue' },
+      { value: 'cardiologue', label: 'Cardiologue' },
+      { value: 'pediatre', label: 'Pédiatre' },
+      { value: 'gynecologue', label: 'Gynécologue' },
+      { value: 'ophtalmologue', label: 'Ophtalmologue' },
+      { value: 'orl', label: 'ORL' },
+      { value: 'radiologue', label: 'Radiologue' },
+      { value: 'allergologue', label: 'Allergologue' },
+      { value: 'rhumatologue', label: 'Rhumatologue' },
+      { value: 'neurologue', label: 'Neurologue' },
+      { value: 'urologue', label: 'Urologue' },
+      { value: 'gastro_enterologue', label: 'Gastro-entérologue' },
+      { value: 'pneumologue', label: 'Pneumologue' },
+      { value: 'endocrinologue', label: 'Endocrinologue' },
+      { value: 'psychiatre', label: 'Psychiatre' },
+      { value: 'anesthesiste', label: 'Anesthésiste' },
+      { value: 'medecin_du_sport', label: 'Médecin du sport' },
+      { value: 'medecin_esthetique', label: 'Médecin esthétique' },
+      { value: 'medecin_nutritionniste', label: 'Médecin nutritionniste' },
+      { value: 'medecin_du_travail', label: 'Médecin du travail' },
+      { value: 'geriarte', label: 'Gériatre' },
+      { value: 'medecin_vasculaire', label: 'Médecin vasculaire (angiologue)' },
+    ],
+  },
+  {
+    label: 'Chirurgien',
+    items: [
+      { value: 'chirurgien', label: 'Chirurgien (général)' },
+      { value: 'chirurgien_esthetique', label: 'Chirurgien esthétique / plasticien' },
+      { value: 'chirurgien_orthopedique', label: 'Chirurgien orthopédique' },
+      { value: 'chirurgien_cardiaque', label: 'Chirurgien cardiaque' },
+      { value: 'chirurgien_digestif', label: 'Chirurgien digestif / viscéral' },
+      { value: 'chirurgien_vasculaire', label: 'Chirurgien vasculaire' },
+      { value: 'neurochirurgien', label: 'Neurochirurgien' },
+      { value: 'chirurgien_maxillo_facial', label: 'Chirurgien maxillo-facial' },
+      { value: 'chirurgien_urologue', label: 'Chirurgien urologue' },
+      { value: 'stomatologue', label: 'Stomatologue' },
+    ],
+  },
+  {
+    label: 'Dentaire',
+    items: [
+      { value: 'dentiste', label: 'Dentiste' },
+      { value: 'centre_dentaire', label: 'Centre dentaire' },
+      { value: 'centre_medico_dentaire', label: 'Centre médico-dentaire' },
+      { value: 'orthodontiste', label: 'Orthodontiste' },
+    ],
+  },
+  {
+    label: 'Auxiliaire médical',
+    items: [
+      { value: 'kinesitherapeute', label: 'Kinésithérapeute' },
+      { value: 'osteopathe', label: 'Ostéopathe' },
+      { value: 'sage_femme', label: 'Sage-femme' },
+      { value: 'infirmier', label: 'Infirmier(e)' },
+      { value: 'podologue', label: 'Podologue' },
+      { value: 'orthophoniste', label: 'Orthophoniste' },
+      { value: 'dieteticien', label: 'Diététicien(ne)' },
+      { value: 'chiropracteur', label: 'Chiropracteur' },
+      { value: 'psychologue', label: 'Psychologue' },
+      { value: 'orthoptiste', label: 'Orthoptiste' },
+      { value: 'ergotherapeute', label: 'Ergothérapeute' },
+      { value: 'psychomotricien', label: 'Psychomotricien(ne)' },
+    ],
+  },
+  {
+    label: 'Médecine complémentaire',
+    items: [
+      { value: 'acupuncteur', label: 'Acupuncteur' },
+      { value: 'naturopathe', label: 'Naturopathe' },
+      { value: 'sophrologue', label: 'Sophrologue' },
+    ],
+  },
+  {
+    label: 'Établissement',
+    items: [
+      { value: 'centre_medical', label: 'Centre médical' },
+      { value: 'centre_ophtalmologique', label: 'Centre ophtalmologique' },
+      { value: 'clinique', label: 'Clinique' },
+      { value: 'laboratoire', label: 'Laboratoire d\'analyses' },
+      { value: 'pharmacien', label: 'Pharmacie' },
+    ],
+  },
+  {
+    label: 'Vétérinaire',
+    items: [
+      { value: 'veterinaire', label: 'Vétérinaire' },
+    ],
+  },
+]
 
 export default function CompetitorsPage() {
   const { currentLocation, setCurrentLocation } = useAppStore()
@@ -499,12 +610,16 @@ const currentEstablishmentData = {
                   value={specialty}
                   onChange={(e) => handleSpecialtyChange(e.target.value as HealthSpecialty)}
                   disabled={savingSpecialty}
-                  className="h-10 px-3 rounded-lg border border-input bg-background text-sm min-w-[180px]"
+                  className="h-10 px-3 rounded-lg border border-input bg-background text-sm min-w-[220px]"
                 >
-                  {Object.entries(specialtyLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
+                  {specialtyCategories.map((cat) => (
+                    <optgroup key={cat.label} label={cat.label}>
+                      {cat.items.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>

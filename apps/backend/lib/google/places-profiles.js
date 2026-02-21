@@ -249,12 +249,116 @@ const HEALTH_PROFILES = {
     maxRadius: 5000,
   },
 
-  // ── Chirurgie ──
+  // ── Médecine esthétique ──
+  medecin_esthetique: {
+    includedTypes: ['doctor'],
+    textQuery: 'médecin esthétique',
+    textQueryVariants: ['médecine esthétique', 'centre esthétique médical', 'cabinet esthétique'],
+    maxRadius: 5000,
+  },
+
+  // ── Médecin nutritionniste ──
+  medecin_nutritionniste: {
+    includedTypes: ['doctor'],
+    textQuery: 'médecin nutritionniste',
+    textQueryVariants: ['nutritionniste', 'diététicien', 'cabinet nutrition'],
+    maxRadius: 5000,
+  },
+
+  // ── Médecin du travail ──
+  medecin_du_travail: {
+    includedTypes: ['doctor'],
+    textQuery: 'médecin du travail',
+    textQueryVariants: ['service de santé au travail', 'médecine du travail'],
+    maxRadius: 5000,
+  },
+
+  // ── Gériatrie ──
+  geriarte: {
+    includedTypes: ['doctor'],
+    textQuery: 'gériatre',
+    textQueryVariants: ['cabinet gériatrie', 'médecin gériatre'],
+    maxRadius: 5000,
+  },
+
+  // ── Médecin vasculaire ──
+  medecin_vasculaire: {
+    includedTypes: ['doctor'],
+    textQuery: 'angiologue médecin vasculaire',
+    textQueryVariants: ['angiologue', 'cabinet angiologie', 'phlébologue'],
+    maxRadius: 5000,
+  },
+
+  // ── Chirurgie générale ──
   chirurgien: {
     includedTypes: ['doctor', 'hospital'],
     textQuery: 'chirurgien',
     textQueryVariants: ['clinique chirurgicale', 'centre chirurgical'],
     maxRadius: 5000,
+  },
+
+  // ── Chirurgie esthétique ──
+  chirurgien_esthetique: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'chirurgien esthétique plasticien',
+    textQueryVariants: ['chirurgie plastique', 'clinique esthétique', 'chirurgien plasticien'],
+    maxRadius: 10000,
+  },
+
+  // ── Chirurgie orthopédique ──
+  chirurgien_orthopedique: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'chirurgien orthopédique',
+    textQueryVariants: ['chirurgie orthopédique', 'traumatologue', 'clinique orthopédique'],
+    maxRadius: 10000,
+  },
+
+  // ── Chirurgie cardiaque ──
+  chirurgien_cardiaque: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'chirurgien cardiaque',
+    textQueryVariants: ['chirurgie cardiaque', 'chirurgien cardio-vasculaire'],
+    maxRadius: 10000,
+  },
+
+  // ── Chirurgie digestive / viscérale ──
+  chirurgien_digestif: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'chirurgien digestif viscéral',
+    textQueryVariants: ['chirurgie viscérale', 'chirurgien abdominal', 'chirurgie digestive'],
+    maxRadius: 10000,
+  },
+
+  // ── Chirurgie vasculaire ──
+  chirurgien_vasculaire: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'chirurgien vasculaire',
+    textQueryVariants: ['chirurgie vasculaire', 'chirurgien cardio-vasculaire'],
+    maxRadius: 10000,
+  },
+
+  // ── Neurochirurgie ──
+  neurochirurgien: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'neurochirurgien',
+    textQueryVariants: ['neurochirurgie', 'chirurgie du rachis'],
+    maxRadius: 10000,
+  },
+
+  // ── Chirurgie maxillo-faciale ──
+  chirurgien_maxillo_facial: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'chirurgien maxillo-facial',
+    textQueryVariants: ['chirurgie maxillo-faciale', 'stomatologie'],
+    maxRadius: 10000,
+  },
+
+  // ── Chirurgie urologique ──
+  chirurgien_urologue: {
+    includedTypes: ['doctor', 'hospital'],
+    textQuery: 'chirurgien urologue',
+    textQueryVariants: ['chirurgie urologique', 'urologue chirurgien'],
+    maxRadius: 10000,
   },
 
   // ── Anesthésie ──
@@ -310,6 +414,30 @@ const HEALTH_PROFILES = {
     includedTypes: ['physiotherapist'],
     textQuery: 'chiropracteur',
     textQueryVariants: ['cabinet chiropractie', 'chiropraticien'],
+    maxRadius: 5000,
+  },
+
+  // ── Orthoptie ──
+  orthoptiste: {
+    includedTypes: ['doctor'],
+    textQuery: 'orthoptiste',
+    textQueryVariants: ['cabinet orthoptie', 'bilan orthoptique'],
+    maxRadius: 5000,
+  },
+
+  // ── Ergothérapie ──
+  ergotherapeute: {
+    includedTypes: ['doctor'],
+    textQuery: 'ergothérapeute',
+    textQueryVariants: ['cabinet ergothérapie', 'centre de rééducation'],
+    maxRadius: 5000,
+  },
+
+  // ── Psychomotricité ──
+  psychomotricien: {
+    includedTypes: ['doctor'],
+    textQuery: 'psychomotricien',
+    textQueryVariants: ['cabinet psychomotricité'],
     maxRadius: 5000,
   },
 

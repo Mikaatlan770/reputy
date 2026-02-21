@@ -5,26 +5,13 @@ export type EstablishmentType = 'health' | 'commerce' | 'restaurant'
 
 // Spécialités médicales
 export type HealthSpecialty = 
-  // Médecine générale
+  // ── Médecins ──
   | 'generaliste'
-  // Dentaire
-  | 'dentiste'
-  | 'centre_dentaire'
-  | 'centre_medico_dentaire'
-  | 'orthodontiste'
-  // Ophtalmologie
-  | 'ophtalmologue'
-  | 'centre_ophtalmologique'
-  // Centre médical
-  | 'centre_medical'
-  // Spécialistes
   | 'dermatologue'
-  | 'kinesitherapeute'
-  | 'pharmacien'
   | 'cardiologue'
   | 'pediatre'
   | 'gynecologue'
-  | 'osteopathe'
+  | 'ophtalmologue'
   | 'orl'
   | 'radiologue'
   | 'allergologue'
@@ -35,27 +22,53 @@ export type HealthSpecialty =
   | 'pneumologue'
   | 'endocrinologue'
   | 'psychiatre'
-  | 'psychologue'
-  // Chirurgie
-  | 'chirurgien'
   | 'anesthesiste'
+  | 'medecin_du_sport'
+  | 'medecin_esthetique'
+  | 'medecin_nutritionniste'
+  | 'medecin_du_travail'
+  | 'geriarte'
+  | 'medecin_vasculaire'
+  // ── Chirurgiens ──
+  | 'chirurgien'
+  | 'chirurgien_esthetique'
+  | 'chirurgien_orthopedique'
+  | 'chirurgien_cardiaque'
+  | 'chirurgien_digestif'
+  | 'chirurgien_vasculaire'
+  | 'neurochirurgien'
+  | 'chirurgien_maxillo_facial'
+  | 'chirurgien_urologue'
   | 'stomatologue'
-  // Paramédical
+  // ── Dentaire ──
+  | 'dentiste'
+  | 'centre_dentaire'
+  | 'centre_medico_dentaire'
+  | 'orthodontiste'
+  // ── Auxiliaires médicaux ──
+  | 'kinesitherapeute'
+  | 'osteopathe'
   | 'sage_femme'
   | 'infirmier'
   | 'podologue'
   | 'orthophoniste'
   | 'dieteticien'
   | 'chiropracteur'
-  | 'medecin_du_sport'
-  // Médecines complémentaires
+  | 'psychologue'
+  | 'orthoptiste'
+  | 'ergotherapeute'
+  | 'psychomotricien'
+  // ── Médecines complémentaires ──
   | 'acupuncteur'
   | 'naturopathe'
   | 'sophrologue'
-  // Structures
+  // ── Établissements ──
+  | 'centre_medical'
+  | 'centre_ophtalmologique'
   | 'clinique'
   | 'laboratoire'
-  // Vétérinaire
+  | 'pharmacien'
+  // ── Vétérinaire ──
   | 'veterinaire'
 
 export interface Location {
