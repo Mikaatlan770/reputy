@@ -192,7 +192,7 @@ process.on('uncaughtException', (err) => {
     // Logger itself might be broken — fall back to raw stderr
     console.error('[FATAL] uncaughtException:', err);
   }
-  sentry.captureException(err, { fatal: true, source: 'uncaughtException' });
+  sentry.captureException(err, { source: 'uncaughtException' }, { level: 'fatal' });
   gracefulShutdown('uncaughtException', err);
 });
 
@@ -211,7 +211,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('[FATAL] unhandledRejection:', reason);
   }
   const errObj = reason instanceof Error ? reason : new Error(errMessage);
-  sentry.captureException(errObj, { fatal: true, source: 'unhandledRejection' });
+  sentry.captureException(errObj, { source: 'unhandledRejection' }, { level: 'fatal' });
   gracefulShutdown('unhandledRejection', errObj);
 });
 
@@ -7712,6 +7712,7 @@ async function handleClientCreateInstallation(req, res) {
     console.error('[REPUTY][INSTALLATION] Create error:', err);
     sentry.captureException(err, {
       route: '/client/installations',
+      status_code: '500',
       phase: 'create',
       orgId: auth.user?.orgId,
       userId: auth.user?.id,
@@ -8843,6 +8844,8 @@ async function handleAiSuggestReply(req, res) {
     console.error('[AI] OpenAI error:', err.message);
     sentry.captureException(err, {
       route: '/client/ai/suggest-reply',
+      provider: 'openai',
+      status_code: String(status),
       phase: 'openai_call',
       orgId: auth.org?.id,
       userId: auth.user?.id,
@@ -8886,6 +8889,8 @@ async function handleAiSuggestReply(req, res) {
     console.error('[AI] Transaction error (debit/audit):', err.message);
     sentry.captureException(err, {
       route: '/client/ai/suggest-reply',
+      provider: 'openai',
+      status_code: '500',
       phase: 'debit_transaction',
       orgId: auth.org?.id,
       userId: auth.user?.id,
@@ -10667,6 +10672,8 @@ async function handleStripeWebhook(req, res) {
     });
     sentry.captureException(processResult.error, {
       route: '/webhooks/stripe',
+      provider: 'stripe',
+      status_code: '500',
       eventId: event.id,
       eventType: event.type,
     });
@@ -12523,7 +12530,17 @@ const server = http.createServer(async (req, res) => {
 
   } catch (err) {
     // Global safety net — log the error but DON'T crash the server
-    console.error('[REPUTY][ERROR] Unhandled error in request handler:', err.message, err.stack);
+    const safeRoute = String(pathname || (req.url || '').split('?')[0] || 'unknown');
+    console.error('[REPUTY][ERROR] Unhandled error in request handler:', err?.message, err?.stack);
+
+    sentry.captureException(err, {
+      route: safeRoute,
+      status_code: '500',
+      source: 'global_catch',
+      method: req.method,
+      layer: 'api',
+    });
+
     try {
       if (!res.headersSent) {
         res.statusCode = 500;

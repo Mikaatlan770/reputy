@@ -69,18 +69,53 @@ init();
 // ============ CAPTURE ============
 
 /**
+ * Keys that are automatically promoted from context → Sentry tags.
+ * Keep this set small & low-cardinality to avoid Sentry tag pollution.
+ * Everything else stays in `extra`.
+ */
+const TAG_KEYS = new Set([
+  'route',        // e.g. /webhooks/stripe, /client/ai/suggest-reply
+  'status_code',  // e.g. 500, 502
+  'provider',     // e.g. stripe, openai
+  'worker',       // e.g. sms_worker, email_worker, auto_reply_worker
+  'source',       // e.g. uncaughtException, unhandledRejection, global_catch
+  'phase',        // e.g. openai_call, debit_transaction, create
+  'layer',        // e.g. api, worker
+  'method',       // e.g. GET, POST
+]);
+
+/**
  * Capture an exception in Sentry (no-op if Sentry is not enabled).
  * IMPORTANT: Never include sensitive data (reviewText, passwords, tokens) in context.
  *
+ * Keys listed in TAG_KEYS are auto-promoted to Sentry tags (filterable in alerts).
+ * All other keys remain in `extra` (visible in event detail, not filterable).
+ * Pass `level` in opts to override Sentry severity (e.g. 'fatal').
+ *
  * @param {Error} err - The error to capture
- * @param {object} context - Extra context (route, orgId, userId, errorCode, worker, etc.)
+ * @param {object} context - Extra context (route, orgId, status_code, provider, etc.)
+ * @param {{ level?: string }} opts - Optional Sentry options (level, etc.)
  */
-function captureException(err, context = {}) {
+function captureException(err, context = {}, opts = {}) {
   if (!isEnabled || !Sentry) return;
 
   try {
+    const tags = {};
+    const extra = {};
+
+    for (const [key, value] of Object.entries(context)) {
+      if (value === undefined || value === null) continue;
+      if (TAG_KEYS.has(key)) {
+        tags[key] = String(value);
+      } else {
+        extra[key] = value;
+      }
+    }
+
     Sentry.captureException(err, {
-      extra: context,
+      tags,
+      extra,
+      ...(opts.level ? { level: opts.level } : {}),
     });
   } catch (_) {
     // Sentry itself failed — don't crash the app
