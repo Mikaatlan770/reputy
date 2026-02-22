@@ -93,6 +93,7 @@ const { suggestReply: aiSuggestReply } = require('./lib/ai/openai-provider');
 
 // Email provider (Brevo API or dry-run)
 const emailProvider = require('./lib/email/provider');
+const emailSigner = require('./lib/email/signer');
 
 // Sentry — optional error tracking (PR-5, no-op if SENTRY_DSN absent)
 const sentry = require('./lib/sentry');
@@ -4199,6 +4200,123 @@ function handleTrackRedirect(requestId, res) {
   // Fire-and-forget: always 204
   res.writeHead(204);
   res.end();
+}
+
+/**
+ * GET /r/review?token=... — Email review link (signed token)
+ * Verifies HMAC token, resolves outbox → request, shows rating page.
+ */
+function handleEmailReviewLink(req, res, urlParams) {
+  const token = urlParams.get('token');
+  if (!token) {
+    return sendHtml(res, 400, generate404Page());
+  }
+
+  const result = emailSigner.verifyToken(token);
+  if (!result.valid) {
+    console.log('[REPUTY][REVIEW-LINK] Invalid token:', result.error);
+    if (result.error === 'token_expired') {
+      return sendHtml(res, 410, generateExpiredPage());
+    }
+    return sendHtml(res, 403, generate404Page());
+  }
+
+  const { payload } = result;
+  if (payload.type !== 'review') {
+    return sendHtml(res, 400, generate404Page());
+  }
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendHtml(res, 404, generate404Page());
+  }
+
+  // Resolve: outbox → request (via requestDbId)
+  const outboxEntry = repos.emailOutbox.getOutboxById(payload.outbox_id);
+  if (!outboxEntry || !outboxEntry.requestDbId) {
+    console.log('[REPUTY][REVIEW-LINK] Outbox entry not found or no requestDbId:', payload.outbox_id);
+    return sendHtml(res, 404, generate404Page());
+  }
+
+  const dbRequest = repos.request.getById(outboxEntry.requestDbId);
+  if (!dbRequest) {
+    console.log('[REPUTY][REVIEW-LINK] Request not found for outbox:', outboxEntry.requestDbId);
+    return sendHtml(res, 404, generate404Page());
+  }
+
+  // Check expiry
+  if (isRequestExpired(dbRequest)) {
+    return sendHtml(res, 410, generateExpiredPage());
+  }
+
+  // Check existing feedback
+  const existingFeedback = repos.feedback.getByRequestDbId(dbRequest.id);
+  const settings = getSettings();
+  
+  // Use idempotencyKey as the requestId for the rating page (POST /r/:id uses this)
+  return sendHtml(res, 200, generateRatingPage(dbRequest.idempotencyKey, dbRequest, existingFeedback, settings));
+}
+
+/**
+ * GET /r/unsubscribe?token=... — One-click email unsubscribe
+ * POST /r/unsubscribe?token=... — List-Unsubscribe-Post header
+ */
+function handleEmailUnsubscribe(req, res, urlParams) {
+  const token = urlParams.get('token');
+  if (!token) {
+    res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<html><body><h1>Lien invalide</h1></body></html>');
+    return;
+  }
+
+  const result = emailSigner.verifyToken(token);
+  if (!result.valid) {
+    console.log('[REPUTY][UNSUB] Invalid token:', result.error);
+    res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<html><body><h1>Lien invalide ou expiré</h1></body></html>');
+    return;
+  }
+
+  const { payload } = result;
+  if (payload.type !== 'unsubscribe') {
+    res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<html><body><h1>Lien invalide</h1></body></html>');
+    return;
+  }
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<html><body><h1>Erreur serveur</h1></body></html>');
+    return;
+  }
+
+  // Add unsubscribe record (idempotent)
+  repos.emailOutbox.addUnsubscribe(payload.org_id, payload.email, 'user_request');
+  console.log(`[REPUTY][UNSUB] ✅ ${payload.email} unsubscribed from org ${payload.org_id}`);
+
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Désinscription confirmée</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; text-align: center; padding: 50px 20px; background: #f8fafc; }
+    .card { max-width: 400px; margin: 40px auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    h1 { font-size: 24px; color: #1f2937; }
+    p { color: #6b7280; font-size: 16px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>✅ Désinscription confirmée</h1>
+    <p>Vous ne recevrez plus d'emails de demande d'avis de notre part.</p>
+    <p style="font-size:13px; color:#9ca3af; margin-top:24px;">Si c'était une erreur, contactez votre praticien.</p>
+  </div>
+</body>
+</html>`);
 }
 
 function handleGetFeedbacks(req, res) {
@@ -12915,6 +13033,17 @@ const server = http.createServer(async (req, res) => {
   const telemetryMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/telemetry$/);
   if (telemetryMatch && method === 'GET') {
     return handleGetOrgTelemetry(req, res, telemetryMatch[1], urlParams);
+  }
+
+  // Email review link with signed token (must be before shortlink match)
+  if (pathname === '/r/review' && method === 'GET') {
+    if (applyAuthRateLimit(req, res, 'rating_page', 30)) return;
+    return handleEmailReviewLink(req, res, urlParams);
+  }
+
+  // Email unsubscribe link with signed token
+  if (pathname === '/r/unsubscribe' && (method === 'GET' || method === 'POST')) {
+    return handleEmailUnsubscribe(req, res, urlParams);
   }
 
   // Shortlink redirect (QR/NFC) - check first with alphanumeric pattern
