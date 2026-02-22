@@ -3768,27 +3768,12 @@ async function handleSendReview(req, res) {
     
     // New request created - check quota and record usage
     const channel = body.channel;
-    const usageType = channel === 'email' ? 'email' : 'sms';
     
     // Get fresh org data for quota check
     const freshOrg = repos.org.getById(orgId);
     if (!freshOrg) {
       return sendJson(res, 500, { ok: false, error: 'ORG_NOT_FOUND' });
     }
-    
-    // TODO: Implement quota check in SQLite mode
-    // For now, just record usage
-    repos.usage.addEntry({
-      orgId: orgId,
-      type: usageType,
-      qty: 1,
-      details: {
-        requestId: dbRequest.idempotencyKey,
-        channel: channel,
-        source: 'extension',
-        patientName: body.patientName
-      }
-    });
     
     // ---- Lifecycle: created → queued (email_outbox / scheduled_sends + review_requests) ----
     const recipient = channel === 'email' ? body.patientEmail : body.patientPhone;
