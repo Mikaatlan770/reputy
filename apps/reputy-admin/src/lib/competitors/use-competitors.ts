@@ -271,6 +271,102 @@ export interface PlaceGeometry {
 /**
  * Hook for Google Places Autocomplete (proxied via backend)
  */
+/**
+ * Hook to manually trigger a competitor sync via Google Places
+ */
+export function useSyncCompetitors() {
+  const { getClientToken } = useAuth()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{
+    placesFound: number
+    placesStored: number
+    searchMethod: string
+    profile: string
+  } | null>(null)
+
+  const sync = useCallback(async () => {
+    const token = getClientToken()
+    if (!token) return null
+
+    setLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      const data = await fetchApi<{
+        ok: boolean
+        message: string
+        placesFound: number
+        placesStored: number
+        searchMethod: string
+        profile: string
+      }>(
+        '/client/competitors/sync',
+        token,
+        { method: 'POST' }
+      )
+      setResult({
+        placesFound: data.placesFound,
+        placesStored: data.placesStored,
+        searchMethod: data.searchMethod,
+        profile: data.profile,
+      })
+      return data
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue')
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [getClientToken])
+
+  return { sync, loading, error, result }
+}
+
+/**
+ * Hook to add a competitor manually by Google Place ID
+ */
+export function useAddCompetitor() {
+  const { getClientToken } = useAuth()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const addCompetitor = useCallback(
+    async (placeId: string, name?: string) => {
+      const token = getClientToken()
+      if (!token || !placeId) return null
+
+      setLoading(true)
+      setError(null)
+
+      try {
+        const data = await fetchApi<{
+          ok: boolean
+          message: string
+          competitor: CompetitorEntry
+        }>(
+          '/client/competitors/add',
+          token,
+          {
+            method: 'POST',
+            body: JSON.stringify({ placeId, name }),
+          }
+        )
+        return data
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erreur inconnue')
+        return null
+      } finally {
+        setLoading(false)
+      }
+    },
+    [getClientToken]
+  )
+
+  return { addCompetitor, loading, error }
+}
+
 export function usePlacesAutocomplete() {
   const { getClientToken } = useAuth()
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([])

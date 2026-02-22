@@ -10177,34 +10177,46 @@ async function handleClientSyncCompetitors(req, res) {
 
   const MAX_RADIUS_M = 5000;
   const MAX_RESULTS_PER_SEARCH = 20;
-  const MIN_NEARBY_RESULTS_FOR_FALLBACK = 5;
+  const MIN_RESULTS_FOR_FALLBACK = 3;
   const MAX_COMPETITORS_PER_ORG = 25;
+
+  // Types to EXCLUDE from results (unless the profile explicitly targets them)
+  const IRRELEVANT_TYPES = [
+    'pharmacy', 'drugstore', 'hospital',
+    'university', 'school', 'secondary_school', 'primary_school',
+    'fire_station', 'police', 'post_office',
+    'supermarket', 'grocery_store', 'gas_station', 'parking',
+    'atm', 'bank', 'city_hall', 'local_government_office',
+    'cemetery', 'church', 'mosque', 'synagogue', 'hindu_temple',
+  ];
+
+  // Google Place types specific enough for Nearby Search
+  const SPECIFIC_GOOGLE_TYPES = ['dentist', 'pharmacy', 'veterinary_care', 'physiotherapist', 'hospital'];
 
   try {
     const profile = placesProfiles.getSearchProfile(org.vertical, org.specialty);
     const profileName = profile.profileName;
     const periodKey = competitorRepo.getISOWeekKey();
 
-    // ── Step 1: Nearby Search ──
-    let places = [];
-    let searchMethod = 'nearby';
+    // Clear previous sync data for this period (manual sync always forces refresh)
     try {
-      places = await googlePlaces.nearbySearch({
-        lat: org.lat,
-        lng: org.lng,
-        radiusMeters: MAX_RADIUS_M,
-        includedTypes: profile.includedTypes,
-        maxResultCount: MAX_RESULTS_PER_SEARCH,
-      });
-    } catch (nearbyErr) {
-      console.log(`[SYNC-MANUAL] Nearby Search failed: ${nearbyErr.message}`);
-    }
+      competitorRepo.clearSync(org.id, profileName, periodKey);
+    } catch (_) { /* ignore */ }
 
-    // ── Step 2: Text Search fallback ──
-    if (places.length < MIN_NEARBY_RESULTS_FOR_FALLBACK && profile.textQuery) {
-      searchMethod = places.length > 0 ? 'nearby+text_fallback' : 'text_fallback';
+    // ── Determine search strategy ──
+    const hasSpecificType = profile.includedTypes.some((t) => SPECIFIC_GOOGLE_TYPES.includes(t));
+    const useTextFirst = !hasSpecificType && profile.textQuery;
+
+    let places = [];
+    let searchMethod = '';
+
+    if (useTextFirst) {
+      // ── STRATEGY A: TEXT SEARCH FIRST (specialized profiles with generic 'doctor' type) ──
+      searchMethod = 'text';
+      console.log(`[SYNC-MANUAL] Strategy: Text Search first (profile=${profileName})`);
+
       const textQueries = [profile.textQuery, ...(profile.textQueryVariants || [])];
-      const existingIds = new Set(places.map((p) => p.placeId));
+      const existingIds = new Set();
 
       for (const query of textQueries) {
         try {
@@ -10212,23 +10224,109 @@ async function handleClientSyncCompetitors(req, res) {
             textQuery: query,
             lat: org.lat,
             lng: org.lng,
-            radiusMeters: MAX_RADIUS_M,
+            radiusMeters: profile.maxRadius || MAX_RADIUS_M,
             maxResultCount: MAX_RESULTS_PER_SEARCH,
           });
+          let added = 0;
           for (const tp of textPlaces) {
             if (tp.placeId && !existingIds.has(tp.placeId)) {
               places.push(tp);
               existingIds.add(tp.placeId);
+              added++;
             }
+          }
+          if (added > 0) {
+            console.log(`[SYNC-MANUAL] Text Search "${query}": +${added} (${places.length} total)`);
           }
         } catch (textErr) {
           console.log(`[SYNC-MANUAL] Text Search "${query}" failed: ${textErr.message}`);
         }
         if (textQueries.length > 1) await new Promise((r) => setTimeout(r, 200));
       }
+
+      // Nearby fallback if very few results
+      if (places.length < MIN_RESULTS_FOR_FALLBACK) {
+        searchMethod = places.length > 0 ? 'text+nearby_fallback' : 'nearby_fallback';
+        try {
+          const nearbyPlaces = await googlePlaces.nearbySearch({
+            lat: org.lat,
+            lng: org.lng,
+            radiusMeters: MAX_RADIUS_M,
+            includedTypes: profile.includedTypes,
+            maxResultCount: MAX_RESULTS_PER_SEARCH,
+          });
+          const existingIdsNearby = new Set(places.map((p) => p.placeId));
+          for (const np of nearbyPlaces) {
+            if (np.placeId && !existingIdsNearby.has(np.placeId)) {
+              places.push(np);
+              existingIdsNearby.add(np.placeId);
+            }
+          }
+        } catch (nearbyErr) {
+          console.log(`[SYNC-MANUAL] Nearby Search fallback failed: ${nearbyErr.message}`);
+        }
+      }
+
+    } else {
+      // ── STRATEGY B: NEARBY SEARCH FIRST (specific types like dentist, pharmacy) ──
+      searchMethod = 'nearby';
+      console.log(`[SYNC-MANUAL] Strategy: Nearby Search first (types: ${profile.includedTypes.join(', ')})`);
+
+      try {
+        places = await googlePlaces.nearbySearch({
+          lat: org.lat,
+          lng: org.lng,
+          radiusMeters: profile.maxRadius || MAX_RADIUS_M,
+          includedTypes: profile.includedTypes,
+          maxResultCount: MAX_RESULTS_PER_SEARCH,
+        });
+      } catch (nearbyErr) {
+        console.log(`[SYNC-MANUAL] Nearby Search failed: ${nearbyErr.message}`);
+      }
+
+      // Text Search fallback
+      if (places.length < MIN_RESULTS_FOR_FALLBACK && profile.textQuery) {
+        searchMethod = places.length > 0 ? 'nearby+text_fallback' : 'text_fallback';
+        const textQueries = [profile.textQuery, ...(profile.textQueryVariants || [])];
+        const existingIds = new Set(places.map((p) => p.placeId));
+
+        for (const query of textQueries) {
+          try {
+            const textPlaces = await googlePlaces.textSearch({
+              textQuery: query,
+              lat: org.lat,
+              lng: org.lng,
+              radiusMeters: profile.maxRadius || MAX_RADIUS_M,
+              maxResultCount: MAX_RESULTS_PER_SEARCH,
+            });
+            for (const tp of textPlaces) {
+              if (tp.placeId && !existingIds.has(tp.placeId)) {
+                places.push(tp);
+                existingIds.add(tp.placeId);
+              }
+            }
+          } catch (textErr) {
+            console.log(`[SYNC-MANUAL] Text Search "${query}" failed: ${textErr.message}`);
+          }
+          if (textQueries.length > 1) await new Promise((r) => setTimeout(r, 200));
+        }
+      }
     }
 
-    // ── Step 3: Filter out own place ──
+    // ── Post-filter: exclude irrelevant types ──
+    const profileTargetsIrrelevant = profile.includedTypes.some((t) => IRRELEVANT_TYPES.includes(t));
+    if (!profileTargetsIrrelevant) {
+      const beforeFilter = places.length;
+      places = places.filter((p) => {
+        if (!p.types || p.types.length === 0) return true;
+        return !p.types.some((t) => IRRELEVANT_TYPES.includes(t));
+      });
+      if (beforeFilter > places.length) {
+        console.log(`[SYNC-MANUAL] Post-filter: removed ${beforeFilter - places.length} irrelevant places`);
+      }
+    }
+
+    // ── Filter out own place ──
     places = places.filter((p) => {
       if (org.googlePlaceId && p.placeId === org.googlePlaceId) return false;
       if (!org.googlePlaceId && p.lat && p.lng) {
@@ -10243,7 +10341,8 @@ async function handleClientSyncCompetitors(req, res) {
       return true;
     });
 
-    // ── Step 4: Calculate distances & prepare snapshots ──
+    // ── Calculate distances & prepare snapshots ──
+    const maxRadiusForProfile = profile.maxRadius || MAX_RADIUS_M;
     const snapshots = places
       .map((place) => {
         const distanceM = googlePlaces.haversineDistance(org.lat, org.lng, place.lat, place.lng);
@@ -10261,11 +10360,11 @@ async function handleClientSyncCompetitors(req, res) {
           types: place.types,
         };
       })
-      .filter((s) => s.distanceM <= MAX_RADIUS_M)
+      .filter((s) => s.distanceM <= maxRadiusForProfile)
       .sort((a, b) => a.distanceM - b.distanceM)
       .slice(0, MAX_COMPETITORS_PER_ORG);
 
-    // ── Step 5: Persist ──
+    // ── Persist ──
     competitorRepo.bulkUpsertSnapshots(snapshots);
     competitorRepo.logSync({
       orgId: org.id,
@@ -10296,6 +10395,127 @@ async function handleClientSyncCompetitors(req, res) {
     return sendJson(res, 500, {
       ok: false,
       error: `Erreur lors de la synchronisation : ${err.message}`,
+    });
+  }
+}
+
+/**
+ * POST /client/competitors/add
+ * Manually add a competitor by Google Place ID.
+ * Fetches place details from Google Places API and stores a snapshot.
+ * RBAC: owner/admin only.
+ * Body: { placeId: string, name?: string }
+ */
+async function handleClientAddCompetitor(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN',
+    });
+  }
+
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
+
+  const org = auth.org;
+  if (!org || !org.lat || !org.lng) {
+    return sendJson(res, 400, {
+      ok: false,
+      error: 'Coordonnées GPS non configurées.',
+    });
+  }
+
+  if (!googlePlaces.isConfigured()) {
+    return sendJson(res, 503, {
+      ok: false,
+      error: 'Google Places API non configurée (GOOGLE_PLACES_API_KEY manquant)',
+    });
+  }
+
+  const body = await parseBody(req);
+  if (!body || !body.placeId) {
+    return sendJson(res, 400, {
+      ok: false,
+      error: 'placeId requis',
+    });
+  }
+
+  try {
+    // Fetch place details from Google to get lat/lng, rating, types, etc.
+    const placeDetails = await googlePlaces.getPlaceDetails(body.placeId);
+
+    if (!placeDetails || !placeDetails.lat || !placeDetails.lng) {
+      return sendJson(res, 404, {
+        ok: false,
+        error: 'Lieu introuvable ou sans coordonnées',
+      });
+    }
+
+    const profile = placesProfiles.getSearchProfile(org.vertical, org.specialty);
+    const profileName = profile.profileName;
+    const periodKey = competitorRepo.getISOWeekKey();
+
+    const distanceM = googlePlaces.haversineDistance(org.lat, org.lng, placeDetails.lat, placeDetails.lng);
+
+    // Build snapshot
+    const snapshot = {
+      orgId: org.id,
+      profile: profileName,
+      runPeriodKey: periodKey,
+      placeId: body.placeId,
+      name: placeDetails.name || body.name || 'Inconnu',
+      lat: placeDetails.lat,
+      lng: placeDetails.lng,
+      rating: placeDetails.rating || null,
+      userRatingsTotal: placeDetails.userRatingsTotal || 0,
+      distanceM,
+      types: placeDetails.types || [],
+    };
+
+    // Persist
+    competitorRepo.upsertSnapshot(snapshot);
+
+    // Also cache the details
+    if (placeDetails) {
+      try {
+        competitorRepo.cachePlaceDetails(placeDetails);
+      } catch (_) { /* ignore cache errors */ }
+    }
+
+    const distanceKm = Math.round((distanceM / 1000) * 10) / 10;
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: `"${snapshot.name}" ajouté comme concurrent (${distanceKm} km)`,
+      competitor: {
+        id: `${snapshot.placeId}_${periodKey}`,
+        placeId: snapshot.placeId,
+        name: snapshot.name,
+        rating: snapshot.rating,
+        reviewsCount: snapshot.userRatingsTotal,
+        distanceM,
+        distanceKm,
+        types: snapshot.types,
+        source: 'manual',
+      },
+    });
+
+  } catch (err) {
+    console.error('[ADD-COMPETITOR] Error:', err.message);
+    sentry.captureException(err, {
+      route: '/client/competitors/add',
+      source: 'manual_add',
+      layer: 'api',
+      status_code: '500',
+    });
+    return sendJson(res, 500, {
+      ok: false,
+      error: `Erreur lors de l'ajout : ${err.message}`,
     });
   }
 }
@@ -12400,6 +12620,11 @@ const server = http.createServer(async (req, res) => {
   // Manual competitor sync (Google Places)
   if (method === 'POST' && pathname === '/client/competitors/sync') {
     return await handleClientSyncCompetitors(req, res);
+  }
+
+  // Add a single competitor manually (by Google Place ID)
+  if (method === 'POST' && pathname === '/client/competitors/add') {
+    return await handleClientAddCompetitor(req, res);
   }
   
   // Get competitor place details (cached + Google Places)

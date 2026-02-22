@@ -1,14 +1,22 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { competitors as manualCompetitors } from '@/lib/mock-data'
 import { useAppStore } from '@/lib/store'
 import { useReviewStats, useReviewAnalytics } from '@/lib/reviews/use-reviews'
-import { useCompetitors, useConfigureCompetitors, type CompetitorEntry } from '@/lib/competitors/use-competitors'
+import { useCompetitors, useConfigureCompetitors, useSyncCompetitors, usePlacesAutocomplete, useAddCompetitor, type CompetitorEntry } from '@/lib/competitors/use-competitors'
 import type { AutoCompetitor, EstablishmentType, HealthSpecialty, Competitor } from '@/types'
 import { CompetitorDetailDrawer, getCompetitorTypeLabel } from '@/components/competitor-detail-drawer'
 import {
@@ -28,6 +36,7 @@ import {
   Lightbulb,
   AlertCircle,
   Info,
+  Search,
 } from 'lucide-react'
 import {
   LineChart,
@@ -216,6 +225,96 @@ const specialtyCategories: { label: string; items: { value: HealthSpecialty; lab
   },
 ]
 
+// Helper : trouver la catégorie contenant une spécialité
+function getCategoryForSpecialty(spec: HealthSpecialty | ''): string {
+  if (!spec) return specialtyCategories[0].label
+  for (const cat of specialtyCategories) {
+    if (cat.items.some((item) => item.value === spec)) return cat.label
+  }
+  return specialtyCategories[0].label
+}
+
+// ============================================================
+// MOCK DATA GENERATOR — fallback quand Google Places n'est pas actif
+// Génère des concurrents de démo basés sur la spécialité sélectionnée
+// ============================================================
+
+const DEMO_ADDRESSES_PARIS = [
+  '12 Rue de Rivoli, 75004 Paris',
+  '45 Avenue des Champs-Élysées, 75008 Paris',
+  '8 Boulevard Saint-Germain, 75005 Paris',
+  '23 Rue du Faubourg Saint-Honoré, 75008 Paris',
+  '67 Avenue Victor Hugo, 75016 Paris',
+  '15 Rue de la Pompe, 75016 Paris',
+  '33 Boulevard Haussmann, 75009 Paris',
+  '5 Place de la République, 75003 Paris',
+]
+
+function generateDemoCompetitors(
+  specialty: HealthSpecialty | '',
+  radiusKm: number
+): { competitors: AutoCompetitor[]; stats: { avgRating: number; avgReviews: number; totalCompetitors: number }; disclaimer: string } {
+  const specLabel = specialty ? (specialtyLabels[specialty] || specialty) : 'Professionnel de santé'
+
+  // Noms de démo par type de spécialité
+  const nameTemplates: Record<string, string[]> = {
+    dentiste: ['Cabinet Dentaire Sourire', 'Centre Dentaire République', 'Dr Bernard - Dentiste', 'Dentiste du Parc', 'Centre Dentaire Saint-Michel'],
+    centre_dentaire: ['Centre Dentaire Opéra', 'Centre Dentaire Nation', 'Dentego Rivoli', 'Centre Dentaire Bastille', 'Centre Dentaire Montparnasse'],
+    centre_medico_dentaire: ['Centre Médico-Dentaire Étoile', 'CMC Santé Paris', 'Centre Médical et Dentaire Victor Hugo', 'Pôle Santé République', 'Centre Médico-Dentaire Montmartre'],
+    centre_ophtalmologique: ['Centre Ophtalmo Vision+', 'Point Vision Paris', 'Centre Ophtalmologique Étoile', 'Ophta Center Bastille', 'Centre de la Vue République'],
+    ophtalmologue: ['Dr Dupont - Ophtalmologue', 'Cabinet Ophtalmo Saint-Lazare', 'Dr Laurent - Ophtalmologie', 'Cabinet de la Vue Paris', 'Dr Moreau - Spécialiste des Yeux'],
+    generaliste: ['Cabinet du Dr Martin', 'Centre Médical République', 'Dr Dupont Médecine Générale', 'Cabinet Médical Bastille', 'Maison de Santé Paris Centre'],
+    dermatologue: ['Dr Petit - Dermatologue', 'Centre Dermatologique Paris', 'Cabinet Dermatologie Opéra', 'Dr Roux - Dermatologue', 'Centre Dermo Paris'],
+    cardiologue: ['Dr Lefevre - Cardiologue', 'Centre Cardiologique Paris', 'Cabinet Cardio Saint-Germain', 'Dr Laurent - Cardiologie', 'Institut du Cœur Paris'],
+    kinesitherapeute: ['Cabinet Kiné Sport', 'Centre de Rééducation Paris', 'Kiné République', 'Cabinet Kinésithérapie Bastille', 'Paris Physio Center'],
+    osteopathe: ['Cabinet Ostéo Paris', 'Ostéopathie Centre', 'Dr Blanc - Ostéopathe', 'Cabinet Ostéo Saint-Germain', 'Ostéo Paris Santé'],
+    pharmacien: ['Pharmacie du Centre', 'Grande Pharmacie Paris', 'Pharmacie de la Gare', 'Pharmacie Bastille', 'Pharmacie Montparnasse'],
+    chirurgien_esthetique: ['Clinique Esthétique Paris', 'Dr Beauté - Chirurgie Esthétique', 'Centre Esthétique Champs-Élysées', 'Institut Beauté Paris', 'Clinique du Triangle d\'Or'],
+  }
+
+  // Fallback générique pour spécialités sans template spécifique
+  const defaultNames = [
+    `Cabinet ${specLabel} Paris Centre`,
+    `Centre Médical ${specLabel}`,
+    `Dr Martin - ${specLabel}`,
+    `Cabinet ${specLabel} Bastille`,
+    `Pôle Santé ${specLabel} République`,
+  ]
+
+  const names = nameTemplates[specialty || ''] || defaultNames
+  const count = Math.min(names.length, 5)
+
+  const competitors: AutoCompetitor[] = names.slice(0, count).map((name, i) => {
+    const baseDist = (i + 1) * (radiusKm / count) * 0.7 + Math.random() * 0.3
+    const dist = Math.round(Math.min(baseDist, radiusKm) * 10) / 10
+    const rating = Math.round((3.8 + Math.random() * 1.2) * 10) / 10
+    const reviewsCount = Math.round(30 + Math.random() * 250)
+    const reviewsLast30d = Math.round(Math.random() * 8)
+    return {
+      id: `demo-${specialty || 'gen'}-${i}`,
+      name,
+      category: 'health' as EstablishmentType,
+      specialty: (specialty || 'generaliste') as HealthSpecialty,
+      distanceKm: dist,
+      rating,
+      reviewsCount,
+      reviewsLast30d,
+      trend: reviewsLast30d > 3 ? 'up' as const : reviewsLast30d > 0 ? 'stable' as const : 'down' as const,
+      isAuto: true as const,
+      address: DEMO_ADDRESSES_PARIS[i % DEMO_ADDRESSES_PARIS.length],
+    }
+  })
+
+  const avgRating = Math.round((competitors.reduce((a, c) => a + c.rating, 0) / competitors.length) * 10) / 10
+  const avgReviews = Math.round(competitors.reduce((a, c) => a + c.reviewsCount, 0) / competitors.length)
+
+  return {
+    competitors,
+    stats: { avgRating, avgReviews, totalCompetitors: competitors.length },
+    disclaimer: `🎭 Données de démonstration pour "${specLabel}" (rayon ${radiusKm} km). Activez Google Places pour obtenir vos vrais concurrents.`,
+  }
+}
+
 export default function CompetitorsPage() {
   const { currentLocation, setCurrentLocation } = useAppStore()
 
@@ -239,12 +338,30 @@ const currentEstablishmentData = {
   const [specialty, setSpecialty] = useState<HealthSpecialty | ''>(
     currentLocation?.specialty || 'generaliste'
   )
+  const [selectedCategory, setSelectedCategory] = useState<string>(
+    getCategoryForSpecialty(currentLocation?.specialty || 'generaliste')
+  )
+  const [specialtySearch, setSpecialtySearch] = useState('')
   const [radius, setRadius] = useState<1 | 2 | 5>(
     establishmentType === 'health' ? 2 : 1
   )
 
+  // Spécialités filtrées par catégorie active + recherche texte
+  const filteredSpecialties = useMemo(() => {
+    const cat = specialtyCategories.find((c) => c.label === selectedCategory)
+    if (!cat) return []
+    if (!specialtySearch.trim()) return cat.items
+    const q = specialtySearch.toLowerCase().trim()
+    return cat.items.filter((item) => item.label.toLowerCase().includes(q))
+  }, [selectedCategory, specialtySearch])
+
   // ===== Hook pour sauvegarder la spécialité vers le backend =====
   const { configure: configureCompetitors, loading: savingSpecialty } = useConfigureCompetitors()
+
+  // ===== Hook pour forcer un sync Google Places =====
+  const { sync: syncCompetitors, loading: syncing, result: syncResult, error: syncError } = useSyncCompetitors()
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const syncMessageTimeout = useRef<NodeJS.Timeout | null>(null)
   const [specialtySaved, setSpecialtySaved] = useState(false)
   const specialtySaveTimeout = useRef<NodeJS.Timeout | null>(null)
 
@@ -310,6 +427,48 @@ const currentEstablishmentData = {
   const [hiddenAutoIds, setHiddenAutoIds] = useState<Set<string>>(new Set())
   const [pinnedAutoIds, setPinnedAutoIds] = useState<Set<string>>(new Set())
 
+  // ===== Dialog "Ajouter un concurrent" =====
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [addSearchInput, setAddSearchInput] = useState('')
+  const { suggestions: addSuggestions, loading: addSearchLoading, search: searchPlaces, clear: clearSuggestions } = usePlacesAutocomplete()
+  const { addCompetitor: addCompetitorApi, loading: addCompetitorLoading } = useAddCompetitor()
+  const [addingPlaceId, setAddingPlaceId] = useState<string | null>(null)
+  const addSearchDebounce = useRef<NodeJS.Timeout | null>(null)
+
+  const handleAddSearch = useCallback((input: string) => {
+    setAddSearchInput(input)
+    if (addSearchDebounce.current) clearTimeout(addSearchDebounce.current)
+    if (input.length < 3) {
+      clearSuggestions()
+      return
+    }
+    addSearchDebounce.current = setTimeout(() => {
+      searchPlaces(input)
+    }, 300)
+  }, [searchPlaces, clearSuggestions])
+
+  const handleAddCompetitor = useCallback(async (placeId: string, name: string) => {
+    setAddingPlaceId(placeId)
+    try {
+      // Call backend to add the competitor (fetches details from Google + persists)
+      const result = await addCompetitorApi(placeId, name)
+      if (result) {
+        setSyncMessage(`✅ ${result.message}`)
+        if (syncMessageTimeout.current) clearTimeout(syncMessageTimeout.current)
+        syncMessageTimeout.current = setTimeout(() => setSyncMessage(null), 5000)
+        // Refresh the competitors list
+        refetchCompetitors()
+      }
+      setAddDialogOpen(false)
+      setAddSearchInput('')
+      clearSuggestions()
+    } catch (err) {
+      console.error('Failed to add competitor:', err)
+    } finally {
+      setAddingPlaceId(null)
+    }
+  }, [addCompetitorApi, clearSuggestions, refetchCompetitors])
+
   // ===== Drawer détails concurrent =====
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null)
   const [selectedCompetitorName, setSelectedCompetitorName] = useState<string>('')
@@ -323,43 +482,36 @@ const currentEstablishmentData = {
   useEffect(() => {
     if (currentLocation) {
       setEstablishmentType(currentLocation.establishmentType || 'health')
-      setSpecialty(currentLocation.specialty || 'generaliste')
+      const spec = currentLocation.specialty || 'generaliste'
+      setSpecialty(spec)
+      setSelectedCategory(getCategoryForSpecialty(spec))
+      setSpecialtySearch('')
       setRadius(currentLocation.establishmentType === 'health' ? 2 : 1)
     }
   }, [currentLocation])
 
-  // Charger mock uniquement si pas de données réelles
-  const loadAutoCompetitors = useCallback(async () => {
-    if (hasRealData) return // Skip mock if real data available
+  // Charger données de démonstration si pas de données réelles Google Places
+  const loadAutoCompetitors = useCallback(() => {
+    if (hasRealData) return // Skip demo if real data available
     setIsLoading(true)
     try {
-      const params = new URLSearchParams({
-        type: establishmentType,
-        radius: radius.toString(),
-      })
-      if (establishmentType === 'health' && specialty) {
-        params.set('specialty', specialty)
-      }
-
-      const response = await fetch(`/api/competitors/auto?${params}`)
-      const data = await response.json()
-
-      setAutoCompetitors(data.competitors)
-      setAutoStats(data.stats)
-      setDisclaimer(data.disclaimer)
+      const demo = generateDemoCompetitors(specialty, radius)
+      setAutoCompetitors(demo.competitors)
+      setAutoStats(demo.stats)
+      setDisclaimer(demo.disclaimer)
     } catch (error) {
-      console.error('Erreur chargement concurrents auto:', error)
+      console.error('Erreur chargement concurrents démo:', error)
     } finally {
       setIsLoading(false)
     }
-  }, [establishmentType, specialty, radius, hasRealData])
+  }, [specialty, radius, hasRealData])
 
-  // Charger mock au montage si pas de données réelles
+  // Charger démo au montage et quand la spécialité/rayon change
   useEffect(() => {
     if (!hasRealData && !competitorsLoading) {
-    loadAutoCompetitors()
+      loadAutoCompetitors()
     }
-  }, [hasRealData, competitorsLoading]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasRealData, competitorsLoading, loadAutoCompetitors])
 
   // Épingler un concurrent auto (devient "manuel")
   const togglePin = (id: string) => {
@@ -542,7 +694,7 @@ const currentEstablishmentData = {
             Surveillez vos concurrents et comparez vos performances
           </p>
         </div>
-        <Button className="gap-1">
+        <Button className="gap-1" onClick={() => setAddDialogOpen(true)}>
           <Plus className="h-4 w-4" />
           Ajouter un concurrent
         </Button>
@@ -567,116 +719,186 @@ const currentEstablishmentData = {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap items-end gap-4">
-            {/* Type d'établissement */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm text-muted-foreground font-medium">
-                Type d&apos;établissement
-              </label>
-              <select
-                value={establishmentType}
-                onChange={(e) => {
-                  const newType = e.target.value as EstablishmentType
-                  setEstablishmentType(newType)
-                  // Reset radius selon le type
-                  setRadius(newType === 'health' ? 2 : 1)
-                  if (newType !== 'health') {
-                    setSpecialty('')
-                  }
-                }}
-                className="h-10 px-3 rounded-lg border border-input bg-background text-sm min-w-[180px]"
-              >
-                {Object.entries(typeLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Spécialité (si santé) */}
-            {establishmentType === 'health' && (
+          <div className="space-y-4">
+            {/* Ligne 1 : Type + Rayon + Actions */}
+            <div className="flex flex-wrap items-end gap-4">
+              {/* Type d'établissement */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm text-muted-foreground font-medium">
-                  Spécialité
-                  {savingSpecialty && (
-                    <span className="ml-2 text-xs text-blue-500 animate-pulse">Sauvegarde...</span>
-                  )}
-                  {specialtySaved && !savingSpecialty && (
-                    <span className="ml-2 text-xs text-green-600">✓ Enregistré</span>
-                  )}
+                  Type d&apos;établissement
                 </label>
                 <select
-                  value={specialty}
-                  onChange={(e) => handleSpecialtyChange(e.target.value as HealthSpecialty)}
-                  disabled={savingSpecialty}
-                  className="h-10 px-3 rounded-lg border border-input bg-background text-sm min-w-[220px]"
+                  value={establishmentType}
+                  onChange={(e) => {
+                    const newType = e.target.value as EstablishmentType
+                    setEstablishmentType(newType)
+                    setRadius(newType === 'health' ? 2 : 1)
+                    if (newType !== 'health') {
+                      setSpecialty('')
+                    }
+                  }}
+                  className="h-10 px-3 rounded-lg border border-input bg-background text-sm min-w-[180px]"
                 >
-                  {specialtyCategories.map((cat) => (
-                    <optgroup key={cat.label} label={cat.label}>
-                      {cat.items.map((item) => (
-                        <option key={item.value} value={item.value}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </optgroup>
+                  {Object.entries(typeLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
                   ))}
                 </select>
               </div>
-            )}
 
-            {/* Rayon géographique */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm text-muted-foreground font-medium">
-                Rayon
-              </label>
-              <div className="flex gap-1">
-                {([1, 2, 5] as const).map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => setRadius(r)}
-                    className={`h-10 px-4 rounded-lg text-sm font-medium transition-colors ${
-                      radius === r
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted hover:bg-muted/80 text-foreground'
-                    }`}
-                  >
-                    {r} km
-                  </button>
-                ))}
+              {/* Rayon géographique */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm text-muted-foreground font-medium">
+                  Rayon
+                </label>
+                <div className="flex gap-1">
+                  {([1, 2, 5] as const).map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setRadius(r)}
+                      className={`h-10 px-4 rounded-lg text-sm font-medium transition-colors ${
+                        radius === r
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80 text-foreground'
+                      }`}
+                    >
+                      {r} km
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* Bouton Mettre à jour / Sync Google */}
+              {isConfigured && placesApiConfigured ? (
+                <Button
+                  onClick={async () => {
+                    const result = await syncCompetitors()
+                    if (result) {
+                      setSyncMessage(`✅ ${result.placesStored} concurrent${result.placesStored > 1 ? 's' : ''} trouvé${result.placesStored > 1 ? 's' : ''} via Google Places`)
+                      if (syncMessageTimeout.current) clearTimeout(syncMessageTimeout.current)
+                      syncMessageTimeout.current = setTimeout(() => setSyncMessage(null), 5000)
+                      // Refresh the competitors list
+                      refetchCompetitors()
+                    }
+                  }}
+                  disabled={syncing || competitorsLoading}
+                  className="gap-2"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`}
+                  />
+                  {syncing ? 'Sync en cours...' : 'Sync Google Places'}
+                </Button>
+              ) : (
+                <Button
+                  onClick={hasRealData ? refetchCompetitors : loadAutoCompetitors}
+                  disabled={isLoading || competitorsLoading}
+                  className="gap-2"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${isLoading || competitorsLoading ? 'animate-spin' : ''}`}
+                  />
+                  Mettre à jour
+                </Button>
+              )}
+
+              {/* Toggle affichage auto */}
+              <Button
+                variant="outline"
+                onClick={() => setShowAuto(!showAuto)}
+                className="gap-2"
+              >
+                {showAuto ? (
+                  <>
+                    <EyeOff className="h-4 w-4" />
+                    Masquer auto
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-4 w-4" />
+                    Afficher auto
+                  </>
+                )}
+              </Button>
             </div>
 
-            {/* Bouton Mettre à jour */}
-            <Button
-              onClick={hasRealData ? refetchCompetitors : loadAutoCompetitors}
-              disabled={isLoading || competitorsLoading}
-              className="gap-2"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${isLoading || competitorsLoading ? 'animate-spin' : ''}`}
-              />
-              Mettre à jour
-            </Button>
+            {/* Ligne 2 : Spécialité — Onglets catégories + recherche + dropdown */}
+            {establishmentType === 'health' && (
+              <div className="space-y-2.5 rounded-lg border border-input/50 bg-muted/30 p-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-muted-foreground font-medium">
+                    Spécialité
+                  </label>
+                  {savingSpecialty && (
+                    <span className="text-xs text-blue-500 animate-pulse">Sauvegarde...</span>
+                  )}
+                  {specialtySaved && !savingSpecialty && (
+                    <span className="text-xs text-green-600">✓ Enregistré</span>
+                  )}
+                  {specialty && (
+                    <Badge variant="outline" className="text-xs ml-auto">
+                      {specialtyLabels[specialty] || specialty}
+                    </Badge>
+                  )}
+                </div>
 
-            {/* Toggle affichage auto */}
-            <Button
-              variant="outline"
-              onClick={() => setShowAuto(!showAuto)}
-              className="gap-2"
-            >
-              {showAuto ? (
-                <>
-                  <EyeOff className="h-4 w-4" />
-                  Masquer auto
-                </>
-              ) : (
-                <>
-                  <Eye className="h-4 w-4" />
-                  Afficher auto
-                </>
-              )}
-            </Button>
+                {/* Onglets catégories (pills) */}
+                <Tabs
+                  value={selectedCategory}
+                  onValueChange={(val) => {
+                    setSelectedCategory(val)
+                    setSpecialtySearch('')
+                  }}
+                >
+                  <TabsList className="flex flex-wrap h-auto gap-1 bg-transparent p-0">
+                    {specialtyCategories.map((cat) => (
+                      <TabsTrigger
+                        key={cat.label}
+                        value={cat.label}
+                        className="text-xs px-2.5 py-1.5 rounded-full border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:shadow-none border-input bg-background hover:bg-muted"
+                      >
+                        {cat.label}
+                        <span className="ml-1 text-[10px] opacity-60">
+                          ({cat.items.length})
+                        </span>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+
+                {/* Recherche + Dropdown filtré */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 max-w-[250px]">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <input
+                      type="text"
+                      value={specialtySearch}
+                      onChange={(e) => setSpecialtySearch(e.target.value)}
+                      placeholder="Filtrer..."
+                      className="h-9 w-full pl-8 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                    />
+                  </div>
+                  <select
+                    value={specialty}
+                    onChange={(e) => {
+                      handleSpecialtyChange(e.target.value as HealthSpecialty)
+                    }}
+                    disabled={savingSpecialty}
+                    className="h-9 px-3 rounded-lg border border-input bg-background text-sm min-w-[220px]"
+                  >
+                    {filteredSpecialties.length === 0 && (
+                      <option value="" disabled>Aucun résultat</option>
+                    )}
+                    {filteredSpecialties.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Disclaimer */}
@@ -699,6 +921,16 @@ const currentEstablishmentData = {
           {competitorsError && (
             <div className="mt-2 text-xs text-red-500">
               Erreur chargement concurrents : {competitorsError}
+            </div>
+          )}
+          {syncError && (
+            <div className="mt-2 text-xs text-red-500">
+              Erreur synchronisation : {syncError}
+            </div>
+          )}
+          {syncMessage && (
+            <div className="mt-2 text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2 font-medium">
+              {syncMessage}
             </div>
           )}
 
@@ -976,7 +1208,9 @@ const currentEstablishmentData = {
                               <p className="text-xs text-muted-foreground">
                                 {isReal && 'types' in competitor && competitor.types?.length > 0
                                   ? `${getCompetitorTypeLabel(competitor.types)}${competitor.distanceKm ? ` · ${competitor.distanceKm} km` : ''}`
-                                  : competitor.distanceKm ? `${competitor.distanceKm} km` : '-'}
+                                  : 'address' in competitor && competitor.address
+                                    ? competitor.address
+                                    : competitor.distanceKm ? `${competitor.distanceKm} km` : '-'}
                               </p>
                             </div>
                           </div>
@@ -1218,6 +1452,76 @@ const currentEstablishmentData = {
           setSelectedCompetitorName('')
         }}
       />
+
+      {/* Dialog "Ajouter un concurrent" */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajouter un concurrent</DialogTitle>
+            <DialogDescription>
+              Recherchez un établissement par nom ou adresse pour l&apos;ajouter à votre liste de concurrents.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {/* Champ de recherche */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                value={addSearchInput}
+                onChange={(e) => handleAddSearch(e.target.value)}
+                placeholder="Nom ou adresse de l'établissement..."
+                className="h-10 w-full pl-9 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                autoFocus
+              />
+              {addSearchLoading && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
+
+            {/* Résultats */}
+            {addSuggestions.length > 0 && (
+              <div className="max-h-[250px] overflow-y-auto border rounded-lg divide-y">
+                {addSuggestions.map((s) => (
+                  <button
+                    key={s.placeId}
+                    onClick={() => handleAddCompetitor(s.placeId, s.mainText)}
+                    disabled={addingPlaceId === s.placeId || addCompetitorLoading}
+                    className="w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors flex items-center gap-3 disabled:opacity-50"
+                  >
+                    <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{s.mainText}</p>
+                      <p className="text-xs text-muted-foreground truncate">{s.secondaryText}</p>
+                    </div>
+                    {addingPlaceId === s.placeId ? (
+                      <RefreshCw className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
+                    ) : (
+                      <Plus className="h-4 w-4 text-primary flex-shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {addSearchInput.length >= 3 && !addSearchLoading && addSuggestions.length === 0 && (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Aucun résultat pour &quot;{addSearchInput}&quot;
+              </div>
+            )}
+
+            {addSearchInput.length < 3 && (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Saisissez au moins 3 caractères pour lancer la recherche
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

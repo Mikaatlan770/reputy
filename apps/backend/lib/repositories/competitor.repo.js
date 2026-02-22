@@ -179,6 +179,14 @@ function hasSyncRun(orgId, profile, periodKey) {
   return !!row;
 }
 
+/**
+ * Clear sync data for a given org/profile/period (used by --force and manual re-sync)
+ */
+function clearSync(orgId, profile, periodKey) {
+  db.run(`DELETE FROM competitor_sync_log WHERE org_id = $orgId AND profile = $profile AND run_period_key = $periodKey`, { orgId, profile, periodKey });
+  db.run(`DELETE FROM competitor_snapshots WHERE org_id = $orgId AND profile = $profile AND run_period_key = $periodKey`, { orgId, profile, periodKey });
+}
+
 // ============================================================
 // Place Details Cache
 // ============================================================
@@ -383,6 +391,7 @@ module.exports = {
 
   // Sync
   hasSyncRun,
+  clearSync,
   logSync,
 
   // Place details cache

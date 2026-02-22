@@ -154,6 +154,25 @@ module.exports = {
       },
     },
 
+    // ── Sync Competitors: Google Places (weekly Monday 04:00 UTC) ──
+    // Fetches nearby competitors for all orgs with lat/lng configured
+    {
+      name: 'sync-competitors',
+      script: 'apps/backend/lib/scripts/sync-competitors.js',
+      cwd: './',
+      cron_restart: '0 4 * * 1',
+      autorestart: false,
+      watch: false,
+      error_file: './logs/sync-competitors-error.log',
+      out_file: './logs/sync-competitors-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        REPUTY_STORAGE: 'sqlite',
+      },
+    },
+
     // ── DB Backup (daily at 02:00 UTC) ──
     // Creates a WAL-safe SQLite backup with rotation
     {
