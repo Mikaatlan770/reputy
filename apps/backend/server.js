@@ -4002,6 +4002,25 @@ async function handleSendReview(req, res) {
 }
 
 function handleGetRatingPage(requestId, res) {
+  // ============ SQLITE MODE: lookup by idempotency key ============
+  if (storage.USE_SQLITE) {
+    const repos = storage.getRepos();
+    const dbRequest = repos.request.getByIdempotencyKey(requestId);
+    
+    if (dbRequest) {
+      // Check expiry
+      if (isRequestExpired(dbRequest)) {
+        return sendHtml(res, 410, generateExpiredPage());
+      }
+      
+      // Check existing feedback
+      const existingFeedback = repos.feedback.getByRequestDbId(dbRequest.id);
+      const settings = getSettings();
+      return sendHtml(res, 200, generateRatingPage(requestId, dbRequest, existingFeedback, settings));
+    }
+  }
+  
+  // ============ JSON MODE (legacy fallback) ============
   const data = loadData();
   const request = data.requests[requestId];
   
@@ -4021,6 +4040,68 @@ function handleGetRatingPage(requestId, res) {
 }
 
 async function handleSubmitFeedback(requestId, req, res) {
+  // ============ SQLITE MODE: full DB-driven flow ============
+  if (storage.USE_SQLITE) {
+    const repos = storage.getRepos();
+    const dbModule = storage.getDb();
+    const dbRequest = repos.request.getByIdempotencyKey(requestId);
+    
+    if (!dbRequest) {
+      // Fall through to JSON legacy check below
+    } else {
+      // Validation: expiry
+      if (isRequestExpired(dbRequest)) {
+        return sendJson(res, 410, { ok: false, error: 'REQUEST_EXPIRED' });
+      }
+      
+      // Anti-doublon SQLite
+      const existingFb = repos.feedback.getByRequestDbId(dbRequest.id);
+      if (existingFb) {
+        return sendJson(res, 409, { ok: false, error: 'ALREADY_SUBMITTED' });
+      }
+      
+      let body;
+      try {
+        body = await parseBody(req);
+      } catch (err) {
+        return sendJson(res, 400, { ok: false, error: 'INVALID_BODY' });
+      }
+      
+      const rating = parseInt(body.rating);
+      if (!rating || rating < 1 || rating > 5) {
+        return sendJson(res, 400, { ok: false, error: 'INVALID_RATING' });
+      }
+      
+      // Transaction: insert feedback + update lifecycle
+      dbModule.transaction(() => {
+        repos.feedback.create({
+          requestDbId: dbRequest.id,
+          orgId: dbRequest.orgId,
+          rating: rating,
+          comment: (body.comment || '').trim(),
+          source: dbRequest.channel || 'web',
+        });
+        repos.request.setLifecycleStatus(dbRequest.id, 'feedback_received');
+      });
+
+      console.log('[REPUTY][FEEDBACK] Nouveau feedback (SQLite)', {
+        requestId, dbId: dbRequest.id, rating, hasComment: !!body.comment
+      });
+
+      const routing = determineReviewRouting(rating);
+      const settings = getSettings();
+
+      return sendJson(res, 200, {
+        ok: true,
+        success: true,
+        routing: routing,
+        redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
+        googleUrl: routing.redirectUrl || settings.googleReviewUrl
+      });
+    }
+  }
+  
+  // ============ JSON MODE (legacy fallback) ============
   const data = loadData();
   const request = data.requests[requestId];
   
@@ -4050,51 +4131,6 @@ async function handleSubmitFeedback(requestId, req, res) {
   const rating = parseInt(body.rating);
   if (!rating || rating < 1 || rating > 5) {
     return sendJson(res, 400, { ok: false, error: 'INVALID_RATING' });
-  }
-
-  // ============ SQLITE MODE: feedback + lifecycle in transaction ============
-  if (storage.USE_SQLITE) {
-    const repos = storage.getRepos();
-    const dbModule = storage.getDb();
-    const dbId = request._dbId;
-
-    if (!dbId) {
-      console.error('[REPUTY][FEEDBACK] Missing _dbId for request', { requestId });
-      return sendJson(res, 500, { ok: false, error: 'INTERNAL_ERROR' });
-    }
-
-    // Anti-doublon SQLite (precise, repo-based)
-    const existingFb = repos.feedback.getByRequestDbId(dbId);
-    if (existingFb) {
-      return sendJson(res, 409, { ok: false, error: 'ALREADY_SUBMITTED' });
-    }
-
-    // Transaction: insert feedback + update lifecycle (sent → feedback_received)
-    dbModule.transaction(() => {
-      repos.feedback.create({
-        requestDbId: dbId,
-        orgId: request.orgId,
-        rating: rating,
-        comment: (body.comment || '').trim(),
-        source: request.channel || 'web',
-      });
-      repos.request.setLifecycleStatus(dbId, 'feedback_received');
-    });
-
-    console.log('[REPUTY][FEEDBACK] Nouveau feedback (SQLite)', {
-      requestId, dbId, rating, hasComment: !!body.comment
-    });
-
-    const routing = determineReviewRouting(rating);
-    const settings = getSettings();
-
-    return sendJson(res, 200, {
-      ok: true,
-      success: true,
-      routing: routing,
-      redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
-      googleUrl: routing.redirectUrl || settings.googleReviewUrl
-    });
   }
 
   // ============ JSON MODE (legacy): ENREGISTRER LE FEEDBACK ============
