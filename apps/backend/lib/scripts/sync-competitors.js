@@ -66,6 +66,9 @@ const IRRELEVANT_TYPES = [
   'city_hall', 'local_government_office',
   'cemetery',
   'church', 'mosque', 'synagogue', 'hindu_temple',
+  // Beauty / wellness — not medical competitors
+  'beauty_salon', 'hair_salon', 'hair_care', 'spa',
+  'nail_salon', 'tanning_studio',
 ];
 
 // ============================================================

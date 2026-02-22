@@ -253,7 +253,11 @@ const HEALTH_PROFILES = {
   medecin_esthetique: {
     includedTypes: ['doctor'],
     textQuery: 'médecin esthétique',
-    textQueryVariants: ['médecine esthétique', 'centre esthétique médical', 'cabinet esthétique'],
+    textQueryVariants: [
+      'médecine esthétique médecin',
+      'centre laser esthétique médical',
+      'injection acide hyaluronique médecin',
+    ],
     maxRadius: 5000,
   },
 

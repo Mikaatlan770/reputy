@@ -20,6 +20,7 @@ import {
 // ============ Types Google → Labels FR ============
 
 const googleTypeLabels: Record<string, string> = {
+  // ── Santé ──
   dentist: 'Dentiste',
   doctor: 'Médecin',
   hospital: 'Hôpital / Clinique',
@@ -27,8 +28,49 @@ const googleTypeLabels: Record<string, string> = {
   physiotherapist: 'Kinésithérapeute',
   veterinary_care: 'Vétérinaire',
   health: 'Santé',
+  medical_lab: 'Laboratoire d\'analyses',
+  // ── Commerce & Restauration ──
   store: 'Commerce',
   restaurant: 'Restaurant',
+  cafe: 'Café',
+  bar: 'Bar',
+  bakery: 'Boulangerie',
+  supermarket: 'Supermarché',
+  grocery_store: 'Épicerie',
+  shopping_mall: 'Centre commercial',
+  clothing_store: 'Magasin de vêtements',
+  jewelry_store: 'Bijouterie',
+  // ── Beauté / Bien-être ──
+  beauty_salon: 'Institut de beauté',
+  hair_salon: 'Salon de coiffure',
+  hair_care: 'Soins capillaires',
+  spa: 'Spa',
+  nail_salon: 'Salon de manucure',
+  // ── Services / Éducation / Lieux ──
+  university: 'Université',
+  school: 'École',
+  secondary_school: 'Collège / Lycée',
+  primary_school: 'École primaire',
+  bank: 'Banque',
+  post_office: 'Bureau de poste',
+  gas_station: 'Station-service',
+  parking: 'Parking',
+  gym: 'Salle de sport',
+  park: 'Parc',
+  museum: 'Musée',
+  library: 'Bibliothèque',
+  // ── Types génériques Google ──
+  point_of_interest: 'Lieu d\'intérêt',
+  establishment: 'Établissement',
+  local_government_office: 'Administration',
+  city_hall: 'Mairie',
+  fire_station: 'Caserne de pompiers',
+  police: 'Commissariat',
+  church: 'Église',
+  mosque: 'Mosquée',
+  synagogue: 'Synagogue',
+  cemetery: 'Cimetière',
+  drugstore: 'Parapharmacie',
 }
 
 export function getCompetitorTypeLabel(types: string[]): string {

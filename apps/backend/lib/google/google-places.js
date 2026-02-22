@@ -121,6 +121,7 @@ async function nearbySearch({ lat, lng, radiusMeters, includedTypes, maxResultCo
   const body = {
     includedTypes,
     maxResultCount: Math.min(maxResultCount, 20),
+    languageCode: 'fr',
     locationRestriction: {
       circle: {
         center: { latitude: lat, longitude: lng },
@@ -226,7 +227,7 @@ async function getPlaceDetails(placeId) {
     'photos',
   ].join(',');
 
-  const result = await placesRequest(`${PLACES_BASE_URL}/places/${placeId}`, {
+  const result = await placesRequest(`${PLACES_BASE_URL}/places/${placeId}?languageCode=fr`, {
     method: 'GET',
     headers: {
       'X-Goog-FieldMask': fieldMask,
@@ -352,7 +353,7 @@ async function getPlaceGeometry(placeId) {
 
   const fieldMask = ['id', 'location', 'formattedAddress', 'displayName'].join(',');
 
-  const result = await placesRequest(`${PLACES_BASE_URL}/places/${placeId}`, {
+  const result = await placesRequest(`${PLACES_BASE_URL}/places/${placeId}?languageCode=fr`, {
     method: 'GET',
     headers: {
       'X-Goog-FieldMask': fieldMask,
