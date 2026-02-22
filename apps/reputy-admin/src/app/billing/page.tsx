@@ -847,13 +847,9 @@ export default function BillingPage() {
                   key={pack.id}
                   className={cn(
                     'relative p-4 rounded-xl border-2 transition-all',
-                    qty > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30',
-                    pack.popular && qty === 0 && 'border-primary/50'
+                    qty > 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'
                   )}
                 >
-                  {pack.popular && (
-                    <Badge className="absolute -top-2 right-4 bg-primary text-[10px]">Populaire</Badge>
-                  )}
                   <div className="flex items-center gap-2 mb-2">
                     <div className={cn('p-1.5 rounded-lg bg-muted', pack.color)}>
                       <Icon className="h-4 w-4" />
