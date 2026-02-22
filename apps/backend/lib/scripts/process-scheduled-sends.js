@@ -159,10 +159,11 @@ async function processScheduledSends() {
       scheduledSendRepo.updateStatus(entry.id, 'sent');
 
       // 7) Record usage
+      const smsQty = result.smsCount || 1;
       usageRepo.addEntry({
         orgId: entry.orgId,
         type: 'sms',
-        qty: result.smsCount || 1,
+        qty: smsQty,
         details: {
           scheduledSendId: entry.id,
           recipient: entry.recipient,
@@ -172,6 +173,22 @@ async function processScheduledSends() {
           smsCount: result.smsCount,
         },
       });
+
+      // 7b) Debit subscription credits counter (so dashboard shows correct usage)
+      try {
+        const freshOrg = orgRepo.getById(entry.orgId);
+        if (freshOrg) {
+          const subCredits = freshOrg.subscriptionCredits || {};
+          orgRepo.update(entry.orgId, {
+            subscriptionCredits: {
+              ...subCredits,
+              smsUsedThisPeriod: (subCredits.smsUsedThisPeriod || 0) + smsQty,
+            }
+          });
+        }
+      } catch (debitErr) {
+        console.warn(`  ⚠️ Could not debit subscription credits: ${debitErr.message}`);
+      }
 
       // 8) Update request lifecycle if linked
       if (entry.requestDbId) {

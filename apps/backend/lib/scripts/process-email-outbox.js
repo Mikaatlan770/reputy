@@ -254,6 +254,22 @@ async function processOutbox() {
         template: entry.templateKey,
       });
 
+      // 9b) Debit subscription credits counter (so dashboard shows correct usage)
+      try {
+        const freshOrg = orgRepo.getById(entry.orgId);
+        if (freshOrg) {
+          const subCredits = freshOrg.subscriptionCredits || {};
+          orgRepo.update(entry.orgId, {
+            subscriptionCredits: {
+              ...subCredits,
+              emailUsedThisPeriod: (subCredits.emailUsedThisPeriod || 0) + 1,
+            }
+          });
+        }
+      } catch (debitErr) {
+        console.warn(`  ⚠️ Could not debit subscription credits: ${debitErr.message}`);
+      }
+
       // 10) P0.6: Transition cold → warming after first successful send
       if (warmupState.status === 'cold') {
         emailWarmup.markWarmupStarted(org);
