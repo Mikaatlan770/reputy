@@ -17,19 +17,24 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const REPUTY_DOMAIN = process.env.REPUTY_DOMAIN || 'http://localhost:3002';
 
-// Subscription plan price IDs
-const STRIPE_PRICE_ID_ARGENT = process.env.STRIPE_PRICE_ID_SILVER || process.env.STRIPE_PRICE_ID_ARGENT;
-const STRIPE_PRICE_ID_OR = process.env.STRIPE_PRICE_ID_GOLD || process.env.STRIPE_PRICE_ID_OR;
+// Subscription plan price IDs (V2: 2 plans payants — Argent 49€, Platinum 99€)
+const STRIPE_PRICE_ID_ARGENT = process.env.STRIPE_PRICE_ID_ARGENT || process.env.STRIPE_PRICE_ID_SILVER;
 const STRIPE_PRICE_ID_PLATINUM = process.env.STRIPE_PRICE_ID_PLATINUM;
+// Rétro-compat : ancien "or/gold" → Platinum (même Price ID Stripe)
+const STRIPE_PRICE_ID_OR = process.env.STRIPE_PRICE_ID_GOLD || process.env.STRIPE_PRICE_ID_OR || STRIPE_PRICE_ID_PLATINUM;
 
-// Pack price IDs (one-time purchases)
+// Pack price IDs (one-time purchases) — V2: Packs simplifiés
+const STRIPE_PRICE_SMS_200 = process.env.STRIPE_PRICE_SMS_200;
+const STRIPE_PRICE_EMAIL_1000 = process.env.STRIPE_PRICE_EMAIL_1000;
+const STRIPE_PRICE_IA_50 = process.env.STRIPE_PRICE_IA_50;
+const STRIPE_PRICE_QR_EXTRA = process.env.STRIPE_PRICE_QR_EXTRA;
+const STRIPE_PRICE_QR_NFC_COMBO = process.env.STRIPE_PRICE_QR_NFC_COMBO;
+// Rétro-compat anciens packs (pour les transactions existantes)
 const STRIPE_PRICE_SMS_150 = process.env.STRIPE_PRICE_SMS_150;
 const STRIPE_PRICE_SMS_300 = process.env.STRIPE_PRICE_SMS_300;
-const STRIPE_PRICE_EMAIL_1000 = process.env.STRIPE_PRICE_EMAIL_1000;
 const STRIPE_PRICE_EMAIL_2000 = process.env.STRIPE_PRICE_EMAIL_2000;
 const STRIPE_PRICE_IA_MINI = process.env.STRIPE_PRICE_IA_MINI;
 const STRIPE_PRICE_IA_MAXI = process.env.STRIPE_PRICE_IA_MAXI;
-const STRIPE_PRICE_QR_EXTRA = process.env.STRIPE_PRICE_QR_EXTRA;
 const STRIPE_PRICE_NFC_EXTRA = process.env.STRIPE_PRICE_NFC_EXTRA;
 
 // ============================================================
@@ -37,61 +42,73 @@ const STRIPE_PRICE_NFC_EXTRA = process.env.STRIPE_PRICE_NFC_EXTRA;
 // ============================================================
 
 // Plan ID (internal) → Stripe Price ID
+// V2: 2 plans payants (Argent, Platinum). "or" → rétro-compat vers Platinum
 const PLAN_TO_PRICE = {
   argent: STRIPE_PRICE_ID_ARGENT,
-  or: STRIPE_PRICE_ID_OR,
   platinum: STRIPE_PRICE_ID_PLATINUM,
+  or: STRIPE_PRICE_ID_OR, // rétro-compat
 };
 
 // Stripe Price ID → Plan ID (internal)
 const PRICE_TO_PLAN = {};
 if (STRIPE_PRICE_ID_ARGENT) PRICE_TO_PLAN[STRIPE_PRICE_ID_ARGENT] = 'argent';
-if (STRIPE_PRICE_ID_OR) PRICE_TO_PLAN[STRIPE_PRICE_ID_OR] = 'or';
 if (STRIPE_PRICE_ID_PLATINUM) PRICE_TO_PLAN[STRIPE_PRICE_ID_PLATINUM] = 'platinum';
+// Si ancien Price ID "or" est différent de platinum, le mapper aussi
+if (STRIPE_PRICE_ID_OR && STRIPE_PRICE_ID_OR !== STRIPE_PRICE_ID_PLATINUM) {
+  PRICE_TO_PLAN[STRIPE_PRICE_ID_OR] = 'platinum'; // rétro-compat: or → platinum
+}
 
-// Pack ID (internal) → Stripe Price ID
+// Pack ID (internal) → Stripe Price ID — V2: Packs simplifiés
 const PACK_TO_PRICE = {
+  'sms-200': STRIPE_PRICE_SMS_200,
+  'email-1000': STRIPE_PRICE_EMAIL_1000,
+  'ia-50': STRIPE_PRICE_IA_50,
+  'qr': STRIPE_PRICE_QR_EXTRA,
+  'qr-nfc': STRIPE_PRICE_QR_NFC_COMBO,
+  // Rétro-compat anciens packs
   'sms-150': STRIPE_PRICE_SMS_150,
   'sms-300': STRIPE_PRICE_SMS_300,
-  'email-1000': STRIPE_PRICE_EMAIL_1000,
   'email-2000': STRIPE_PRICE_EMAIL_2000,
   'ia-mini': STRIPE_PRICE_IA_MINI,
   'ia-maxi': STRIPE_PRICE_IA_MAXI,
-  'qr': STRIPE_PRICE_QR_EXTRA,
   'nfc': STRIPE_PRICE_NFC_EXTRA,
 };
 
 // Pack contents (what you get when you buy a pack)
 // Note: Pack credits do NOT reset monthly, they persist until consumed
 const PACK_CONTENTS = {
+  'sms-200': { sms: 200 },
+  'email-1000': { email: 1000 },
+  'ia-50': { ai: 50 },
+  'qr': { qr: 1, qrScans: 1000 },
+  'qr-nfc': { qr: 1, nfc: 1, qrScans: 1000, nfcScans: 1000 },
+  // Rétro-compat anciens packs
   'sms-150': { sms: 150 },
   'sms-300': { sms: 300 },
-  'email-1000': { email: 1000 },
   'email-2000': { email: 2000 },
   'ia-mini': { ai: 25 },
   'ia-maxi': { ai: 75 },
-  'qr': { qr: 1, qrScans: 500 },
-  'nfc': { nfc: 1, nfcScans: 500 },
+  'nfc': { nfc: 1, nfcScans: 1000 },
 };
 
-// Plan quotas (monthly allocations)
+// Plan quotas (monthly allocations) — V2
 const PLAN_QUOTAS = {
-  bronze: { sms: 0, email: 0, ai: 0, qr: 1, nfc: 0, qrScans: 50, nfcScans: 0 },
-  argent: { sms: 100, email: 500, ai: 0, qr: 3, nfc: 1, qrScans: 500, nfcScans: 500 },
-  or: { sms: 200, email: 1000, ai: 75, qr: 10, nfc: 3, qrScans: 500, nfcScans: 500 },
-  platinum: { sms: 400, email: 2000, ai: 150, qr: 10, nfc: 3, qrScans: 500, nfcScans: 500 },
+  bronze: { sms: 0, email: 0, ai: 0, qr: 1, nfc: 0, qrScans: 200, nfcScans: 0 },
+  argent: { sms: 200, email: 2000, ai: 100, qr: 3, nfc: 1, qrScans: 1000, nfcScans: 1000 },
+  or: { sms: 500, email: 4000, ai: 200, qr: 10, nfc: 3, qrScans: 1000, nfcScans: 1000 }, // rétro-compat → Platinum
+  platinum: { sms: 500, email: 4000, ai: 200, qr: 10, nfc: 3, qrScans: 1000, nfcScans: 1000 },
 };
 
-// Plan prices in cents (HT)
+// Plan prices in cents (HT) — V2
 const PLAN_PRICES_HT = {
   bronze: 0,
-  argent: 5900,    // 59€
-  or: 9900,        // 99€
-  platinum: 12900, // 129€
+  argent: 4900,    // 49€
+  or: 9900,        // rétro-compat (= Platinum)
+  platinum: 9900,  // 99€
 };
 
-// Valid paid plans (for Stripe checkout)
-const VALID_PAID_PLANS = ['argent', 'or', 'platinum'];
+// Valid paid plans (for Stripe checkout) — V2: "or" n'est plus proposé
+const VALID_PAID_PLANS = ['argent', 'platinum'];
 
 // ============================================================
 // Initialize Stripe (lazy)

@@ -82,7 +82,7 @@ const schemas = {
    * POST /client/billing/checkout
    */
   billingCheckout: z.object({
-    planId: z.enum(['argent', 'or', 'platinum'], {
+    planId: z.enum(['argent', 'platinum'], {
       required_error: 'planId requis',
       invalid_type_error: 'planId invalide',
     }),

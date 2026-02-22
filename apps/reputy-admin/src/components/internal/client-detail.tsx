@@ -198,7 +198,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
   // Plan & Coupon states
   const [assignPlanOpen, setAssignPlanOpen] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState<'health_bronze' | 'health_argent' | 'health_or' | 'health_platinum'>('health_argent')
+  const [selectedPlan, setSelectedPlan] = useState<'health_bronze' | 'health_argent' | 'health_platinum'>('health_argent')
   const [assignPlanLoading, setAssignPlanLoading] = useState(false)
   const [applyCouponOpen, setApplyCouponOpen] = useState(false)
   const [selectedCoupon, setSelectedCoupon] = useState<'FIXED_5' | 'FIXED_10' | 'FIXED_20' | 'PCT_10' | 'PCT_20'>('FIXED_10')
@@ -1164,8 +1164,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                   <label className="text-sm text-slate-500">Plan actuel</label>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge className={
-                      org.plan.code.includes('platinum') ? 'bg-purple-500/20 text-purple-400' :
-                      org.plan.code.includes('or') || org.plan.code.includes('gold') ? 'bg-amber-500/20 text-amber-400' :
+                      org.plan.code.includes('platinum') || org.plan.code.includes('or') || org.plan.code.includes('gold') ? 'bg-purple-500/20 text-purple-400' :
                       org.plan.code.includes('argent') || org.plan.code.includes('silver') ? 'bg-slate-500/20 text-slate-300' :
                       'bg-orange-500/20 text-orange-400'
                     }>
@@ -1221,19 +1220,13 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                             <SelectItem value="health_argent">
                               <div className="flex items-center gap-2">
                                 <span className="w-3 h-3 rounded-full bg-slate-400"></span>
-                                Argent - 59€/mois
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="health_or">
-                              <div className="flex items-center gap-2">
-                                <span className="w-3 h-3 rounded-full bg-amber-400"></span>
-                                Or - 99€/mois
+                                Argent - 49€/mois
                               </div>
                             </SelectItem>
                             <SelectItem value="health_platinum">
                               <div className="flex items-center gap-2">
                                 <span className="w-3 h-3 rounded-full bg-purple-400"></span>
-                                Platinum - 129€/mois
+                                Platinum - 99€/mois
                               </div>
                             </SelectItem>
                           </SelectContent>
@@ -1243,22 +1236,19 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                       <div className="p-3 bg-slate-700/50 rounded-lg text-sm">
                         <p className="text-slate-300 font-medium mb-2">Quotas du plan sélectionné :</p>
                         {selectedPlan === 'health_bronze' && (
-                          <p className="text-slate-400">SMS: 0 | Email: 0 | IA: 0 | QR: 1</p>
+                          <p className="text-slate-400">SMS: 0 | Email: 0 | IA: 0 | QR: 1 (200 scans)</p>
                         )}
                         {selectedPlan === 'health_argent' && (
-                          <p className="text-slate-400">SMS: 100 | Email: 500 | IA: 0 | QR: 3 | NFC: 1</p>
-                        )}
-                        {selectedPlan === 'health_or' && (
-                          <p className="text-slate-400">SMS: 200 | Email: 1000 | IA: 75 | QR: 10 | NFC: 3</p>
+                          <p className="text-slate-400">SMS: 200 | Email: 2000 | IA: 100 | QR: 3 | NFC: 1 (1000 scans)</p>
                         )}
                         {selectedPlan === 'health_platinum' && (
-                          <p className="text-slate-400">SMS: 400 | Email: 2000 | IA: 150 | QR: 10 | NFC: 3</p>
+                          <p className="text-slate-400">SMS: 500 | Email: 4000 | IA: 200 | QR: 10 | NFC: 3 (1000 scans)</p>
                         )}
                       </div>
 
                       <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                         <p className="text-sm text-amber-300">
-                          ⚠️ Les crédits mensuels seront réinitialisés selon le nouveau plan.
+                          ⚠️ Les crédits mensuels du nouveau plan s'appliqueront. Les usages déjà consommés ce mois sont conservés.
                         </p>
                       </div>
                     </div>

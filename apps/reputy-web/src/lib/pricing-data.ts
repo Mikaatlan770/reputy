@@ -1,14 +1,14 @@
 // ════════════════════════════════════════════════════════════════
 // DONNÉES TARIFAIRES REPUTY
 // Source de vérité unique pour tous les tarifs
-// Version: 2.0.0 - Mise à jour grille tarifaire complète
+// Version: 3.0.0 - V2 grille tarifaire (Bronze / Argent 49€ / Platinum 99€)
 // ════════════════════════════════════════════════════════════════
 
 // ────────────────────────────────────────────────────────────────
 // TYPES
 // ────────────────────────────────────────────────────────────────
 
-export type PlanId = 'bronze' | 'argent' | 'or' | 'platinum'
+export type PlanId = 'bronze' | 'argent' | 'platinum'
 
 export interface Plan {
   id: PlanId
@@ -54,7 +54,7 @@ export interface Vertical {
 }
 
 // ────────────────────────────────────────────────────────────────
-// FORFAITS REPUTY HEALTH
+// FORFAITS REPUTY HEALTH — V2
 // ────────────────────────────────────────────────────────────────
 
 export const HEALTH_PLANS: Plan[] = [
@@ -66,11 +66,11 @@ export const HEALTH_PLANS: Plan[] = [
     period: 'Gratuit',
     isTrial: false,
     isPopular: false,
-    quotas: { sms: 0, email: 0, ai: 0, qr: 1, nfc: 0, qrScans: 50, nfcScans: 0 },
+    quotas: { sms: 0, email: 0, ai: 0, qr: 1, nfc: 0, qrScans: 200, nfcScans: 0 },
     included: [
       'Accès complet au ReputyBoard',
       'Réponses aux avis via le board',
-      '1 QR Code (50 scans inclus)',
+      '1 QR Code (200 scans inclus)',
       'Accès aux campagnes via packs',
     ],
     excluded: [
@@ -87,68 +87,44 @@ export const HEALTH_PLANS: Plan[] = [
     id: 'argent',
     name: 'Argent',
     subtitle: 'Le plus populaire',
-    price: 59,
+    price: 49,
     period: '/mois HT',
     isTrial: false,
     isPopular: true,
-    quotas: { sms: 100, email: 500, ai: 0, qr: 3, nfc: 1, qrScans: 500, nfcScans: 500 },
+    quotas: { sms: 200, email: 2000, ai: 100, qr: 3, nfc: 1, qrScans: 1000, nfcScans: 1000 },
     included: [
       '1 licence Reputy Health',
-      '100 SMS / mois',
-      '500 emails / mois',
+      '200 SMS / mois',
+      '2 000 emails / mois',
+      '100 réponses IA / mois',
       'Accès complet au ReputyBoard',
-      '3 QR Codes (500 scans chacun)',
-      '1 Tag NFC (500 scans)',
+      '3 QR Codes (1000 scans chacun)',
+      '1 Tag NFC (1000 scans)',
       'Module Doctolib',
       'Multi-utilisateurs',
-      'Rapport trimestriel',
+      'Google Places hebdomadaire',
     ],
     excluded: [],
     cta: 'Choisir Argent',
     ctaHref: '/signup?plan=argent',
   },
   {
-    id: 'or',
-    name: 'Or',
-    subtitle: 'Pour les cabinets actifs',
+    id: 'platinum',
+    name: 'Platinum',
+    subtitle: 'Performance maximale',
     price: 99,
     period: '/mois HT',
     isTrial: false,
     isPopular: false,
-    quotas: { sms: 200, email: 1000, ai: 75, qr: 10, nfc: 3, qrScans: 500, nfcScans: 500 },
+    quotas: { sms: 500, email: 4000, ai: 200, qr: 10, nfc: 3, qrScans: 1000, nfcScans: 1000 },
     included: [
       '1 licence Reputy Health',
-      '200 SMS / mois',
-      '1 000 emails / mois',
-      '75 réponses IA / mois',
+      '500 SMS / mois',
+      '4 000 emails / mois',
+      '200 réponses IA / mois',
       'Accès complet au ReputyBoard',
-      '10 QR Codes (500 scans chacun)',
-      '3 Tags NFC (500 scans)',
-      'Module Doctolib',
-      'Multi-utilisateurs',
-      'Rapport mensuel',
-    ],
-    excluded: [],
-    cta: 'Choisir Or',
-    ctaHref: '/signup?plan=or',
-  },
-  {
-    id: 'platinum',
-    name: 'Platinum',
-    subtitle: 'Performance maximale',
-    price: 129,
-    period: '/mois HT',
-    isTrial: false,
-    isPopular: false,
-    quotas: { sms: 400, email: 2000, ai: 150, qr: 10, nfc: 3, qrScans: 500, nfcScans: 500 },
-    included: [
-      '1 licence Reputy Health',
-      '400 SMS / mois',
-      '2 000 emails / mois',
-      '150 réponses IA / mois',
-      'Accès complet au ReputyBoard',
-      '10 QR Codes (500 scans chacun)',
-      '3 Tags NFC (500 scans)',
+      '10 QR Codes (1000 scans chacun)',
+      '3 Tags NFC (1000 scans)',
       'Module Doctolib',
       'Multi-utilisateurs',
       'Rapport mensuel avancé',
@@ -161,27 +137,18 @@ export const HEALTH_PLANS: Plan[] = [
 ]
 
 // ────────────────────────────────────────────────────────────────
-// PACKS ADDITIONNELS
+// PACKS ADDITIONNELS — V2
 // ────────────────────────────────────────────────────────────────
 
 export const ADDONS = {
   sms: [
     {
-      id: 'sms-150',
-      name: 'Pack SMS 150',
-      description: '150 SMS supplémentaires',
+      id: 'sms-200',
+      name: 'Pack SMS 200',
+      description: '200 SMS supplémentaires',
       price: 29,
       isComingSoon: false,
-      features: ['150 SMS'],
-    },
-    {
-      id: 'sms-300',
-      name: 'Pack SMS 300',
-      description: '300 SMS supplémentaires',
-      price: 49,
-      isComingSoon: false,
-      features: ['300 SMS'],
-      isPopular: true,
+      features: ['200 SMS'],
     },
   ] as Addon[],
   email: [
@@ -193,47 +160,29 @@ export const ADDONS = {
       isComingSoon: false,
       features: ['1 000 emails'],
     },
-    {
-      id: 'email-2000',
-      name: 'Pack Email 2000',
-      description: '2 000 emails supplémentaires',
-      price: 39,
-      isComingSoon: false,
-      features: ['2 000 emails'],
-      isPopular: true,
-    },
   ] as Addon[],
   ia: [
     {
-      id: 'ia-mini',
-      name: 'Pack IA Mini',
-      description: '25 réponses IA',
-      price: 19,
+      id: 'ia-50',
+      name: 'Pack IA 50',
+      description: '50 réponses IA',
+      price: 29,
       isComingSoon: false,
-      features: ['25 réponses IA'],
-    },
-    {
-      id: 'ia-maxi',
-      name: 'Pack IA Maxi',
-      description: '75 réponses IA',
-      price: 39,
-      isComingSoon: false,
-      features: ['75 réponses IA'],
-      isPopular: true,
+      features: ['50 réponses IA'],
     },
   ] as Addon[],
   qrNfc: [
     {
       id: 'qr',
       name: 'QR Code',
-      description: 'QR code supplémentaire (500 scans)',
+      description: 'QR code supplémentaire (1000 scans)',
       price: 5,
       isComingSoon: false,
     },
     {
-      id: 'nfc',
-      name: 'Tag NFC',
-      description: 'Tag NFC supplémentaire (500 scans)',
+      id: 'qr-nfc',
+      name: 'QR + NFC Tag',
+      description: 'QR code + Tag NFC (1000 scans chacun)',
       price: 15,
       isComingSoon: false,
     },
@@ -392,7 +341,7 @@ export const HEALTH_FAQ = [
   },
   {
     question: 'Le forfait Bronze est-il vraiment gratuit ?',
-    answer: 'Oui ! Le forfait Bronze est gratuit et sans limite de durée. Vous avez accès au ReputyBoard et à 1 QR code (50 scans). Pour envoyer des SMS ou emails, vous pouvez acheter des packs à la demande.',
+    answer: 'Oui ! Le forfait Bronze est gratuit et sans limite de durée. Vous avez accès au ReputyBoard et à 1 QR code (200 scans). Pour envoyer des SMS ou emails, vous pouvez acheter des packs à la demande.',
   },
   {
     question: 'Comment fonctionne l\'extension Doctolib ?',
@@ -413,30 +362,25 @@ export const HEALTH_FAQ = [
 ]
 
 // ────────────────────────────────────────────────────────────────
-// CONSTANTES QUOTAS (pour le backend)
+// CONSTANTES QUOTAS — V2
 // ────────────────────────────────────────────────────────────────
 
 export const PLAN_QUOTAS = {
-  bronze: { sms: 0, email: 0, ai: 0, qr: 1, nfc: 0, qrScans: 50, nfcScans: 0 },
-  argent: { sms: 100, email: 500, ai: 0, qr: 3, nfc: 1, qrScans: 500, nfcScans: 500 },
-  or: { sms: 200, email: 1000, ai: 75, qr: 10, nfc: 3, qrScans: 500, nfcScans: 500 },
-  platinum: { sms: 400, email: 2000, ai: 150, qr: 10, nfc: 3, qrScans: 500, nfcScans: 500 },
+  bronze: { sms: 0, email: 0, ai: 0, qr: 1, nfc: 0, qrScans: 200, nfcScans: 0 },
+  argent: { sms: 200, email: 2000, ai: 100, qr: 3, nfc: 1, qrScans: 1000, nfcScans: 1000 },
+  platinum: { sms: 500, email: 4000, ai: 200, qr: 10, nfc: 3, qrScans: 1000, nfcScans: 1000 },
 } as const
 
 export const PLAN_PRICES_HT = {
   bronze: 0,
-  argent: 5900,    // 59€ en centimes
-  or: 9900,        // 99€ en centimes
-  platinum: 12900, // 129€ en centimes
+  argent: 4900,    // 49€ en centimes
+  platinum: 9900,  // 99€ en centimes
 } as const
 
 export const PACK_PRICES_HT = {
-  'sms-150': 2900,     // 29€
-  'sms-300': 4900,     // 49€
-  'email-1000': 1900,  // 19€
-  'email-2000': 3900,  // 39€ (2000 emails)
-  'ia-mini': 1900,     // 19€ (25 réponses IA)
-  'ia-maxi': 3900,     // 39€ (75 réponses IA)
-  'qr': 500,           // 5€
-  'nfc': 1500,         // 15€
+  'sms-200': 2900,     // 29€ (200 SMS)
+  'email-1000': 1900,  // 19€ (1000 emails)
+  'ia-50': 2900,       // 29€ (50 réponses IA)
+  'qr': 500,           // 5€ (1 QR code, 1000 scans)
+  'qr-nfc': 1500,      // 15€ (1 QR + 1 NFC, 1000 scans)
 } as const

@@ -654,66 +654,65 @@ const PLAN_DEFAULTS = {
   // ──────────────────────────────────────────────────────────────
   // BRONZE - GRATUIT (pas de Stripe)
   // ──────────────────────────────────────────────────────────────
-  // Accès ReputyBoard, réponses manuelles, 1 QR (50 scans)
+  // Accès ReputyBoard, réponses manuelles, 1 QR (200 scans)
   // Campagnes SMS/Email UNIQUEMENT via achat de packs
-  health_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
-  food_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
-  business_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+  health_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 200, nfcScans: 0 },
+  food_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 200, nfcScans: 0 },
+  business_bronze: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 200, nfcScans: 0 },
   // Alias pour rétrocompatibilité
-  health_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
-  food_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
-  business_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 50, nfcScans: 0 },
+  health_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 200, nfcScans: 0 },
+  food_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 200, nfcScans: 0 },
+  business_basic: { smsIncluded: 0, emailIncluded: 0, aiIncluded: 0, qrIncluded: 1, nfcIncluded: 0, qrScans: 200, nfcScans: 0 },
 
   // ──────────────────────────────────────────────────────────────
-  // ARGENT - 59€ HT/mois
+  // ARGENT - 49€ HT/mois
   // ──────────────────────────────────────────────────────────────
-  // 100 SMS, 500 emails, Module Doctolib, 3 QR, 1 NFC
-  health_argent: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
-  food_argent: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
-  business_argent: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
+  // 200 SMS, 2000 emails, 100 IA, Module Doctolib, 3 QR (1000 scans), 1 NFC (1000 scans)
+  health_argent: { smsIncluded: 200, emailIncluded: 2000, aiIncluded: 100, qrIncluded: 3, nfcIncluded: 1, qrScans: 1000, nfcScans: 1000 },
+  food_argent: { smsIncluded: 200, emailIncluded: 2000, aiIncluded: 100, qrIncluded: 3, nfcIncluded: 1, qrScans: 1000, nfcScans: 1000 },
+  business_argent: { smsIncluded: 200, emailIncluded: 2000, aiIncluded: 100, qrIncluded: 3, nfcIncluded: 1, qrScans: 1000, nfcScans: 1000 },
   // Alias (silver = argent)
-  health_silver: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
-  health_pro: { smsIncluded: 100, emailIncluded: 500, aiIncluded: 0, qrIncluded: 3, nfcIncluded: 1, qrScans: 500, nfcScans: 500 },
+  health_silver: { smsIncluded: 200, emailIncluded: 2000, aiIncluded: 100, qrIncluded: 3, nfcIncluded: 1, qrScans: 1000, nfcScans: 1000 },
+  health_pro: { smsIncluded: 200, emailIncluded: 2000, aiIncluded: 100, qrIncluded: 3, nfcIncluded: 1, qrScans: 1000, nfcScans: 1000 },
 
   // ──────────────────────────────────────────────────────────────
-  // OR - 99€ HT/mois
+  // RÉTRO-COMPAT: ancien "Or/Gold" → quotas Platinum
+  // Les clients existants en "or" gardent le même service (= platinum)
   // ──────────────────────────────────────────────────────────────
-  // 200 SMS, 1000 emails, 75 IA, Module Doctolib, 10 QR, 3 NFC
-  health_or: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
-  food_or: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
-  business_or: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
-  // Alias (gold = or)
-  health_gold: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
-  health_enterprise: { smsIncluded: 200, emailIncluded: 1000, aiIncluded: 75, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  health_or: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
+  food_or: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
+  business_or: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
+  health_gold: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
+  health_enterprise: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
 
   // ──────────────────────────────────────────────────────────────
-  // PLATINUM - 129€ HT/mois
+  // PLATINUM - 99€ HT/mois
   // ──────────────────────────────────────────────────────────────
-  // 400 SMS, 2000 emails, 150 IA, Module Doctolib, 10 QR, 3 NFC
-  health_platinum: { smsIncluded: 400, emailIncluded: 2000, aiIncluded: 150, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
-  food_platinum: { smsIncluded: 400, emailIncluded: 2000, aiIncluded: 150, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
-  business_platinum: { smsIncluded: 400, emailIncluded: 2000, aiIncluded: 150, qrIncluded: 10, nfcIncluded: 3, qrScans: 500, nfcScans: 500 },
+  // 500 SMS, 4000 emails, 200 IA, Module Doctolib, 10 QR (1000 scans), 3 NFC (1000 scans)
+  health_platinum: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
+  food_platinum: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
+  business_platinum: { smsIncluded: 500, emailIncluded: 4000, aiIncluded: 200, qrIncluded: 10, nfcIncluded: 3, qrScans: 1000, nfcScans: 1000 },
 };
 
 // Plan tier mapping (for feature access checks)
+// V2: 3 tiers — Bronze(0), Argent(1), Platinum(2). Ancien "or/gold" → tier 2
 const PLAN_TIERS = {
   bronze: 0,
   basic: 0, // alias
   argent: 1,
   silver: 1, // alias
   pro: 1, // alias
-  or: 2,
-  gold: 2, // alias
-  enterprise: 2, // alias
-  platinum: 3,
+  or: 2,         // rétro-compat → tier Platinum
+  gold: 2,       // rétro-compat → tier Platinum
+  enterprise: 2, // rétro-compat → tier Platinum
+  platinum: 2,
 };
 
 // Features available per tier
 const TIER_FEATURES = {
   0: ['reputyboard', 'manual_replies', 'qr_basic'], // Bronze
-  1: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib'], // Argent
-  2: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'monthly_report'], // Or
-  3: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'advanced_report', 'priority_support'], // Platinum
+  1: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'monthly_report'], // Argent
+  2: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'advanced_report', 'priority_support'], // Platinum
 };
 
 /**
@@ -750,47 +749,64 @@ function isPaidPlan(planCode) {
 
 // ============ PACK CATALOG (MVP) ============
 // Packs are prorated when purchased mid-period
+// V2: Packs simplifiés — Pack SMS 200, Pack Email 1000, Pack IA 50, QR, QR+NFC
 const PACK_CATALOG = {
-  pack_sms_50: {
-    code: 'pack_sms_50',
-    name: 'Pack 50 SMS',
-    smsMonthly: 50,
-    emailMonthly: 0,
-    priceMonthlyCents: 1500, // 15€
-    currency: 'EUR'
-  },
-  pack_sms_100: {
-    code: 'pack_sms_100',
-    name: 'Pack 100 SMS',
-    smsMonthly: 100,
-    emailMonthly: 0,
-    priceMonthlyCents: 2500, // 25€
-    currency: 'EUR'
-  },
   pack_sms_200: {
     code: 'pack_sms_200',
     name: 'Pack 200 SMS',
     smsMonthly: 200,
     emailMonthly: 0,
-    priceMonthlyCents: 4000, // 40€
+    aiMonthly: 0,
+    priceMonthlyCents: 2900, // 29€
     currency: 'EUR'
   },
-  pack_email_100: {
-    code: 'pack_email_100',
-    name: 'Pack 100 Emails',
+  pack_email_1000: {
+    code: 'pack_email_1000',
+    name: 'Pack 1000 Emails',
     smsMonthly: 0,
-    emailMonthly: 100,
+    emailMonthly: 1000,
+    aiMonthly: 0,
+    priceMonthlyCents: 1900, // 19€
+    currency: 'EUR'
+  },
+  pack_ia_50: {
+    code: 'pack_ia_50',
+    name: 'Pack 50 IA',
+    smsMonthly: 0,
+    emailMonthly: 0,
+    aiMonthly: 50,
+    priceMonthlyCents: 2900, // 29€
+    currency: 'EUR'
+  },
+  pack_qr: {
+    code: 'pack_qr',
+    name: 'QR Code supplémentaire',
+    smsMonthly: 0,
+    emailMonthly: 0,
+    aiMonthly: 0,
+    qr: 1,
+    qrScans: 1000,
     priceMonthlyCents: 500, // 5€
     currency: 'EUR'
   },
-  pack_combo_50: {
-    code: 'pack_combo_50',
-    name: 'Pack Combo 50',
-    smsMonthly: 50,
-    emailMonthly: 50,
-    priceMonthlyCents: 1800, // 18€
+  pack_qr_nfc: {
+    code: 'pack_qr_nfc',
+    name: 'QR Code + NFC Tag',
+    smsMonthly: 0,
+    emailMonthly: 0,
+    aiMonthly: 0,
+    qr: 1,
+    nfc: 1,
+    qrScans: 1000,
+    nfcScans: 1000,
+    priceMonthlyCents: 1500, // 15€
     currency: 'EUR'
-  }
+  },
+  // Rétro-compatibilité : les anciens packs continuent de fonctionner
+  pack_sms_50: { code: 'pack_sms_50', name: 'Pack 50 SMS (ancien)', smsMonthly: 50, emailMonthly: 0, aiMonthly: 0, priceMonthlyCents: 1500, currency: 'EUR' },
+  pack_sms_100: { code: 'pack_sms_100', name: 'Pack 100 SMS (ancien)', smsMonthly: 100, emailMonthly: 0, aiMonthly: 0, priceMonthlyCents: 2500, currency: 'EUR' },
+  pack_email_100: { code: 'pack_email_100', name: 'Pack 100 Emails (ancien)', smsMonthly: 0, emailMonthly: 100, aiMonthly: 0, priceMonthlyCents: 500, currency: 'EUR' },
+  pack_combo_50: { code: 'pack_combo_50', name: 'Pack Combo 50 (ancien)', smsMonthly: 50, emailMonthly: 50, aiMonthly: 0, priceMonthlyCents: 1800, currency: 'EUR' },
 };
 
 // ============ UTILITY FUNCTIONS ============
@@ -8596,6 +8612,28 @@ function handleShortlinkRedirect(req, res, code) {
     return;
   }
   
+  // V2: Vérifier la limite de scans (200 pour Bronze, 1000 pour plans payants/packs)
+  const org = repos.org.getById(shortlink.orgId);
+  const planCode = org?.plan?.code || 'health_bronze';
+  const isBronze = planCode.includes('bronze') || planCode.includes('basic');
+  const maxScans = isBronze ? 200 : 1000;
+  
+  if (shortlink.clicks >= maxScans) {
+    res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Limite atteinte</title></head>
+      <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+        <h1>📱 Limite de scans atteinte</h1>
+        <p>Ce QR code/tag NFC a atteint sa limite de ${maxScans} scans.</p>
+        <p>Contactez votre praticien pour plus d'informations.</p>
+      </body>
+      </html>
+    `);
+    return;
+  }
+  
   // Increment clicks counter
   repos.shortlink.incrementClicks(code);
   
@@ -8961,9 +8999,29 @@ async function handleClientSendCampaign(req, res, campaignId) {
     return sendJson(res, 400, { ok: false, error: 'NO_RECIPIENTS', message: 'Aucun destinataire éligible' });
   }
 
-  // Check credits
+  // Check credits — V2: Les campagnes ne consomment PAS les crédits forfait
+  // Seuls les crédits packs (packWallet) sont utilisables pour les campagnes
   const org = repos.org.getById(orgId);
   if (!org) return sendJson(res, 404, { ok: false, error: 'ORG_NOT_FOUND' });
+
+  const packBalance = org.packWallet || { sms: 0, email: 0, ai: 0 };
+  const channelType = campaign.channel || 'sms'; // 'sms' ou 'email'
+  const neededCredits = pendingRecipients.length;
+
+  if (channelType === 'sms' && (packBalance.sms || 0) < neededCredits) {
+    return sendJson(res, 402, {
+      ok: false,
+      error: 'INSUFFICIENT_PACK_CREDITS',
+      message: `Crédits packs SMS insuffisants. Nécessaire: ${neededCredits}, Disponible (packs): ${packBalance.sms || 0}. Les campagnes nécessitent l'achat de packs.`
+    });
+  }
+  if (channelType === 'email' && (packBalance.email || 0) < neededCredits) {
+    return sendJson(res, 402, {
+      ok: false,
+      error: 'INSUFFICIENT_PACK_CREDITS',
+      message: `Crédits packs Email insuffisants. Nécessaire: ${neededCredits}, Disponible (packs): ${packBalance.email || 0}. Les campagnes nécessitent l'achat de packs.`
+    });
+  }
 
   // Mark campaign as sending
   repos.campaign.update(campaignId, { status: 'active' });
@@ -12100,11 +12158,12 @@ async function handleAssignPlan(req, res, orgId) {
       smsTotal: quotas.smsIncluded + (org.subscriptionCredits?.smsGiftMonthly || 0),
       emailTotal: quotas.emailIncluded + (org.subscriptionCredits?.emailGiftMonthly || 0),
       aiTotal: quotas.aiIncluded + (org.subscriptionCredits?.aiGiftMonthly || 0),
-      smsUsedThisPeriod: 0,
-      emailUsedThisPeriod: 0,
-      aiUsedThisPeriod: 0,
-      qrUsedThisPeriod: 0,
-      nfcUsedThisPeriod: 0,
+      // V2: Conserver les usages déjà consommés lors d'un changement de plan
+      smsUsedThisPeriod: org.subscriptionCredits?.smsUsedThisPeriod || 0,
+      emailUsedThisPeriod: org.subscriptionCredits?.emailUsedThisPeriod || 0,
+      aiUsedThisPeriod: org.subscriptionCredits?.aiUsedThisPeriod || 0,
+      qrUsedThisPeriod: org.subscriptionCredits?.qrUsedThisPeriod || 0,
+      nfcUsedThisPeriod: org.subscriptionCredits?.nfcUsedThisPeriod || 0,
     };
     
     // Update org

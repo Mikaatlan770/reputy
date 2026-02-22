@@ -4,7 +4,7 @@
 
 // ===== PLANS =====
 
-export type PlanId = 'bronze' | 'argent' | 'or' | 'platinum'
+export type PlanId = 'bronze' | 'argent' | 'platinum'
 
 export interface Plan {
   id: PlanId

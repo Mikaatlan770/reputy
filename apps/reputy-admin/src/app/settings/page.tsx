@@ -45,11 +45,11 @@ const planLabels: Record<string, string> = {
   health_bronze: 'Bronze',
   health_basic: 'Bronze',   // Legacy alias
   health_argent: 'Argent',
-  health_or: 'Or',
   health_platinum: 'Platinum',
-  // Legacy aliases
+  // Legacy aliases / rétro-compat
+  health_or: 'Platinum',    // Ancien "Or" → Platinum
   health_silver: 'Argent',
-  health_gold: 'Or',
+  health_gold: 'Platinum',  // Ancien "Gold" → Platinum
   starter: 'Bronze',
   pro: 'Argent',
   free: 'Gratuit',

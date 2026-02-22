@@ -19,9 +19,9 @@ const ZERO_PACKS = { sms: 0, email: 0, ai: 0 }
 
 function makeEffectiveBilling(overrides: Partial<EffectiveBilling> = {}): EffectiveBilling {
   return {
-    planCode: 'health_or',
-    planName: 'Pack Or',
-    planTier: 3,
+    planCode: 'health_platinum',
+    planName: 'Pack Platinum',
+    planTier: 2,
     priceCatalogCents: 9900,
     priceEffectiveCents: 9900,
     priceCatalogFormatted: '99 €',

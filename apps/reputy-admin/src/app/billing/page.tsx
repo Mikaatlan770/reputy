@@ -108,8 +108,8 @@ const PLANS = {
     features: [
       'Accès au ReputyBoard',
       'Réponses manuelles aux avis',
-      '1 QR code (50 scans)',
-      'Module Doctolib',
+      '1 QR code (200 scans)',
+      'Possibilité d\'acheter des packs',
     ],
     popular: false,
   },
@@ -117,48 +117,32 @@ const PLANS = {
     id: 'argent',
     name: 'Pack Argent',
     description: 'Pour les cabinets en croissance',
-    priceMonthly: 5900, // 59€ HT
-    features: [
-      '100 SMS / mois',
-      '500 emails / mois',
-      '3 QR codes',
-      '1 Tag NFC',
-      'Module Doctolib',
-      'Support prioritaire',
-    ],
-    popular: false,
-  },
-  or: {
-    id: 'or',
-    name: 'Pack Or',
-    description: 'Pour les cabinets exigeants',
-    priceMonthly: 9900, // 99€ HT
+    priceMonthly: 4900, // 49€ HT
     features: [
       '200 SMS / mois',
-      '1 000 emails / mois',
-      '75 réponses IA / mois',
-      '10 QR codes',
-      '3 Tags NFC',
+      '2 000 emails / mois',
+      '100 réponses IA / mois',
+      '3 QR codes (1000 scans)',
+      '1 Tag NFC (1000 scans)',
       'Module Doctolib',
-      'Support prioritaire',
-      'Statistiques avancées',
+      'Google Places hebdomadaire',
     ],
     popular: true,
   },
   platinum: {
     id: 'platinum',
     name: 'Pack Platinum',
-    description: 'Pour les groupes & multi-sites',
-    priceMonthly: 12900, // 129€ HT
+    description: 'Performance maximale',
+    priceMonthly: 9900, // 99€ HT
     features: [
-      '400 SMS / mois',
-      '2 000 emails / mois',
-      '150 réponses IA / mois',
-      '10 QR codes',
-      '3 Tags NFC',
+      '500 SMS / mois',
+      '4 000 emails / mois',
+      '200 réponses IA / mois',
+      '10 QR codes (1000 scans)',
+      '3 Tags NFC (1000 scans)',
       'Module Doctolib',
+      'Google Places hebdomadaire',
       'Support prioritaire',
-      'Account manager dédié',
     ],
     popular: false,
   },
@@ -169,16 +153,13 @@ const formatPriceHT = (cents: number) => {
   return `${(cents / 100).toFixed(0)}€ HT`
 }
 
-// Packs disponibles à l'achat (one-time)
+// Packs disponibles à l'achat (one-time) — V2
 const PACKS = [
-  { id: 'sms-150', name: 'Pack SMS 150', description: '150 SMS', credits: 150, price: 2900, icon: MessageSquare, color: 'text-blue-500', category: 'sms' },
-  { id: 'sms-300', name: 'Pack SMS 300', description: '300 SMS', credits: 300, price: 4900, icon: MessageSquare, color: 'text-blue-500', popular: true, category: 'sms' },
+  { id: 'sms-200', name: 'Pack SMS 200', description: '200 SMS', credits: 200, price: 2900, icon: MessageSquare, color: 'text-blue-500', category: 'sms' },
   { id: 'email-1000', name: 'Pack Email 1000', description: '1 000 emails', credits: 1000, price: 1900, icon: Mail, color: 'text-orange-500', category: 'email' },
-  { id: 'email-2000', name: 'Pack Email 2000', description: '2 000 emails', credits: 2000, price: 3900, icon: Mail, color: 'text-orange-500', popular: true, category: 'email' },
-  { id: 'ia-mini', name: 'Pack IA Mini', description: '25 réponses IA', credits: 25, price: 1900, icon: Bot, color: 'text-violet-500', category: 'ia' },
-  { id: 'ia-maxi', name: 'Pack IA Maxi', description: '75 réponses IA', credits: 75, price: 3900, icon: Bot, color: 'text-violet-500', popular: true, category: 'ia' },
-  { id: 'qr', name: 'QR Code', description: '1 QR code (500 scans)', credits: 1, price: 500, icon: QrCode, color: 'text-teal-500', category: 'qr' },
-  { id: 'nfc', name: 'Tag NFC', description: '1 tag NFC (500 scans)', credits: 1, price: 1500, icon: Wifi, color: 'text-cyan-500', category: 'nfc' },
+  { id: 'ia-50', name: 'Pack IA 50', description: '50 réponses IA', credits: 50, price: 2900, icon: Bot, color: 'text-violet-500', category: 'ia' },
+  { id: 'qr', name: 'QR Code', description: '1 QR code (1000 scans)', credits: 1, price: 500, icon: QrCode, color: 'text-teal-500', category: 'qr' },
+  { id: 'qr-nfc', name: 'QR + NFC Tag', description: '1 QR + 1 NFC (1000 scans chacun)', credits: 1, price: 1500, icon: Wifi, color: 'text-cyan-500', category: 'nfc' },
 ]
 
 type CartItem = {
@@ -556,9 +537,8 @@ export default function BillingPage() {
   if (!billing) return null
 
   // Normalize plan code to match PLANS keys
-  const normalizePlanCode = (code: string): 'bronze' | 'argent' | 'or' | 'platinum' => {
-    if (code.includes('platinum')) return 'platinum'
-    if (code.includes('or') || code.includes('gold')) return 'or'
+  const normalizePlanCode = (code: string): 'bronze' | 'argent' | 'platinum' => {
+    if (code.includes('platinum') || code.includes('or') || code.includes('gold')) return 'platinum'
     if (code.includes('argent') || code.includes('silver')) return 'argent'
     return 'bronze'
   }
@@ -947,10 +927,10 @@ export default function BillingPage() {
             </div>
           )}
 
-          {(billing.plan === 'or' || billing.plan === 'platinum') && (
+          {(normalizedPlan === 'argent' || normalizedPlan === 'platinum') && (
             <p className="text-xs text-muted-foreground mt-4 flex items-center gap-1">
               <Sparkles className="h-3 w-3" />
-              Votre plan {billing.plan === 'or' ? 'Or' : 'Platinum'} inclut déjà {billing.plan === 'or' ? '75' : '150'} réponses IA/mois.
+              Votre plan {normalizedPlan === 'argent' ? 'Argent' : 'Platinum'} inclut déjà {normalizedPlan === 'argent' ? '100' : '200'} réponses IA/mois.
               Les packs IA s'ajoutent à ce quota.
             </p>
           )}

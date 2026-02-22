@@ -23,9 +23,8 @@ const navigation = [
 const planFilters = [
   { id: 'all', label: 'Tous les plans', color: 'text-slate-400' },
   { id: 'bronze', label: '🥉 Bronze', color: 'text-amber-400' },
-  { id: 'argent', label: '🥈 Argent', color: 'text-slate-300' },
-  { id: 'or', label: '🥇 Or', color: 'text-yellow-400' },
-  { id: 'platinum', label: '💎 Platinum', color: 'text-slate-200' },
+  { id: 'argent', label: '🥈 Argent (49€)', color: 'text-slate-300' },
+  { id: 'platinum', label: '💎 Platinum (99€)', color: 'text-slate-200' },
 ]
 
 interface BackofficeLayoutProps {

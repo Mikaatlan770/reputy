@@ -24,11 +24,6 @@ export function PricingCard({ plan, className }: PricingCardProps) {
       border: 'border-slate-400',
       accent: 'text-slate-300',
     },
-    or: {
-      bg: 'bg-gradient-to-br from-amber-400 to-amber-600',
-      border: 'border-amber-300',
-      accent: 'text-amber-100',
-    },
     platinum: {
       bg: 'bg-gradient-to-br from-slate-800 to-slate-950',
       border: 'border-slate-600',
@@ -67,7 +62,6 @@ export function PricingCard({ plan, className }: PricingCardProps) {
               'w-4 h-4 rounded-full',
               plan.id === 'bronze' && 'bg-amber-700',
               plan.id === 'argent' && 'bg-slate-400',
-              plan.id === 'or' && 'bg-amber-400',
               plan.id === 'platinum' && 'bg-slate-800'
             )}
           />

@@ -76,14 +76,12 @@ const statusLabels = {
 const planColors = {
   bronze: 'bg-amber-700/20 text-amber-400 border-amber-700/30',
   argent: 'bg-slate-400/20 text-slate-300 border-slate-400/30',
-  or: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   platinum: 'bg-slate-300/20 text-slate-200 border-slate-300/30',
 }
 
 const planLabels = {
   bronze: 'Bronze',
   argent: 'Argent',
-  or: 'Or',
   platinum: 'Platinum',
 }
 
@@ -124,8 +122,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
   // Extract plan code from org.plan.code (e.g., "pro-health" -> "pro", or use direct match)
   const getPlanType = (org: Org): string => {
     const code = org.plan?.code?.toLowerCase() || ''
-    if (code.includes('platinum')) return 'platinum'
-    if (code.includes('or') || code.includes('gold')) return 'or'
+    if (code.includes('platinum') || code.includes('or') || code.includes('gold')) return 'platinum'
     if (code.includes('argent') || code.includes('silver')) return 'argent'
     return 'bronze'
   }
@@ -331,23 +328,15 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         </Card>
         <Card className="bg-slate-800/50 border-slate-400/30">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-300 font-medium">🥈 Argent</p>
+            <p className="text-xs text-slate-300 font-medium">🥈 Argent (49€)</p>
             <p className="text-2xl font-bold text-slate-300">
               {orgs.filter(o => getPlanType(o) === 'argent').length}
             </p>
           </CardContent>
         </Card>
-        <Card className="bg-slate-800/50 border-yellow-500/30">
-          <CardContent className="p-4">
-            <p className="text-xs text-yellow-400 font-medium">🥇 Or</p>
-            <p className="text-2xl font-bold text-yellow-400">
-              {orgs.filter(o => getPlanType(o) === 'or').length}
-            </p>
-          </CardContent>
-        </Card>
         <Card className="bg-slate-800/50 border-slate-300/30">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-200 font-medium">💎 Platinum</p>
+            <p className="text-xs text-slate-200 font-medium">💎 Platinum (99€)</p>
             <p className="text-2xl font-bold text-slate-200">
               {orgs.filter(o => getPlanType(o) === 'platinum').length}
             </p>

@@ -276,7 +276,7 @@ export async function rotateApiToken(orgId: string): Promise<RotateApiTokenResul
 
 interface AssignPlanInput {
   orgId: string
-  planCode: 'health_bronze' | 'health_argent' | 'health_or' | 'health_platinum'
+  planCode: 'health_bronze' | 'health_argent' | 'health_platinum'
 }
 
 export interface EffectiveBilling {

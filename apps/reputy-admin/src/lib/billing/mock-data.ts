@@ -15,7 +15,7 @@ import type {
 export const mockSubscription: Subscription = {
   id: 'sub_mock_001',
   orgId: 'org-1',
-  planId: 'or',
+  planId: 'platinum',
   status: 'active',
   stripeSubscriptionId: 'sub_1234567890',
   stripeCustomerId: 'cus_1234567890',
@@ -67,7 +67,7 @@ export const mockPayments: Payment[] = [
     stripePaymentIntentId: 'pi_001',
     stripeInvoiceId: 'in_001',
     type: 'subscription',
-    description: 'Pack Or - Janvier 2026',
+    description: 'Pack Platinum - Janvier 2026',
     amount: 9900,
     currency: 'eur',
     status: 'succeeded',
@@ -130,7 +130,7 @@ export const mockInvoices: Invoice[] = [
     customerVatNumber: 'FR12345678901',
     lines: [
       {
-        description: 'Pack Or Reputy - Janvier 2026',
+        description: 'Pack Platinum Reputy - Janvier 2026',
         quantity: 1,
         unitPrice: 9900,
         total: 9900,
@@ -183,7 +183,7 @@ export const mockInvoices: Invoice[] = [
     customerVatNumber: 'FR12345678901',
     lines: [
       {
-        description: 'Pack Or Reputy - Décembre 2025',
+        description: 'Pack Platinum Reputy - Décembre 2025',
         quantity: 1,
         unitPrice: 9900,
         total: 9900,

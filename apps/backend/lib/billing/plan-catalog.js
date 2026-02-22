@@ -8,6 +8,9 @@
  * - computeEffectiveBilling()
  * - assign-plan endpoint
  * - ReputyBoard affichage
+ * 
+ * V2 - Février 2026 : Passage à 3 plans (Bronze / Argent 49€ / Platinum 99€)
+ * L'ancien plan "Or" est remappé vers Platinum pour les clients existants.
  */
 
 // ============================================================
@@ -18,6 +21,8 @@ const PLAN_CATALOG = {
   // ──────────────────────────────────────────────────────────────
   // BRONZE - GRATUIT (pas de Stripe)
   // ──────────────────────────────────────────────────────────────
+  // Accès ReputyBoard, réponses manuelles, 1 QR (200 scans)
+  // Campagnes SMS/Email UNIQUEMENT via achat de packs
   health_bronze: {
     code: 'health_bronze',
     name: 'Bronze',
@@ -30,7 +35,7 @@ const PLAN_CATALOG = {
       aiIncluded: 0,
       qrIncluded: 1,
       nfcIncluded: 0,
-      qrScans: 50,
+      qrScans: 200,
       nfcScans: 0,
     },
     features: ['reputyboard', 'manual_replies', 'qr_basic'],
@@ -38,87 +43,70 @@ const PLAN_CATALOG = {
   },
 
   // ──────────────────────────────────────────────────────────────
-  // ARGENT - 59€ HT/mois
+  // ARGENT - 49€ HT/mois
   // ──────────────────────────────────────────────────────────────
+  // 200 SMS, 2000 emails, 100 IA, Module Doctolib, 3 QR (1000 scans), 1 NFC (1000 scans)
   health_argent: {
     code: 'health_argent',
     name: 'Argent',
-    priceCents: 5900,
-    currency: 'EUR',
-    billingCycle: 'monthly',
-    quotas: {
-      smsIncluded: 100,
-      emailIncluded: 500,
-      aiIncluded: 0,
-      qrIncluded: 3,
-      nfcIncluded: 1,
-      qrScans: 500,
-      nfcScans: 500,
-    },
-    features: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib'],
-    tier: 1,
-  },
-
-  // ──────────────────────────────────────────────────────────────
-  // OR - 99€ HT/mois
-  // ──────────────────────────────────────────────────────────────
-  health_or: {
-    code: 'health_or',
-    name: 'Or',
-    priceCents: 9900,
+    priceCents: 4900,
     currency: 'EUR',
     billingCycle: 'monthly',
     quotas: {
       smsIncluded: 200,
-      emailIncluded: 1000,
-      aiIncluded: 75,
-      qrIncluded: 10,
-      nfcIncluded: 3,
-      qrScans: 500,
-      nfcScans: 500,
+      emailIncluded: 2000,
+      aiIncluded: 100,
+      qrIncluded: 3,
+      nfcIncluded: 1,
+      qrScans: 1000,
+      nfcScans: 1000,
     },
     features: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'monthly_report'],
-    tier: 2,
+    tier: 1,
   },
 
   // ──────────────────────────────────────────────────────────────
-  // PLATINUM - 129€ HT/mois
+  // PLATINUM - 99€ HT/mois
   // ──────────────────────────────────────────────────────────────
+  // 500 SMS, 4000 emails, 200 IA, Module Doctolib, 10 QR (1000 scans), 3 NFC (1000 scans)
   health_platinum: {
     code: 'health_platinum',
     name: 'Platinum',
-    priceCents: 12900,
+    priceCents: 9900,
     currency: 'EUR',
     billingCycle: 'monthly',
     quotas: {
-      smsIncluded: 400,
-      emailIncluded: 2000,
-      aiIncluded: 150,
+      smsIncluded: 500,
+      emailIncluded: 4000,
+      aiIncluded: 200,
       qrIncluded: 10,
       nfcIncluded: 3,
-      qrScans: 500,
-      nfcScans: 500,
+      qrScans: 1000,
+      nfcScans: 1000,
     },
     features: ['reputyboard', 'manual_replies', 'qr', 'nfc', 'sms', 'email', 'doctolib', 'ai', 'advanced_report', 'priority_support'],
-    tier: 3,
+    tier: 2,
   },
 
   // ──────────────────────────────────────────────────────────────
   // ALIASES pour rétrocompatibilité
   // ──────────────────────────────────────────────────────────────
-  health_basic: null,  // Redirige vers bronze
-  health_silver: null, // Redirige vers argent
-  health_gold: null,   // Redirige vers or
-  health_pro: null,    // Redirige vers argent
-  health_enterprise: null, // Redirige vers or
+  health_basic: null,      // Redirige vers bronze
+  health_silver: null,     // Redirige vers argent
+  health_pro: null,        // Redirige vers argent
+  health_or: null,         // RÉTRO-COMPAT: ancien "Or" → Platinum
+  health_gold: null,       // RÉTRO-COMPAT: ancien "Gold" → Platinum
+  health_enterprise: null, // RÉTRO-COMPAT: ancien "Enterprise" → Platinum
 };
 
 // Résoudre les alias
 PLAN_CATALOG.health_basic = PLAN_CATALOG.health_bronze;
 PLAN_CATALOG.health_silver = PLAN_CATALOG.health_argent;
-PLAN_CATALOG.health_gold = PLAN_CATALOG.health_or;
 PLAN_CATALOG.health_pro = PLAN_CATALOG.health_argent;
-PLAN_CATALOG.health_enterprise = PLAN_CATALOG.health_or;
+// Clients existants "or/gold" → Platinum (upgrade gracieux, même prix 99€)
+PLAN_CATALOG.health_or = PLAN_CATALOG.health_platinum;
+PLAN_CATALOG.health_gold = PLAN_CATALOG.health_platinum;
+PLAN_CATALOG.health_enterprise = PLAN_CATALOG.health_platinum;
 
 // ============================================================
 // HELPERS
@@ -168,6 +156,8 @@ function getPlanQuotas(planCode) {
     aiIncluded: 0,
     qrIncluded: 1,
     nfcIncluded: 0,
+    qrScans: 200,
+    nfcScans: 0,
   };
 }
 
@@ -186,7 +176,7 @@ function isPaidPlan(planCode) {
  * @returns {string[]}
  */
 function getAvailablePlanCodes() {
-  return ['health_bronze', 'health_argent', 'health_or', 'health_platinum'];
+  return ['health_bronze', 'health_argent', 'health_platinum'];
 }
 
 /**
@@ -201,7 +191,6 @@ function getPlanDisplayInfo(planCode) {
   const colors = {
     health_bronze: 'orange',
     health_argent: 'slate',
-    health_or: 'amber',
     health_platinum: 'purple',
   };
   

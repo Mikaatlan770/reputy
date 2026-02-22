@@ -52,9 +52,9 @@ const TIER_CASE = `
 
 const ACTIVE_FILTER = `status = 'active' AND json_extract(billing_json,'$.status') = 'active'`;
 
-// Same tier normalization as server.js
-const TIER_ALIASES = { basic: 'bronze', silver: 'argent', or: 'gold' };
-const TIER_BUCKETS = { bronze: 0, argent: 0, gold: 0, platinum: 0, custom: 0 };
+// Same tier normalization as server.js — V2: "or/gold" → platinum
+const TIER_ALIASES = { basic: 'bronze', silver: 'argent', or: 'platinum', gold: 'platinum' };
+const TIER_BUCKETS = { bronze: 0, argent: 0, platinum: 0, custom: 0 };
 
 // ============================================================
 // Main
