@@ -104,6 +104,7 @@ const schemas = {
   settingsUpdate: z.object({
     googleReviewUrl: z.string().max(500, 'URL trop longue').optional(),
     cabinetName: z.string().max(200, 'Nom trop long (max 200 caractères)').optional(),
+    smsTemplate: z.string().max(300, 'Template SMS trop long (max 300 caractères)').optional(),
   }).passthrough(), // Allow extra fields (legacy compat)
 
   // ============ PR-8b: Multi-establishment schemas ============

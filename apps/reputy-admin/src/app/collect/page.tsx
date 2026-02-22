@@ -98,6 +98,12 @@ export default function CollectPage() {
   const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
   const [embedStats, setEmbedStats] = useState({ impressions: 0, clicks: 0 })
   
+  // SMS template customization
+  const [smsMessage, setSmsMessage] = useState('')
+  const [smsMessageOriginal, setSmsMessageOriginal] = useState('')
+  const [savingSmsTemplate, setSavingSmsTemplate] = useState(false)
+  const [smsTemplateSaved, setSmsTemplateSaved] = useState(false)
+
   // NFC instructions dialog
   const [nfcInstructionsOpen, setNfcInstructionsOpen] = useState(false)
   const [selectedShortlink, setSelectedShortlink] = useState<Shortlink | null>(null)
@@ -292,13 +298,64 @@ export default function CollectPage() {
     setCreateOpen(true)
   }
 
+  // Fetch SMS template from settings
+  const fetchSmsTemplate = useCallback(async () => {
+    const token = await getAuthToken()
+    if (!token) return
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.smsTemplate) {
+          setSmsMessage(data.smsTemplate)
+          setSmsMessageOriginal(data.smsTemplate)
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+  }, [getAuthToken])
+
+  // Save SMS template
+  const saveSmsTemplate = async () => {
+    const token = await getAuthToken()
+    if (!token) return
+    setSavingSmsTemplate(true)
+    setSmsTemplateSaved(false)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ smsTemplate: smsMessage }),
+      })
+      if (response.ok) {
+        setSmsMessageOriginal(smsMessage)
+        setSmsTemplateSaved(true)
+        setTimeout(() => setSmsTemplateSaved(false), 3000)
+      }
+    } catch {
+      // Handle error silently
+    } finally {
+      setSavingSmsTemplate(false)
+    }
+  }
+
+  // Has the SMS template been modified?
+  const smsTemplateChanged = smsMessage !== smsMessageOriginal
+
   // Initial load
   useEffect(() => {
     if (!authLoading && isClient) {
       fetchShortlinks()
       fetchUsage()
+      fetchSmsTemplate()
     }
-  }, [authLoading, isClient, fetchShortlinks, fetchUsage])
+  }, [authLoading, isClient, fetchShortlinks, fetchUsage, fetchSmsTemplate])
 
   // Filter shortlinks by type
   const qrLinks = shortlinks.filter(s => s.type === 'qr')
@@ -606,13 +663,40 @@ export default function CollectPage() {
         <TabsContent value="sms">
           <div className="grid lg:grid-cols-2 gap-6">
             {/* Aperçu SMS avec validation */}
-            <SmsPreview
-              shortUrl={primaryShortlink?.shortUrl || 'rpt.ly/votre-lien'}
-              phoneNumber={currentLocation?.name ? `Client de ${currentLocation.name}` : undefined}
-              onValidationChange={setSmsValid}
-              readOnly={false}
-              showDefault={true}
-            />
+            <div className="space-y-3">
+              <SmsPreview
+                message={smsMessage || undefined}
+                shortUrl={primaryShortlink?.shortUrl || 'rpt.ly/votre-lien'}
+                phoneNumber={currentLocation?.name ? `Client de ${currentLocation.name}` : undefined}
+                onMessageChange={setSmsMessage}
+                onValidationChange={setSmsValid}
+                readOnly={false}
+                showDefault={!smsMessage}
+              />
+              
+              {/* Save SMS template button */}
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={saveSmsTemplate}
+                  disabled={!smsTemplateChanged || savingSmsTemplate || !smsValid}
+                  className="gap-2"
+                  size="sm"
+                >
+                  {savingSmsTemplate ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : smsTemplateSaved ? (
+                    <CheckCircle className="h-4 w-4" />
+                  ) : null}
+                  {smsTemplateSaved ? 'Enregistré !' : 'Enregistrer le message'}
+                </Button>
+                {smsTemplateChanged && (
+                  <span className="text-xs text-muted-foreground">Modifications non enregistrées</span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                💡 Utilisez <code className="bg-slate-100 px-1 rounded">{'{lien}'}</code> dans votre message pour insérer automatiquement le lien de collecte.
+              </p>
+            </div>
 
             {/* Configuration et stats */}
             <div className="space-y-6">

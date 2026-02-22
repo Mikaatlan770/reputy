@@ -128,15 +128,18 @@ async function processScheduledSends() {
       scheduledSendRepo.updateStatus(entry.id, 'sending');
       scheduledSendRepo.incrementAttempts(entry.id);
 
-      // 4) Build SMS body from template
+      // 4) Build SMS body from template (use custom template from org options if set)
       const feedbackUrl = entry.payload?.feedbackUrl
         || `${REVIEWS_BASE_URL}/r/${entry.payload?.requestId || entry.id}`;
 
-      const smsContent = smsTemplates.reviewRequest({
-        orgName: org.name,
-        patientFirstName: entry.payload?.patientFirstName || '',
-        feedbackUrl,
-      });
+      const customSmsTemplate = org.options?.smsTemplate || null;
+      const smsContent = customSmsTemplate
+        ? { body: customSmsTemplate.replace(/\{lien\}/g, feedbackUrl), tag: 'review_request' }
+        : smsTemplates.reviewRequest({
+            orgName: org.name,
+            patientFirstName: entry.payload?.patientFirstName || '',
+            feedbackUrl,
+          });
 
       // 5) Send SMS (or dry-run)
       if (DRY_RUN) {

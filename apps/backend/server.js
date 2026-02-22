@@ -459,6 +459,15 @@ function applyCors(req, res) {
     return 'pass';
   }
 
+  // Same-origin: patient pages served by this backend (e.g. /r/{id}) do fetch POST
+  // The browser sends Origin: https://api.reputyapp.com which IS the backend itself.
+  const selfOrigin = REVIEWS_BASE_URL.replace(/\/$/, '');
+  if (origin === selfOrigin) {
+    // Same-origin request from our own served pages — allow without CORS headers
+    // (no Access-Control-Allow-Origin needed for same-origin)
+    return 'pass';
+  }
+
   // P1.5: Block 'null' origin in production (sandbox iframes, local file://)
   if (IS_PRODUCTION && origin === 'null') {
     logger.logError('CORS_BLOCKED_NULL', { origin, url: req.url, method: req.method });
@@ -4430,6 +4439,7 @@ function handleGetSettings(req, res) {
     return sendJson(res, 200, {
       googleReviewUrl: org.options?.googleReviewUrl || '',
       cabinetName: org.name || '',
+      smsTemplate: org.options?.smsTemplate || '',
       reviewRouting: org.options?.reviewRouting || DEFAULT_SETTINGS.reviewRouting
     });
   }
@@ -4475,6 +4485,13 @@ async function handleSaveSettings(req, res) {
       if (body.googleReviewUrl !== undefined) {
         optionsUpdate.googleReviewUrl = body.googleReviewUrl.trim();
       }
+      if (body.smsTemplate !== undefined) {
+        // Validate SMS template: non-empty, max 300 chars, must contain {lien}
+        const tpl = body.smsTemplate.trim();
+        if (tpl && tpl.length <= 300) {
+          optionsUpdate.smsTemplate = tpl;
+        }
+      }
       
       // Update options
       repos.org.updateOptions(org.id, optionsUpdate);
@@ -4490,14 +4507,15 @@ async function handleSaveSettings(req, res) {
       logger.logAudit('SETTINGS_UPDATED', {
         orgId: org.id,
         userId: sessionAuth.user.id,
-        changes: { googleReviewUrl: optionsUpdate.googleReviewUrl, cabinetName: body.cabinetName }
+        changes: { googleReviewUrl: optionsUpdate.googleReviewUrl, cabinetName: body.cabinetName, smsTemplate: optionsUpdate.smsTemplate }
       });
       
       return sendJson(res, 200, { 
         success: true, 
         settings: {
           googleReviewUrl: updatedOrg.options?.googleReviewUrl || '',
-          cabinetName: updatedOrg.name || ''
+          cabinetName: updatedOrg.name || '',
+          smsTemplate: updatedOrg.options?.smsTemplate || ''
         }
       });
     }
