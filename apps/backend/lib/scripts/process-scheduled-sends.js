@@ -161,7 +161,7 @@ async function processScheduledSends() {
       // 6) Mark sent
       scheduledSendRepo.updateStatus(entry.id, 'sent');
 
-      // 7) Record usage
+      // 7) Record usage (with patient info + segment count)
       const smsQty = result.smsCount || 1;
       usageRepo.addEntry({
         orgId: entry.orgId,
@@ -170,10 +170,15 @@ async function processScheduledSends() {
         details: {
           scheduledSendId: entry.id,
           recipient: entry.recipient,
+          patientName: entry.payload?.patientName || '',
+          patientFirstName: entry.payload?.patientFirstName || '',
+          requestId: entry.payload?.requestId || '',
           source: 'scheduled_send',
           provider: result.provider,
           messageId: result.messageId,
           smsCount: result.smsCount,
+          segments: result.smsCount || 1,
+          bodyLength: smsContent.body.length,
         },
       });
 

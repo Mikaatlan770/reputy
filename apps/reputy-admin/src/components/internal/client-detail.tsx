@@ -1988,16 +1988,34 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                 <div className="space-y-2 max-h-[400px] overflow-y-auto">
                   {recentUsage.map((entry) => {
                     const meta = entry.meta || {}
-                    const patientName = meta.patientName as string || 'Patient inconnu'
-                    const patientContact = meta.patientContact as string || ''
+                    // Display priority: firstName+lastName > name > recipient (phone/email) > never anonymous
+                    const firstName = (meta.patientFirstName as string || '').trim()
+                    const lastName = (meta.patientLastName as string || '').trim()
+                    const fullName = [firstName, lastName].filter(Boolean).join(' ')
+                    const patientName = fullName
+                      || (meta.patientName as string || '').trim()
+                      || (meta.patientContact as string || '').trim()
+                      || 'N/A'
+                    const patientContact = (meta.patientContact as string || '').trim()
+                    // Only show contact line if different from name (avoid duplication)
+                    const showContact = patientContact && patientContact !== patientName
                     const status = meta.status as string || 'success'
                     const simulated = meta.simulated as boolean
                     const resend = meta.resend as boolean
+                    const segments = meta.segments as number | null
+                    const statusLabel = status === 'success' || status === 'sent' ? 'Envoyé' 
+                      : status === 'queued' ? 'En attente'
+                      : status === 'feedback_received' ? 'Feedback reçu'
+                      : 'Échec'
+                    const statusColor = status === 'success' || status === 'sent' ? 'text-green-400'
+                      : status === 'queued' ? 'text-yellow-400'
+                      : status === 'feedback_received' ? 'text-blue-400'
+                      : 'text-red-400'
                     
                     return (
                       <div key={entry.id} className={cn(
                         'flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded border',
-                        status === 'success' 
+                        status === 'success' || status === 'sent' || status === 'queued' || status === 'feedback_received'
                           ? 'bg-slate-700/30 border-slate-600' 
                           : 'bg-red-500/10 border-red-500/20'
                       )}>
@@ -2009,7 +2027,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                           )}
                           <div className="min-w-0 flex-1">
                             <p className="text-white font-medium truncate">{patientName}</p>
-                            {patientContact && (
+                            {showContact && (
                               <p className="text-xs text-slate-500 truncate">{patientContact}</p>
                             )}
                           </div>
@@ -2021,11 +2039,18 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                           {resend && (
                             <Badge variant="outline" className="text-xs text-amber-400">Renvoi</Badge>
                           )}
-                          <Badge variant="outline" className={cn(
-                            'text-xs',
-                            status === 'success' ? 'text-green-400' : 'text-red-400'
-                          )}>
-                            {status === 'success' ? 'Envoyé' : 'Échec'}
+                          {entry.type === 'sms' && segments && segments > 1 && (
+                            <Badge variant="outline" className="text-xs text-purple-400">
+                              {segments} segment{segments > 1 ? 's' : ''}
+                            </Badge>
+                          )}
+                          {entry.type === 'sms' && entry.qty > 1 && (
+                            <Badge variant="outline" className="text-xs text-purple-400">
+                              ×{entry.qty} crédits
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className={cn('text-xs', statusColor)}>
+                            {statusLabel}
                           </Badge>
                           <span className="text-slate-500 text-xs whitespace-nowrap">{formatDate(entry.ts)}</span>
                         </div>

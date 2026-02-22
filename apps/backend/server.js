@@ -3843,6 +3843,22 @@ async function handleSendReview(req, res) {
       recipient: recipient,
       status: 'queued'
     });
+
+    // ── Record usage in SQLite usage_ledger (with patient info + segments) ──
+    const usageType = channel === 'email' ? 'email' : 'sms';
+    repos.usage.addEntry({
+      orgId: orgId,
+      type: usageType,
+      qty: 1, // 1 request = 1 unit; actual segments tracked in details
+      details: {
+        requestId: dbRequest.idempotencyKey,
+        patientName: body.patientName || '',
+        patientFirstName: body.patientFirstName || '',
+        patientLastName: body.patientLastName || '',
+        patientContact: channel === 'email' ? body.patientEmail : body.patientPhone,
+        channel: channel,
+      }
+    });
     
     // Log success
     logger.logExtensionAction('EXTENSION_SEND_REVIEW_SUCCESS', true, req, {
@@ -5447,20 +5463,101 @@ function handleGetOrg(req, res, orgId, urlParams = new URLSearchParams()) {
     const enrichedOrg = enrichOrg(data, org, debugNow);
     
     // Calculs additionnels pour la vue détail
-    const usage7d = calculateOrgUsage(data, orgId, 7);
-    const usage30d = calculateOrgUsage(data, orgId, 30);
+    const repos = storage.getRepos();
     
-    // Derniers events usage
-    const recentUsage = (data.usageLedger || [])
-      .filter(e => e.orgId === orgId)
-      .sort((a, b) => b.ts?.localeCompare(a.ts))
-      .slice(0, 50);
+    let usage7d, usage30d, recentUsage, recentTelemetry;
     
-    // Derniers telemetry
-    const recentTelemetry = (data.telemetry || [])
-      .filter(e => e.orgId === orgId)
-      .sort((a, b) => b.ts?.localeCompare(a.ts))
-      .slice(0, 50);
+    if (repos) {
+      // ── SQLite mode: read from usage_ledger + review_requests + messages ──
+      const now = new Date();
+      const since7d = new Date(now); since7d.setDate(since7d.getDate() - 7);
+      const since30d = new Date(now); since30d.setDate(since30d.getDate() - 30);
+      
+      usage7d = repos.usage.getSummary(orgId, since7d.toISOString());
+      usage30d = repos.usage.getSummary(orgId, since30d.toISOString());
+      
+      // Recent activity: JOIN review_requests + messages for rich data
+      const dbModule = storage.getDb();
+      const recentRows = dbModule.all(`
+        SELECT 
+          rr.id as request_id,
+          rr.channel,
+          rr.patient_json,
+          rr.created_at,
+          rr.status as request_status,
+          m.recipient,
+          m.status as message_status,
+          m.sent_at,
+          ul.qty as usage_qty,
+          ul.details_json as usage_details
+        FROM review_requests rr
+        LEFT JOIN messages m ON m.request_db_id = rr.id
+        LEFT JOIN usage_ledger ul ON ul.org_id = rr.org_id 
+          AND ul.details_json LIKE ('%' || rr.idempotency_key || '%')
+        WHERE rr.org_id = $orgId
+        ORDER BY rr.created_at DESC
+        LIMIT 50
+      `, { orgId });
+      
+      recentUsage = recentRows.map(row => {
+        const patient = JSON.parse(row.patient_json || '{}');
+        const usageDetails = JSON.parse(row.usage_details || '{}');
+        // Display name: prefer firstName+lastName, then name, then recipient (phone/email), never anonymous
+        const patientName = [patient.firstName, patient.lastName].filter(Boolean).join(' ').trim()
+          || patient.name
+          || row.recipient
+          || (row.channel === 'email' ? patient.email : patient.phone)
+          || 'N/A';
+        const patientContact = row.recipient 
+          || (row.channel === 'email' ? patient.email : patient.phone)
+          || '';
+        
+        return {
+          id: row.request_id,
+          type: row.channel || 'sms',
+          qty: row.usage_qty || 1,
+          ts: row.created_at,
+          meta: {
+            patientName,
+            patientContact,
+            status: row.message_status || row.request_status || 'queued',
+            segments: usageDetails.segments || null,
+            simulated: false,
+          }
+        };
+      });
+      
+      // Telemetry from SQLite (map to frontend-expected format)
+      const rawTelemetry = repos.telemetry
+        ? repos.telemetry.listRecent({ orgId, limit: 50 })
+        : [];
+      recentTelemetry = rawTelemetry.map(t => ({
+        id: t.id,
+        orgId: t.orgId,
+        source: t.source,
+        level: t.level,
+        code: t.data?.code || '',
+        message: t.data?.message || '',
+        stack: t.data?.stack || '',
+        version: t.data?.version || '',
+        ts: t.createdAt,
+      }));
+      
+    } else {
+      // ── JSON legacy mode ──
+      usage7d = calculateOrgUsage(data, orgId, 7);
+      usage30d = calculateOrgUsage(data, orgId, 30);
+      
+      recentUsage = (data.usageLedger || [])
+        .filter(e => e.orgId === orgId)
+        .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
+        .slice(0, 50);
+      
+      recentTelemetry = (data.telemetry || [])
+        .filter(e => e.orgId === orgId)
+        .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
+        .slice(0, 50);
+    }
     
     return sendJson(res, 200, {
       org: sanitizeOrg(enrichedOrg),
@@ -7708,7 +7805,50 @@ function handleClientGetUsage(req, res, urlParams) {
     return sendJson(res, 401, { error: 'UNAUTHORIZED', message: 'Non authentifié' });
   }
   
-  const org = data.orgs.find(o => o.id === auth.user.orgId);
+  const orgId = auth.user.orgId;
+  const repos = storage.getRepos();
+  
+  if (repos) {
+    // ── SQLite mode ──
+    const org = repos.org.getById(orgId);
+    if (!org) {
+      return sendJson(res, 404, { error: 'ORG_NOT_FOUND', message: 'Organisation non trouvée' });
+    }
+    
+    // Get usage from SQLite usage_ledger
+    const since30d = new Date();
+    since30d.setDate(since30d.getDate() - 30);
+    const summary = repos.usage.getSummary(orgId, since30d.toISOString());
+    
+    const recentEntries = repos.usage.listByOrg(orgId, { limit: 20 });
+    
+    return sendJson(res, 200, {
+      period: {
+        start: since30d.toISOString(),
+        end: new Date().toISOString()
+      },
+      usage: {
+        sms: summary.sms || 0,
+        email: summary.email || 0
+      },
+      credits: null, // TODO: compute from org.subscriptionCredits
+      recentActivity: recentEntries.map(e => ({
+        id: e.id,
+        type: e.type,
+        qty: e.qty,
+        ts: e.createdAt,
+        meta: {
+          patientName: e.details?.patientName || e.details?.patientFirstName || e.details?.recipient || e.details?.to || '',
+          patientContact: e.details?.patientContact || e.details?.recipient || e.details?.to || '',
+          channel: e.type,
+          segments: e.details?.segments || null,
+        }
+      }))
+    });
+  }
+  
+  // ── JSON legacy mode ──
+  const org = data.orgs.find(o => o.id === orgId);
   if (!org) {
     return sendJson(res, 404, { error: 'ORG_NOT_FOUND', message: 'Organisation non trouvée' });
   }
@@ -7723,7 +7863,7 @@ function handleClientGetUsage(req, res, urlParams) {
   const periodEndDate = periodEnd ? new Date(periodEnd) : new Date();
   
   const usageEntries = (data.usageLedger || [])
-    .filter(e => e.orgId === auth.user.orgId)
+    .filter(e => e.orgId === orgId)
     .filter(e => {
       const ts = new Date(e.createdAt || e.ts);
       return ts >= periodStartDate && ts <= periodEndDate;

@@ -247,11 +247,16 @@ async function processOutbox() {
       // 8b) Lifecycle: queued → sent (+ activation)
       updateRequestLifecycle(entry, 'sent');
 
-      // 9) Record usage
+      // 9) Record usage (with patient info)
+      const emailPayload = entry.payload || {};
       usageRepo.recordEmail(entry.orgId, 1, {
         outboxId: entry.id,
         to: entry.toEmail,
         template: entry.templateKey,
+        patientName: emailPayload.patientName || '',
+        patientFirstName: emailPayload.patientFirstName || '',
+        requestId: emailPayload.requestId || '',
+        patientContact: entry.toEmail,
       });
 
       // 9b) Debit subscription credits counter (so dashboard shows correct usage)
