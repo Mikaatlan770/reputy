@@ -12,22 +12,29 @@ const REPUTY_DOMAIN = process.env.REPUTY_DOMAIN || 'https://reputyapp.com';
 // ============================================================
 
 /**
+ * Review request email template
+ *
+ * IMPORTANT: Text content MUST stay aligned with the frontend dashboard preview
+ * (apps/reputy-admin/src/components/email/EmailPreview.tsx → DEFAULT_EMAIL_TEMPLATE).
+ * HTML version uses the same text with professional styling.
+ *
  * @param {{ orgName, patientFirstName?, reviewUrl, unsubscribeUrl }} data
  */
 function reviewRequest(data) {
   const { orgName, patientFirstName, reviewUrl, unsubscribeUrl } = data;
-  const greeting = patientFirstName ? `Bonjour ${patientFirstName}` : 'Bonjour';
+  const greeting = patientFirstName ? `Cher(e) ${patientFirstName}` : 'Cher(e) patient(e)';
 
   return {
     subject: `${orgName} – Votre avis nous intéresse`,
 
+    // Text version — aligned with dashboard preview
     text: `${greeting},
 
-Suite à votre récente visite chez ${orgName}, nous aimerions connaître votre expérience.
+Nous espérons que votre expérience chez ${orgName} vous a satisfait.
 
-Votre avis est précieux et ne prend que 30 secondes :
+Prenez quelques secondes pour nous laisser votre avis :
 
-👉 ${reviewUrl}
+${reviewUrl}
 
 Merci pour votre confiance !
 
@@ -38,6 +45,7 @@ Cet email a été envoyé par Reputy pour le compte de ${orgName}.
 Si vous ne souhaitez plus recevoir ces emails :
 ${unsubscribeUrl}`,
 
+    // HTML version — same text, professional styling
     html: `<!DOCTYPE html>
 <html lang="fr">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
@@ -54,10 +62,10 @@ ${unsubscribeUrl}`,
   <tr><td style="padding:40px;">
     <p style="margin:0 0 16px;font-size:16px;color:#1e293b;">${greeting},</p>
     <p style="margin:0 0 16px;font-size:16px;color:#475569;line-height:1.6;">
-      Suite à votre récente visite chez <strong>${orgName}</strong>, nous aimerions connaître votre expérience.
+      Nous espérons que votre expérience chez <strong>${orgName}</strong> vous a satisfait.
     </p>
     <p style="margin:0 0 24px;font-size:16px;color:#475569;line-height:1.6;">
-      Votre avis est précieux et ne prend que <strong>30 secondes</strong> :
+      Prenez quelques secondes pour nous laisser votre avis :
     </p>
     <!-- CTA -->
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 32px;">

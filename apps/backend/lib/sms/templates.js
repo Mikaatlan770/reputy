@@ -11,20 +11,25 @@
 /**
  * Review request SMS template
  *
+ * IMPORTANT: This template MUST stay aligned with the frontend dashboard preview
+ * (apps/reputy-admin/src/lib/sms/constants.ts → SMS_DEFAULT_MESSAGE).
+ * Total body (message + URL) must be ≤160 chars GSM-7 = 1 segment garanti.
+ *
+ * GSM-7 safe: no emoji, no special unicode. Accents è é à ù are GSM-7 basic.
+ * Using plain ASCII "a" instead of "à" to match the frontend exactly.
+ *
  * @param {{ orgName: string, patientFirstName?: string, feedbackUrl: string }} data
  * @returns {{ body: string, tag: string }}
  */
 function reviewRequest(data) {
-  const { orgName, patientFirstName, feedbackUrl } = data;
+  const { feedbackUrl } = data;
 
-  const greeting = patientFirstName
-    ? `Bonjour ${patientFirstName}`
-    : 'Bonjour';
-
+  // ~87 chars message + ~50 chars URL ≈ 137 chars → 1 segment ✅
   const body = [
-    `${greeting}, suite à votre visite chez ${orgName}, votre avis nous est précieux !`,
+    'Bonjour, suite a votre visite, pouvez-vous nous laisser un avis ?',
+    'Cela nous aide beaucoup.',
+    'Merci !',
     feedbackUrl,
-    `Merci, l'équipe ${orgName}`,
   ].join('\n');
 
   return { body, tag: 'review_request' };

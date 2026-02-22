@@ -1,11 +1,20 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import type { Membership, MembershipRole, MembershipPermissions } from '@/types'
 import { getSecureToken, setSecureToken, removeSecureToken } from './secure-token'
 import { LOGIN_URL } from '@/lib/constants'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
+
+// ============ INACTIVITY TIMEOUT ============
+/** Auto-logout after 10 minutes of inactivity (in milliseconds) */
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+/** Events that count as "user activity" */
+const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
+  'mousemove', 'mousedown', 'keypress', 'keydown',
+  'scroll', 'touchstart', 'click', 'wheel',
+]
 
 // ============ TYPES ============
 
@@ -303,6 +312,65 @@ export function AuthProvider({ children }: AuthProviderProps) {
     window.addEventListener('reputy:session-expired', handleSessionExpired)
     return () => window.removeEventListener('reputy:session-expired', handleSessionExpired)
   }, [])
+
+  // ============ INACTIVITY AUTO-LOGOUT ============
+  // Tracks user activity and auto-logs out after INACTIVITY_TIMEOUT_MS of inactivity
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    // Only active when user is logged in as CLIENT
+    if (state.mode !== 'CLIENT' || !state.clientToken) {
+      return
+    }
+
+    const handleLogoutInactivity = async () => {
+      console.warn('[AuthContext] Auto-logout: inactivité détectée (10 min)')
+      // Remove token
+      await removeSecureToken()
+      // Reset state
+      setState({
+        mode: 'NONE',
+        loading: false,
+        clientUser: null,
+        clientOrg: null,
+        clientToken: null,
+        isSuperAdmin: false,
+        memberships: [],
+        currentMembershipRole: null,
+        currentPermissions: null,
+      })
+      // Redirect to login
+      if (typeof window !== 'undefined') {
+        window.location.href = LOGIN_URL
+      }
+    }
+
+    const resetTimer = () => {
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current)
+      }
+      inactivityTimerRef.current = setTimeout(handleLogoutInactivity, INACTIVITY_TIMEOUT_MS)
+    }
+
+    // Start initial timer
+    resetTimer()
+
+    // Attach activity listeners
+    for (const event of ACTIVITY_EVENTS) {
+      window.addEventListener(event, resetTimer, { passive: true })
+    }
+
+    return () => {
+      // Cleanup timer and listeners
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current)
+      }
+      for (const event of ACTIVITY_EVENTS) {
+        window.removeEventListener(event, resetTimer)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.mode, state.clientToken])
 
   // Login client
   const loginClient = useCallback(async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
