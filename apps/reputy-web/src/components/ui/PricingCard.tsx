@@ -68,7 +68,11 @@ export function PricingCard({ plan, className }: PricingCardProps) {
           <h3
             className={cn(
               'text-2xl font-bold',
-              isPopular ? 'text-white' : 'text-gray-900'
+              isPopular
+                ? 'text-white'
+                : plan.id === 'platinum'
+                  ? 'bg-gradient-to-r from-slate-500 to-slate-700 bg-clip-text text-transparent'
+                  : 'text-gray-900'
             )}
           >
             {plan.name}
@@ -102,7 +106,11 @@ export function PricingCard({ plan, className }: PricingCardProps) {
               <span
                 className={cn(
                   'text-5xl font-bold',
-                  isPopular ? 'text-white' : 'text-gray-900'
+                  isPopular
+                    ? 'text-white'
+                    : plan.id === 'platinum'
+                      ? 'bg-gradient-to-r from-slate-500 to-slate-700 bg-clip-text text-transparent'
+                      : 'text-gray-900'
                 )}
               >
                 {plan.price}€

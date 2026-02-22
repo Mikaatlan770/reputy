@@ -1113,13 +1113,13 @@ export default function BillingPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-4">
             {Object.values(PLANS).map((plan) => (
               <div
                 key={plan.id}
                 className={cn(
                   'relative p-4 rounded-xl border-2 transition-all',
-                  plan.id === billing.plan
+                  plan.id === normalizedPlan
                     ? 'border-primary bg-primary/5'
                     : 'border-border hover:border-primary/50',
                   plan.popular && 'ring-2 ring-primary ring-offset-2'
@@ -1148,13 +1148,13 @@ export default function BillingPage() {
                 </ul>
                 <Button
                   className="w-full mt-4"
-                  variant={plan.id === billing.plan ? 'outline' : 'default'}
-                  disabled={plan.id === billing.plan || checkoutLoading || plan.id === 'bronze'}
+                  variant={plan.id === normalizedPlan ? 'outline' : 'default'}
+                  disabled={plan.id === normalizedPlan || checkoutLoading || plan.id === 'bronze'}
                   onClick={() => handleCheckout(plan.id)}
                 >
                   {checkoutLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : plan.id === billing.plan ? (
+                  ) : plan.id === normalizedPlan ? (
                     'Plan actuel'
                   ) : plan.id === 'bronze' ? (
                     'Plan gratuit'
