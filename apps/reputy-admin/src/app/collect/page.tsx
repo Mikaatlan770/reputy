@@ -90,6 +90,9 @@ export default function CollectPage() {
   const [deleteTarget, setDeleteTarget] = useState<Shortlink | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // Usage stats (SMS/email counters from backend)
+  const [usageStats, setUsageStats] = useState<{ sms: number; email: number }>({ sms: 0, email: 0 })
+
   // Other UI state
   const [smsValid, setSmsValid] = useState(true)
   const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
@@ -229,6 +232,31 @@ export default function CollectPage() {
       })
   }, [getAuthToken])
 
+  // Fetch usage stats (SMS / Email counters)
+  const fetchUsage = useCallback(async () => {
+    const token = await getAuthToken()
+    if (!token) return
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/client/usage`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+      if (data && data.usage) {
+        setUsageStats({
+          sms: data.usage.sms || 0,
+          email: data.usage.email || 0
+        })
+      }
+    } catch {
+      // Silently fail — usage stats are non-critical
+    }
+  }, [getAuthToken])
+
   // Copy URL to clipboard
   const copyUrl = async (url: string) => {
     try {
@@ -268,8 +296,9 @@ export default function CollectPage() {
   useEffect(() => {
     if (!authLoading && isClient) {
       fetchShortlinks()
+      fetchUsage()
     }
-  }, [authLoading, isClient, fetchShortlinks])
+  }, [authLoading, isClient, fetchShortlinks, fetchUsage])
 
   // Filter shortlinks by type
   const qrLinks = shortlinks.filter(s => s.type === 'qr')
@@ -278,12 +307,12 @@ export default function CollectPage() {
   // Get first shortlink for SMS/Email template
   const primaryShortlink = shortlinks[0]
 
-  // Channel stats for display
+  // Channel stats for display (SMS/email from real backend data)
   const channelStats = {
     qr: { clicks: stats.totalClicks, reviewsGenerated: qrLinks.length, conversionRate: qrLinks.length > 0 ? 0.15 : 0 },
     nfc: { clicks: 0, reviewsGenerated: nfcLinks.length, conversionRate: nfcLinks.length > 0 ? 0.12 : 0 },
-    sms: { sent: 0, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
-    email: { sent: 0, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
+    sms: { sent: usageStats.sms, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
+    email: { sent: usageStats.email, clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
     doctolib: { clicks: 0, reviewsGenerated: 0, conversionRate: 0 },
   }
 
@@ -313,8 +342,8 @@ export default function CollectPage() {
         {[
           { type: 'qr', icon: QrCode, label: 'QR Code', color: 'text-blue-600', count: qrLinks.length },
           { type: 'nfc', icon: Nfc, label: 'NFC', color: 'text-purple-600', count: nfcLinks.length },
-          { type: 'sms', icon: MessageSquare, label: 'SMS', color: 'text-green-600', count: 0 },
-          { type: 'email', icon: Mail, label: 'Email', color: 'text-orange-600', count: 0 },
+          { type: 'sms', icon: MessageSquare, label: 'SMS', color: 'text-green-600', count: usageStats.sms },
+          { type: 'email', icon: Mail, label: 'Email', color: 'text-orange-600', count: usageStats.email },
           { type: 'doctolib', icon: Stethoscope, label: 'Doctolib', color: 'text-cyan-600', count: 0 },
         ].map((channel) => {
           const stat = channelStats[channel.type as keyof typeof channelStats]

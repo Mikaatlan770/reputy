@@ -7553,10 +7553,10 @@ function handleClientGetUsage(req, res, urlParams) {
   const usageEntries = (data.usageLedger || [])
     .filter(e => e.orgId === auth.user.orgId)
     .filter(e => {
-      const ts = new Date(e.ts);
+      const ts = new Date(e.createdAt || e.ts);
       return ts >= periodStartDate && ts <= periodEndDate;
     })
-    .sort((a, b) => b.ts?.localeCompare(a.ts))
+    .sort((a, b) => (b.createdAt || b.ts || '').localeCompare(a.createdAt || a.ts || ''))
     .slice(0, 100); // Last 100 entries
   
   // Calculate totals
@@ -7579,10 +7579,10 @@ function handleClientGetUsage(req, res, urlParams) {
       id: e.id,
       type: e.type,
       qty: e.qty,
-      ts: e.ts,
+      ts: e.createdAt || e.ts,
       meta: {
-        patientName: e.meta?.patientName,
-        channel: e.meta?.channel
+        patientName: e.meta?.patientName || e.patientName,
+        channel: e.meta?.channel || e.channel
       }
     }))
   });
@@ -10137,6 +10137,169 @@ function formatCompetitorForApi(snap) {
   };
 }
 
+/**
+ * POST /client/competitors/sync
+ * Manually trigger a competitor sync for the current org.
+ * Calls Google Places API (nearbySearch + textSearch fallback)
+ * and stores snapshots in the database.
+ * RBAC: owner/admin only.
+ */
+async function handleClientSyncCompetitors(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+
+  if (!auth) {
+    return sendJson(res, 401, {
+      ok: false,
+      errorCategory: 'SESSION_EXPIRED',
+      errorCode: 'UNAUTHORIZED',
+      message: 'Session expirée, veuillez vous reconnecter',
+      action: 'LOGIN',
+    });
+  }
+
+  if (!checkRole(auth, ['owner', 'admin'], res)) return;
+
+  const org = auth.org;
+  if (!org || !org.lat || !org.lng) {
+    return sendJson(res, 400, {
+      ok: false,
+      error: 'Coordonnées GPS non configurées. Renseignez latitude/longitude dans les paramètres.',
+    });
+  }
+
+  if (!googlePlaces.isConfigured()) {
+    return sendJson(res, 503, {
+      ok: false,
+      error: 'Google Places API non configurée (GOOGLE_PLACES_API_KEY manquant)',
+    });
+  }
+
+  const MAX_RADIUS_M = 5000;
+  const MAX_RESULTS_PER_SEARCH = 20;
+  const MIN_NEARBY_RESULTS_FOR_FALLBACK = 5;
+  const MAX_COMPETITORS_PER_ORG = 25;
+
+  try {
+    const profile = placesProfiles.getSearchProfile(org.vertical, org.specialty);
+    const profileName = profile.profileName;
+    const periodKey = competitorRepo.getISOWeekKey();
+
+    // ── Step 1: Nearby Search ──
+    let places = [];
+    let searchMethod = 'nearby';
+    try {
+      places = await googlePlaces.nearbySearch({
+        lat: org.lat,
+        lng: org.lng,
+        radiusMeters: MAX_RADIUS_M,
+        includedTypes: profile.includedTypes,
+        maxResultCount: MAX_RESULTS_PER_SEARCH,
+      });
+    } catch (nearbyErr) {
+      console.log(`[SYNC-MANUAL] Nearby Search failed: ${nearbyErr.message}`);
+    }
+
+    // ── Step 2: Text Search fallback ──
+    if (places.length < MIN_NEARBY_RESULTS_FOR_FALLBACK && profile.textQuery) {
+      searchMethod = places.length > 0 ? 'nearby+text_fallback' : 'text_fallback';
+      const textQueries = [profile.textQuery, ...(profile.textQueryVariants || [])];
+      const existingIds = new Set(places.map((p) => p.placeId));
+
+      for (const query of textQueries) {
+        try {
+          const textPlaces = await googlePlaces.textSearch({
+            textQuery: query,
+            lat: org.lat,
+            lng: org.lng,
+            radiusMeters: MAX_RADIUS_M,
+            maxResultCount: MAX_RESULTS_PER_SEARCH,
+          });
+          for (const tp of textPlaces) {
+            if (tp.placeId && !existingIds.has(tp.placeId)) {
+              places.push(tp);
+              existingIds.add(tp.placeId);
+            }
+          }
+        } catch (textErr) {
+          console.log(`[SYNC-MANUAL] Text Search "${query}" failed: ${textErr.message}`);
+        }
+        if (textQueries.length > 1) await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+
+    // ── Step 3: Filter out own place ──
+    places = places.filter((p) => {
+      if (org.googlePlaceId && p.placeId === org.googlePlaceId) return false;
+      if (!org.googlePlaceId && p.lat && p.lng) {
+        const dist = googlePlaces.haversineDistance(org.lat, org.lng, p.lat, p.lng);
+        if (dist < 50 && org.name && p.name) {
+          const normalize = (s) => s.toLowerCase().replace(/[^a-zàâéèêëïîôùûüç\s]/g, '').trim();
+          if (normalize(p.name).includes(normalize(org.name)) || normalize(org.name).includes(normalize(p.name))) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+
+    // ── Step 4: Calculate distances & prepare snapshots ──
+    const snapshots = places
+      .map((place) => {
+        const distanceM = googlePlaces.haversineDistance(org.lat, org.lng, place.lat, place.lng);
+        return {
+          orgId: org.id,
+          profile: profileName,
+          runPeriodKey: periodKey,
+          placeId: place.placeId,
+          name: place.name,
+          lat: place.lat,
+          lng: place.lng,
+          rating: place.rating,
+          userRatingsTotal: place.userRatingsTotal,
+          distanceM,
+          types: place.types,
+        };
+      })
+      .filter((s) => s.distanceM <= MAX_RADIUS_M)
+      .sort((a, b) => a.distanceM - b.distanceM)
+      .slice(0, MAX_COMPETITORS_PER_ORG);
+
+    // ── Step 5: Persist ──
+    competitorRepo.bulkUpsertSnapshots(snapshots);
+    competitorRepo.logSync({
+      orgId: org.id,
+      profile: profileName,
+      runPeriodKey: periodKey,
+      status: 'success',
+      placesFound: places.length,
+      placesStored: snapshots.length,
+    });
+
+    return sendJson(res, 200, {
+      ok: true,
+      message: `Synchronisation terminée : ${snapshots.length} concurrents trouvés`,
+      searchMethod,
+      placesFound: places.length,
+      placesStored: snapshots.length,
+      profile: profileName,
+    });
+
+  } catch (err) {
+    console.error('[SYNC-MANUAL] Error:', err.message);
+    sentry.captureException(err, {
+      route: '/client/competitors/sync',
+      source: 'manual_sync',
+      layer: 'api',
+      status_code: '500',
+    });
+    return sendJson(res, 500, {
+      ok: false,
+      error: `Erreur lors de la synchronisation : ${err.message}`,
+    });
+  }
+}
+
 // ============================================================
 // BILLING HANDLERS (Étape 3)
 // ============================================================
@@ -12232,6 +12395,11 @@ const server = http.createServer(async (req, res) => {
   // Configure org coordinates for competitor search
   if (method === 'POST' && pathname === '/client/competitors/configure') {
     return await handleClientConfigureCompetitors(req, res);
+  }
+  
+  // Manual competitor sync (Google Places)
+  if (method === 'POST' && pathname === '/client/competitors/sync') {
+    return await handleClientSyncCompetitors(req, res);
   }
   
   // Get competitor place details (cached + Google Places)
