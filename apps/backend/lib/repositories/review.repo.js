@@ -174,6 +174,24 @@ function countReviews(orgId, filters = {}) {
  * @param {string} period - '7d', '30d', '90d', '365d' (default: '30d')
  * @returns {object} Stats object with KPIs, deltas, and star distribution
  */
+function _computeStatDeltas(current, prev, responseTime, totalPeriod) {
+  const avgRatingPeriod = current?.avgRating ? Math.round(current.avgRating * 10) / 10 : 0;
+  const repliedCountPeriod = current?.repliedCount || 0;
+  const responseRatePeriod = totalPeriod > 0 ? Math.round((repliedCountPeriod / totalPeriod) * 100) : 0;
+
+  const prevTotal = prev?.total || 0;
+  const prevAvgRating = prev?.avgRating ? Math.round(prev.avgRating * 10) / 10 : 0;
+  const prevRepliedCount = prev?.repliedCount || 0;
+  const prevResponseRate = prevTotal > 0 ? Math.round((prevRepliedCount / prevTotal) * 100) : 0;
+
+  const reviewsDeltaPct = prevTotal > 0 ? Math.round(((totalPeriod - prevTotal) / prevTotal) * 100) : null;
+  const avgRatingDelta = (prev?.avgRating != null && prevTotal > 0) ? Math.round((avgRatingPeriod - prevAvgRating) * 10) / 10 : null;
+  const responseRateDeltaPct = prevTotal > 0 ? responseRatePeriod - prevResponseRate : null;
+  const avgResponseTimeHours = responseTime?.avgHours != null ? Math.round(responseTime.avgHours * 10) / 10 : null;
+
+  return { avgRatingPeriod, repliedCountPeriod, responseRatePeriod, reviewsDeltaPct, avgRatingDelta, responseRateDeltaPct, avgResponseTimeHours };
+}
+
 function getStats(orgId, period = DEFAULT_PERIOD) {
   // Validate period
   const days = PERIOD_TO_DAYS[period] || PERIOD_TO_DAYS[DEFAULT_PERIOD];
@@ -354,56 +372,8 @@ function getStats(orgId, period = DEFAULT_PERIOD) {
       percentage: totalPeriod > 0 ? Math.round((count / totalPeriod) * 100) : 0,
     }));
 
-  // ========== CALCULATE DERIVED VALUES ==========
-  
-  // Current period values
-  const avgRatingPeriod = currentPeriodStats?.avgRating 
-    ? Math.round(currentPeriodStats.avgRating * 10) / 10 
-    : 0;
-  const repliedCountPeriod = currentPeriodStats?.repliedCount || 0;
-  const responseRatePeriod = totalPeriod > 0 
-    ? Math.round((repliedCountPeriod / totalPeriod) * 100) 
-    : 0;
-
-  // Previous period values (for delta calculation)
-  const prevTotal = prevPeriodStats?.total || 0;
-  const prevAvgRating = prevPeriodStats?.avgRating 
-    ? Math.round(prevPeriodStats.avgRating * 10) / 10 
-    : 0;
-  const prevRepliedCount = prevPeriodStats?.repliedCount || 0;
-  const prevResponseRate = prevTotal > 0 
-    ? Math.round((prevRepliedCount / prevTotal) * 100) 
-    : 0;
-
-  // ========== CALCULATE DELTAS ==========
-  
-  // Reviews delta: % change in volume
-  // If prev = 0, return null (can't calculate % change from 0)
-  let reviewsDeltaPct = null;
-  if (prevTotal > 0) {
-    reviewsDeltaPct = Math.round(((totalPeriod - prevTotal) / prevTotal) * 100);
-  }
-
-  // Rating delta: simple difference
-  // If prev has no reviews, return null
-  let avgRatingDelta = null;
-  if (prevPeriodStats?.avgRating != null && prevTotal > 0) {
-    avgRatingDelta = Math.round((avgRatingPeriod - prevAvgRating) * 10) / 10;
-  }
-
-  // Response rate delta: difference in percentage points
-  // If prev = 0 reviews, return null
-  let responseRateDeltaPct = null;
-  if (prevTotal > 0) {
-    responseRateDeltaPct = responseRatePeriod - prevResponseRate;
-  }
-
-  // Average response time (in hours, rounded)
-  // null if no replied reviews with reply_sent_at
-  let avgResponseTimeHours = null;
-  if (responseTimeStats?.avgHours != null) {
-    avgResponseTimeHours = Math.round(responseTimeStats.avgHours * 10) / 10;
-  }
+  const { avgRatingPeriod, repliedCountPeriod, responseRatePeriod, reviewsDeltaPct, avgRatingDelta, responseRateDeltaPct, avgResponseTimeHours } =
+    _computeStatDeltas(currentPeriodStats, prevPeriodStats, responseTimeStats, totalPeriod);
 
   // ========== RETURN FINAL OBJECT ==========
   return {

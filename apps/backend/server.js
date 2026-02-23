@@ -3528,6 +3528,75 @@ function handleHealth(res) {
   });
 }
 
+async function _handleSendReviewSQLite(req, res, body, orgId, startTime) {
+  const repos = storage.getRepos();
+  const idempotencyKey = body.requestId || body.idempotencyKey || randomBytes(12).toString('hex');
+  const feedbackUrl = `${REVIEWS_BASE_URL}/r/${idempotencyKey}`;
+
+  const { request: dbRequest, created } = repos.request.createOrGetByIdempotencyKey(idempotencyKey, {
+    orgId, channel: body.channel,
+    patient: { name: body.patientName, firstName: body.patientFirstName || '', lastName: body.patientLastName || '', email: body.patientEmail || '', phone: body.patientPhone || '' },
+    feedbackUrl,
+    meta: { source: body.source || 'chrome-extension', pageUrl: body.pageUrl || '', appointmentDate: body.appointmentDate || '', locationId: body.locationId || '' }
+  });
+
+  if (!created) {
+    return sendJson(res, 200, { ok: true, requestId: dbRequest.idempotencyKey, feedbackUrl: dbRequest.feedbackUrl, duplicate: true, reason: 'Requête déjà traitée (idempotent)' });
+  }
+
+  const freshOrg = repos.org.getById(orgId);
+  if (!freshOrg) return sendJson(res, 500, { ok: false, error: 'ORG_NOT_FOUND' });
+
+  const channel = body.channel;
+  const recipient = channel === 'email' ? body.patientEmail : body.patientPhone;
+
+  const smsResult = _enqueueSqliteChannel(repos, dbRequest, body, orgId, channel);
+  if (smsResult) return sendJson(res, smsResult.status, smsResult.body);
+
+  repos.message.create({ requestDbId: dbRequest.id, channel, recipient, status: 'queued' });
+
+  const usageType = channel === 'email' ? 'email' : 'sms';
+  repos.usage.addEntry({
+    orgId, type: usageType, qty: 1,
+    details: { requestId: dbRequest.idempotencyKey, patientName: body.patientName || '', patientFirstName: body.patientFirstName || '', patientLastName: body.patientLastName || '', patientContact: recipient, channel }
+  });
+
+  logger.logExtensionAction('EXTENSION_SEND_REVIEW_SUCCESS', true, req, { requestId: dbRequest.idempotencyKey, orgId, channel, durationMs: Date.now() - startTime, status: 201 });
+  console.log(`[REPUTY][API] ✅ SQLite: New request created: ${dbRequest.idempotencyKey}`);
+  return sendJson(res, 201, { ok: true, requestId: dbRequest.idempotencyKey, feedbackUrl: dbRequest.feedbackUrl, duplicate: false });
+}
+
+function _enqueueSqliteChannel(repos, dbRequest, body, orgId, channel) {
+  if (channel === 'email' && body.patientEmail) {
+    const dbModule = storage.getDb();
+    dbModule.transaction(() => {
+      repos.emailOutbox.createOutbox({
+        orgId, toEmail: body.patientEmail, templateKey: 'review_request',
+        payload: { patientName: body.patientName, patientFirstName: body.patientFirstName || '', requestId: dbRequest.idempotencyKey },
+        requestDbId: dbRequest.id,
+      });
+      repos.request.setLifecycleStatus(dbRequest.id, 'queued');
+    });
+    return null;
+  }
+  if (channel === 'sms' && body.patientPhone) {
+    if (repos.scheduledSend.hasExistingForRequest(dbRequest.id)) {
+      return { status: 200, body: { ok: true, requestId: dbRequest.idempotencyKey, feedbackUrl: dbRequest.feedbackUrl, duplicate: true, message: 'SMS déjà programmé pour cette demande' } };
+    }
+    if (repos.scheduledSend.hasRecentSend(orgId, body.patientPhone)) {
+      return { status: 429, body: { ok: false, error: 'ANTI_SPAM', message: 'Ce destinataire a déjà été contacté par SMS récemment (max 1 par semaine).' } };
+    }
+    repos.scheduledSend.create({
+      orgId, recipient: body.patientPhone,
+      payload: { patientName: body.patientName, patientFirstName: body.patientFirstName || '', requestId: dbRequest.idempotencyKey, feedbackUrl: dbRequest.feedbackUrl },
+      requestDbId: dbRequest.id,
+    });
+    repos.request.setLifecycleStatus(dbRequest.id, 'queued');
+    return null;
+  }
+  return null;
+}
+
 async function handleSendReview(req, res) {
   const startTime = Date.now();
   
@@ -3730,159 +3799,8 @@ async function handleSendReview(req, res) {
     });
   }
 
-  // ============ SQLITE MODE: DB-DRIVEN IDEMPOTENCE ============
   if (storage.USE_SQLITE) {
-    const repos = storage.getRepos();
-    
-    // Use client-provided key or generate one
-    const idempotencyKey = body.requestId || body.idempotencyKey || randomBytes(12).toString('hex');
-    const feedbackUrl = `${REVIEWS_BASE_URL}/r/${idempotencyKey}`;
-    
-    // DB-driven idempotence: returns existing if already created
-    const { request: dbRequest, created } = repos.request.createOrGetByIdempotencyKey(idempotencyKey, {
-      orgId: orgId,
-      channel: body.channel,
-      patient: {
-        name: body.patientName,
-        firstName: body.patientFirstName || '',
-        lastName: body.patientLastName || '',
-        email: body.patientEmail || '',
-        phone: body.patientPhone || ''
-      },
-      feedbackUrl: feedbackUrl,
-      meta: {
-        source: body.source || 'chrome-extension',
-        pageUrl: body.pageUrl || '',
-        appointmentDate: body.appointmentDate || '',
-        locationId: body.locationId || ''
-      }
-    });
-    
-    // If already existed, return as duplicate
-    if (!created) {
-      console.log(`[REPUTY][API] ⚡ SQLite idempotence: ${idempotencyKey} already exists`);
-      
-      return sendJson(res, 200, {
-        ok: true,
-        requestId: dbRequest.idempotencyKey,
-        feedbackUrl: dbRequest.feedbackUrl,
-        duplicate: true,
-        reason: 'Requête déjà traitée (idempotent)'
-      });
-    }
-    
-    // New request created - check quota and record usage
-    const channel = body.channel;
-    
-    // Get fresh org data for quota check
-    const freshOrg = repos.org.getById(orgId);
-    if (!freshOrg) {
-      return sendJson(res, 500, { ok: false, error: 'ORG_NOT_FOUND' });
-    }
-    
-    // ---- Lifecycle: created → queued (email_outbox / scheduled_sends + review_requests) ----
-    const recipient = channel === 'email' ? body.patientEmail : body.patientPhone;
-
-    if (channel === 'email' && body.patientEmail) {
-      // Email: goes to email_outbox (immediate processing by email worker)
-      const dbModule = storage.getDb();
-      dbModule.transaction(() => {
-        repos.emailOutbox.createOutbox({
-          orgId: orgId,
-          toEmail: body.patientEmail,
-          templateKey: 'review_request',
-          payload: {
-            patientName: body.patientName,
-            patientFirstName: body.patientFirstName || '',
-            requestId: dbRequest.idempotencyKey,
-          },
-          requestDbId: dbRequest.id,
-        });
-        repos.request.setLifecycleStatus(dbRequest.id, 'queued');
-      });
-    } else if (channel === 'sms' && body.patientPhone) {
-      // SMS: goes to scheduled_sends (60 min delay, processed by SMS worker)
-      
-      // Idempotence: check if already queued for this request
-      if (repos.scheduledSend.hasExistingForRequest(dbRequest.id)) {
-        console.log(`[REPUTY][API] ⚡ SMS already scheduled for request ${dbRequest.id}`);
-        return sendJson(res, 200, {
-          ok: true,
-          requestId: dbRequest.idempotencyKey,
-          feedbackUrl: dbRequest.feedbackUrl,
-          duplicate: true,
-          message: 'SMS déjà programmé pour cette demande'
-        });
-      }
-      
-      // Anti-spam: max 1 SMS per recipient per 7 days (per org)
-      if (repos.scheduledSend.hasRecentSend(orgId, body.patientPhone)) {
-        console.log(`[REPUTY][API] ⛔ Anti-spam: ${body.patientPhone} already contacted recently`);
-        return sendJson(res, 429, {
-          ok: false,
-          error: 'ANTI_SPAM',
-          message: 'Ce destinataire a déjà été contacté par SMS récemment (max 1 par semaine).'
-        });
-      }
-      
-      // Create scheduled SMS (delayed by 60 minutes)
-      repos.scheduledSend.create({
-        orgId: orgId,
-        recipient: body.patientPhone,
-        payload: {
-          patientName: body.patientName,
-          patientFirstName: body.patientFirstName || '',
-          requestId: dbRequest.idempotencyKey,
-          feedbackUrl: dbRequest.feedbackUrl,
-        },
-        requestDbId: dbRequest.id,
-      });
-      repos.request.setLifecycleStatus(dbRequest.id, 'queued');
-      
-      console.log(`[REPUTY][API] 📱 SMS scheduled for ${body.patientPhone} (in 60 min)`);
-    }
-
-    // Legacy message tracking (backward compat)
-    repos.message.create({
-      requestDbId: dbRequest.id,
-      channel: channel,
-      recipient: recipient,
-      status: 'queued'
-    });
-
-    // ── Record usage in SQLite usage_ledger (with patient info + segments) ──
-    const usageType = channel === 'email' ? 'email' : 'sms';
-    repos.usage.addEntry({
-      orgId: orgId,
-      type: usageType,
-      qty: 1, // 1 request = 1 unit; actual segments tracked in details
-      details: {
-        requestId: dbRequest.idempotencyKey,
-        patientName: body.patientName || '',
-        patientFirstName: body.patientFirstName || '',
-        patientLastName: body.patientLastName || '',
-        patientContact: channel === 'email' ? body.patientEmail : body.patientPhone,
-        channel: channel,
-      }
-    });
-    
-    // Log success
-    logger.logExtensionAction('EXTENSION_SEND_REVIEW_SUCCESS', true, req, {
-      requestId: dbRequest.idempotencyKey,
-      orgId: orgId,
-      channel: channel,
-      durationMs: Date.now() - startTime,
-      status: 201
-    });
-    
-    console.log(`[REPUTY][API] ✅ SQLite: New request created: ${dbRequest.idempotencyKey}`);
-    
-    return sendJson(res, 201, {
-      ok: true,
-      requestId: dbRequest.idempotencyKey,
-      feedbackUrl: dbRequest.feedbackUrl,
-      duplicate: false
-    });
+    return _handleSendReviewSQLite(req, res, body, orgId, startTime);
   }
 
   // ============ JSON MODE: NOUVELLE REQUEST (legacy) ============
@@ -10562,6 +10480,127 @@ const placesProfiles = require('./lib/google/places-profiles');
  * GET /client/competitors?radius=1000|2000|5000
  * Returns server-side buckets with estimated 30d reviews.
  */
+const SYNC_MAX_RADIUS_M = 5000;
+const SYNC_MAX_RESULTS = 20;
+const SYNC_MIN_FALLBACK = 3;
+const SYNC_MAX_COMPETITORS = 25;
+const SYNC_IRRELEVANT_TYPES = [
+  'pharmacy', 'drugstore', 'hospital',
+  'university', 'school', 'secondary_school', 'primary_school',
+  'fire_station', 'police', 'post_office',
+  'supermarket', 'grocery_store', 'gas_station', 'parking',
+  'atm', 'bank', 'city_hall', 'local_government_office',
+  'cemetery', 'church', 'mosque', 'synagogue', 'hindu_temple',
+  'beauty_salon', 'hair_salon', 'hair_care', 'spa', 'nail_salon', 'tanning_studio',
+];
+const SYNC_SPECIFIC_TYPES = ['dentist', 'pharmacy', 'veterinary_care', 'physiotherapist', 'hospital'];
+
+async function _syncDedupMerge(places, ids, fetcher, label) {
+  try {
+    const results = await fetcher();
+    let added = 0;
+    for (const p of results) {
+      if (p.placeId && !ids.has(p.placeId)) { places.push(p); ids.add(p.placeId); added++; }
+    }
+    if (added > 0) console.log(`[SYNC-MANUAL] ${label}: +${added} (${places.length} total)`);
+  } catch (err) { console.log(`[SYNC-MANUAL] ${label} failed: ${err.message}`); }
+}
+
+async function _syncTextFirst(profile, org) {
+  const places = [];
+  const ids = new Set();
+  const radius = profile.maxRadius || SYNC_MAX_RADIUS_M;
+  const queries = [profile.textQuery, ...(profile.textQueryVariants || [])];
+  console.log(`[SYNC-MANUAL] Strategy: Text Search first (profile=${profile.profileName})`);
+
+  for (const q of queries) {
+    await _syncDedupMerge(places, ids, () => googlePlaces.textSearch({ textQuery: q, lat: org.lat, lng: org.lng, radiusMeters: radius, maxResultCount: SYNC_MAX_RESULTS }), `Text Search "${q}"`);
+    if (queries.length > 1) await new Promise((r) => setTimeout(r, 200));
+  }
+  let method = 'text';
+  if (places.length < SYNC_MIN_FALLBACK) {
+    method = places.length > 0 ? 'text+nearby_fallback' : 'nearby_fallback';
+    await _syncDedupMerge(places, ids, () => googlePlaces.nearbySearch({ lat: org.lat, lng: org.lng, radiusMeters: SYNC_MAX_RADIUS_M, includedTypes: profile.includedTypes, maxResultCount: SYNC_MAX_RESULTS }), 'Nearby fallback');
+  }
+  return { places, method };
+}
+
+async function _syncNearbyFirst(profile, org) {
+  let places = [];
+  const radius = profile.maxRadius || SYNC_MAX_RADIUS_M;
+  console.log(`[SYNC-MANUAL] Strategy: Nearby Search first (types: ${profile.includedTypes.join(', ')})`);
+
+  try { places = await googlePlaces.nearbySearch({ lat: org.lat, lng: org.lng, radiusMeters: radius, includedTypes: profile.includedTypes, maxResultCount: SYNC_MAX_RESULTS }); }
+  catch (err) { console.log(`[SYNC-MANUAL] Nearby Search failed: ${err.message}`); }
+
+  let method = 'nearby';
+  if (places.length < SYNC_MIN_FALLBACK && profile.textQuery) {
+    method = places.length > 0 ? 'nearby+text_fallback' : 'text_fallback';
+    const ids = new Set(places.map((p) => p.placeId));
+    const queries = [profile.textQuery, ...(profile.textQueryVariants || [])];
+    for (const q of queries) {
+      await _syncDedupMerge(places, ids, () => googlePlaces.textSearch({ textQuery: q, lat: org.lat, lng: org.lng, radiusMeters: radius, maxResultCount: SYNC_MAX_RESULTS }), `Text Search "${q}"`);
+      if (queries.length > 1) await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  return { places, method };
+}
+
+function _syncPostFilter(places, profile) {
+  if (profile.includedTypes.some((t) => SYNC_IRRELEVANT_TYPES.includes(t))) return places;
+  const before = places.length;
+  const out = places.filter((p) => !p.types || p.types.length === 0 || !p.types.some((t) => SYNC_IRRELEVANT_TYPES.includes(t)));
+  if (before > out.length) console.log(`[SYNC-MANUAL] Post-filter: removed ${before - out.length} irrelevant places`);
+  return out;
+}
+
+function _syncExcludeOwn(places, org) {
+  return places.filter((p) => {
+    if (org.googlePlaceId && p.placeId === org.googlePlaceId) return false;
+    if (!org.googlePlaceId && p.lat && p.lng) {
+      const dist = googlePlaces.haversineDistance(org.lat, org.lng, p.lat, p.lng);
+      if (dist < 50 && org.name && p.name) {
+        const norm = (s) => s.toLowerCase().replace(/[^a-zàâéèêëïîôùûüç\s]/g, '').trim();
+        if (norm(p.name).includes(norm(org.name)) || norm(org.name).includes(norm(p.name))) return false;
+      }
+    }
+    return true;
+  });
+}
+
+async function runCompetitorSync(org) {
+  const profile = placesProfiles.getSearchProfile(org.vertical, org.specialty);
+  const profileName = profile.profileName;
+  const periodKey = competitorRepo.getISOWeekKey();
+
+  try { competitorRepo.clearSync(org.id, profileName, periodKey); }
+  catch (err) { console.debug('[SYNC] clearSync failed:', err.message); }
+
+  const hasSpecificType = profile.includedTypes.some((t) => SYNC_SPECIFIC_TYPES.includes(t));
+  const { places: rawPlaces, method } = (!hasSpecificType && profile.textQuery)
+    ? await _syncTextFirst(profile, org)
+    : await _syncNearbyFirst(profile, org);
+
+  const places = _syncExcludeOwn(_syncPostFilter(rawPlaces, profile), org);
+  const maxR = profile.maxRadius || SYNC_MAX_RADIUS_M;
+  const snapshots = places
+    .map((place) => ({
+      orgId: org.id, profile: profileName, runPeriodKey: periodKey,
+      placeId: place.placeId, name: place.name, lat: place.lat, lng: place.lng,
+      rating: place.rating, userRatingsTotal: place.userRatingsTotal,
+      distanceM: googlePlaces.haversineDistance(org.lat, org.lng, place.lat, place.lng),
+      types: place.types,
+    }))
+    .filter((s) => s.distanceM <= maxR)
+    .sort((a, b) => a.distanceM - b.distanceM)
+    .slice(0, SYNC_MAX_COMPETITORS);
+
+  competitorRepo.bulkUpsertSnapshots(snapshots);
+  competitorRepo.logSync({ orgId: org.id, profile: profileName, runPeriodKey: periodKey, status: 'success', placesFound: places.length, placesStored: snapshots.length });
+
+  return { places, method, snapshots, profileName };
+}
+
 function handleClientGetCompetitors(req, res, urlParams) {
   const data = loadData();
   const auth = getAuthUser(req, data);
@@ -10902,208 +10941,8 @@ async function handleClientSyncCompetitors(req, res) {
     });
   }
 
-  const MAX_RADIUS_M = 5000;
-  const MAX_RESULTS_PER_SEARCH = 20;
-  const MIN_RESULTS_FOR_FALLBACK = 3;
-  const MAX_COMPETITORS_PER_ORG = 25;
-
-  // Types to EXCLUDE from results (unless the profile explicitly targets them)
-  const IRRELEVANT_TYPES = [
-    'pharmacy', 'drugstore', 'hospital',
-    'university', 'school', 'secondary_school', 'primary_school',
-    'fire_station', 'police', 'post_office',
-    'supermarket', 'grocery_store', 'gas_station', 'parking',
-    'atm', 'bank', 'city_hall', 'local_government_office',
-    'cemetery', 'church', 'mosque', 'synagogue', 'hindu_temple',
-    // Beauty / wellness — not medical competitors
-    'beauty_salon', 'hair_salon', 'hair_care', 'spa',
-    'nail_salon', 'tanning_studio',
-  ];
-
-  // Google Place types specific enough for Nearby Search
-  const SPECIFIC_GOOGLE_TYPES = ['dentist', 'pharmacy', 'veterinary_care', 'physiotherapist', 'hospital'];
-
   try {
-    const profile = placesProfiles.getSearchProfile(org.vertical, org.specialty);
-    const profileName = profile.profileName;
-    const periodKey = competitorRepo.getISOWeekKey();
-
-    // Clear previous sync data for this period (manual sync always forces refresh)
-    try {
-      competitorRepo.clearSync(org.id, profileName, periodKey);
-    } catch (err) { console.debug('[SYNC] clearSync failed:', err.message); }
-
-    // ── Determine search strategy ──
-    const hasSpecificType = profile.includedTypes.some((t) => SPECIFIC_GOOGLE_TYPES.includes(t));
-    const useTextFirst = !hasSpecificType && profile.textQuery;
-
-    let places = [];
-    let searchMethod = '';
-
-    if (useTextFirst) {
-      // ── STRATEGY A: TEXT SEARCH FIRST (specialized profiles with generic 'doctor' type) ──
-      searchMethod = 'text';
-      console.log(`[SYNC-MANUAL] Strategy: Text Search first (profile=${profileName})`);
-
-      const textQueries = [profile.textQuery, ...(profile.textQueryVariants || [])];
-      const existingIds = new Set();
-
-      for (const query of textQueries) {
-        try {
-          const textPlaces = await googlePlaces.textSearch({
-            textQuery: query,
-            lat: org.lat,
-            lng: org.lng,
-            radiusMeters: profile.maxRadius || MAX_RADIUS_M,
-            maxResultCount: MAX_RESULTS_PER_SEARCH,
-          });
-          let added = 0;
-          for (const tp of textPlaces) {
-            if (tp.placeId && !existingIds.has(tp.placeId)) {
-              places.push(tp);
-              existingIds.add(tp.placeId);
-              added++;
-            }
-          }
-          if (added > 0) {
-            console.log(`[SYNC-MANUAL] Text Search "${query}": +${added} (${places.length} total)`);
-          }
-        } catch (textErr) {
-          console.log(`[SYNC-MANUAL] Text Search "${query}" failed: ${textErr.message}`);
-        }
-        if (textQueries.length > 1) await new Promise((r) => setTimeout(r, 200));
-      }
-
-      // Nearby fallback if very few results
-      if (places.length < MIN_RESULTS_FOR_FALLBACK) {
-        searchMethod = places.length > 0 ? 'text+nearby_fallback' : 'nearby_fallback';
-        try {
-          const nearbyPlaces = await googlePlaces.nearbySearch({
-            lat: org.lat,
-            lng: org.lng,
-            radiusMeters: MAX_RADIUS_M,
-            includedTypes: profile.includedTypes,
-            maxResultCount: MAX_RESULTS_PER_SEARCH,
-          });
-          const existingIdsNearby = new Set(places.map((p) => p.placeId));
-          for (const np of nearbyPlaces) {
-            if (np.placeId && !existingIdsNearby.has(np.placeId)) {
-              places.push(np);
-              existingIdsNearby.add(np.placeId);
-            }
-          }
-        } catch (nearbyErr) {
-          console.log(`[SYNC-MANUAL] Nearby Search fallback failed: ${nearbyErr.message}`);
-        }
-      }
-
-    } else {
-      // ── STRATEGY B: NEARBY SEARCH FIRST (specific types like dentist, pharmacy) ──
-      searchMethod = 'nearby';
-      console.log(`[SYNC-MANUAL] Strategy: Nearby Search first (types: ${profile.includedTypes.join(', ')})`);
-
-      try {
-        places = await googlePlaces.nearbySearch({
-          lat: org.lat,
-          lng: org.lng,
-          radiusMeters: profile.maxRadius || MAX_RADIUS_M,
-          includedTypes: profile.includedTypes,
-          maxResultCount: MAX_RESULTS_PER_SEARCH,
-        });
-      } catch (nearbyErr) {
-        console.log(`[SYNC-MANUAL] Nearby Search failed: ${nearbyErr.message}`);
-      }
-
-      // Text Search fallback
-      if (places.length < MIN_RESULTS_FOR_FALLBACK && profile.textQuery) {
-        searchMethod = places.length > 0 ? 'nearby+text_fallback' : 'text_fallback';
-        const textQueries = [profile.textQuery, ...(profile.textQueryVariants || [])];
-        const existingIds = new Set(places.map((p) => p.placeId));
-
-        for (const query of textQueries) {
-          try {
-            const textPlaces = await googlePlaces.textSearch({
-              textQuery: query,
-              lat: org.lat,
-              lng: org.lng,
-              radiusMeters: profile.maxRadius || MAX_RADIUS_M,
-              maxResultCount: MAX_RESULTS_PER_SEARCH,
-            });
-            for (const tp of textPlaces) {
-              if (tp.placeId && !existingIds.has(tp.placeId)) {
-                places.push(tp);
-                existingIds.add(tp.placeId);
-              }
-            }
-          } catch (textErr) {
-            console.log(`[SYNC-MANUAL] Text Search "${query}" failed: ${textErr.message}`);
-          }
-          if (textQueries.length > 1) await new Promise((r) => setTimeout(r, 200));
-        }
-      }
-    }
-
-    // ── Post-filter: exclude irrelevant types ──
-    const profileTargetsIrrelevant = profile.includedTypes.some((t) => IRRELEVANT_TYPES.includes(t));
-    if (!profileTargetsIrrelevant) {
-      const beforeFilter = places.length;
-      places = places.filter((p) => {
-        if (!p.types || p.types.length === 0) return true;
-        return !p.types.some((t) => IRRELEVANT_TYPES.includes(t));
-      });
-      if (beforeFilter > places.length) {
-        console.log(`[SYNC-MANUAL] Post-filter: removed ${beforeFilter - places.length} irrelevant places`);
-      }
-    }
-
-    // ── Filter out own place ──
-    places = places.filter((p) => {
-      if (org.googlePlaceId && p.placeId === org.googlePlaceId) return false;
-      if (!org.googlePlaceId && p.lat && p.lng) {
-        const dist = googlePlaces.haversineDistance(org.lat, org.lng, p.lat, p.lng);
-        if (dist < 50 && org.name && p.name) {
-          const normalize = (s) => s.toLowerCase().replace(/[^a-zàâéèêëïîôùûüç\s]/g, '').trim();
-          if (normalize(p.name).includes(normalize(org.name)) || normalize(org.name).includes(normalize(p.name))) {
-            return false;
-          }
-        }
-      }
-      return true;
-    });
-
-    // ── Calculate distances & prepare snapshots ──
-    const maxRadiusForProfile = profile.maxRadius || MAX_RADIUS_M;
-    const snapshots = places
-      .map((place) => {
-        const distanceM = googlePlaces.haversineDistance(org.lat, org.lng, place.lat, place.lng);
-        return {
-          orgId: org.id,
-          profile: profileName,
-          runPeriodKey: periodKey,
-          placeId: place.placeId,
-          name: place.name,
-          lat: place.lat,
-          lng: place.lng,
-          rating: place.rating,
-          userRatingsTotal: place.userRatingsTotal,
-          distanceM,
-          types: place.types,
-        };
-      })
-      .filter((s) => s.distanceM <= maxRadiusForProfile)
-      .sort((a, b) => a.distanceM - b.distanceM)
-      .slice(0, MAX_COMPETITORS_PER_ORG);
-
-    // ── Persist ──
-    competitorRepo.bulkUpsertSnapshots(snapshots);
-    competitorRepo.logSync({
-      orgId: org.id,
-      profile: profileName,
-      runPeriodKey: periodKey,
-      status: 'success',
-      placesFound: places.length,
-      placesStored: snapshots.length,
-    });
+    const { places, method: searchMethod, snapshots, profileName } = await runCompetitorSync(org);
 
     return sendJson(res, 200, {
       ok: true,
@@ -12975,39 +12814,60 @@ function recordTelemetry(data, orgId, level, code, message, extra = {}) {
   return entry;
 }
 
-// ============ SERVER ============
+// ============ ROUTE HANDLERS (extracted for cognitive complexity) ============
 
-const server = http.createServer(async (req, res) => {
-  try {
-  const { method, url } = req;
-
-  // ── P0.3: Security headers (default: API-safe strict CSP) ──
-  applySecurityHeaders(res);
-
-  // ── P0.3: CORS (must run before any route) ──
-  const corsResult = applyCors(req, res);
-  if (corsResult === 'blocked' || corsResult === 'preflight') return;
-
-  // Health check
-  if (method === 'GET' && url === '/health') {
-    return handleHealth(res);
+function routeApiLegacy(method, url, req, res) {
+  if (method === 'POST' && url === '/api/send-review-request') {
+    if (applyAuthRateLimit(req, res, 'send_review', 10)) return true;
+    handleSendReview(req, res); return true;
   }
+  if (method === 'GET' && url === '/api/feedbacks') { handleGetFeedbacks(req, res); return true; }
+  if (method === 'GET' && url === '/api/requests') { handleGetRequests(req, res); return true; }
+  if (method === 'GET' && url === '/api/settings') { handleGetSettings(req, res); return true; }
+  if (method === 'POST' && url === '/api/settings') { handleSaveSettings(req, res); return true; }
+  if (method === 'GET' && url === '/api/settings/review-routing') { handleGetReviewRouting(req, res); return true; }
+  if (method === 'PUT' && url === '/api/settings/review-routing') { handleSaveReviewRouting(req, res); return true; }
+  return false;
+}
 
-  // Google OAuth callback redirect (public GET from Google)
-  // Google redirects here with ?code=...&state=...
-  if (method === 'GET' && url.startsWith('/google/oauth/callback')) {
-    const cbParams = new URLSearchParams(url.split('?')[1] || '');
-    const code = cbParams.get('code') || '';
-    const state = cbParams.get('state') || '';
-    const error = cbParams.get('error') || '';
-    const adminUrl = process.env.ADMIN_URL || process.env.REPUTY_DOMAIN || 'http://localhost:3002';
-    // P0: Extract strict origin for postMessage (prevents code exfiltration to other domains)
-    const adminOrigin = (() => {
-      try { return new URL(adminUrl).origin; } catch { return adminUrl; }
-    })();
-    
-    // Render a minimal HTML page that sends the code back to the opener window
-    const html = `<!DOCTYPE html>
+function routeAuth(method, url, req, res) {
+  if (method === 'POST' && url === '/auth/signup') { handleSignup(req, res); return true; }
+  if (method === 'POST' && url === '/auth/verify') {
+    if (applyAuthRateLimit(req, res, '/auth/verify')) return true;
+    handleVerifyEmail(req, res); return true;
+  }
+  if (method === 'POST' && url === '/auth/resend-code') {
+    if (applyAuthRateLimit(req, res, '/auth/resend-code')) return true;
+    handleResendCode(req, res); return true;
+  }
+  if (method === 'POST' && url === '/auth/login') {
+    if (applyAuthRateLimit(req, res, '/auth/login')) return true;
+    handleLogin(req, res); return true;
+  }
+  if (method === 'POST' && url === '/auth/select-org') {
+    if (applyAuthRateLimit(req, res, '/auth/select-org')) return true;
+    handleAuthSelectOrg(req, res); return true;
+  }
+  if (method === 'POST' && url === '/auth/accept-invite') {
+    if (applyAuthRateLimit(req, res, '/auth/accept-invite')) return true;
+    handleAuthAcceptInvite(req, res); return true;
+  }
+  if (method === 'POST' && url === '/auth/logout') { handleLogout(req, res); return true; }
+  if (method === 'GET' && url === '/me') { handleGetMe(req, res); return true; }
+  return false;
+}
+
+function handleOAuthCallbackPage(req, res, url) {
+  const cbParams = new URLSearchParams(url.split('?')[1] || '');
+  const code = cbParams.get('code') || '';
+  const state = cbParams.get('state') || '';
+  const error = cbParams.get('error') || '';
+  const adminUrl = process.env.ADMIN_URL || process.env.REPUTY_DOMAIN || 'http://localhost:3002';
+  const adminOrigin = (() => {
+    try { return new URL(adminUrl).origin; } catch (e) { return adminUrl; }
+  })();
+  
+  const html = `<!DOCTYPE html>
 <html><head><title>Connexion Google - Reputy</title></head>
 <body>
 <p style="font-family:sans-serif;text-align:center;margin-top:40px;">
@@ -13024,7 +12884,6 @@ const server = http.createServer(async (req, res) => {
       }, ${JSON.stringify(adminOrigin)});
       setTimeout(function() { window.close(); }, 1500);
     } else {
-      // Fallback: redirect to admin settings with code in URL
       window.location.href = ${JSON.stringify(adminUrl)} + '/settings?google_code=' + encodeURIComponent(${JSON.stringify(code)}) + '&google_state=' + encodeURIComponent(${JSON.stringify(state)});
     }
   } catch(e) {
@@ -13032,611 +12891,237 @@ const server = http.createServer(async (req, res) => {
   }
 </script>
 </body></html>`;
-    
-    // Override security headers for this HTML page: allow inline script + allow window.opener
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'");
-    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
-    return;
+  
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'");
+  res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
+function routeClientCore(method, pathname, req, res, urlParams) {
+  if (method === 'GET' && pathname === '/client/memberships') { handleClientGetMemberships(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/orgs/switch') { handleClientSwitchOrg(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/orgs') { handleClientCreateOrg(req, res); return true; }
+  const delOrg = pathname.match(/^\/client\/orgs\/([a-f0-9]+)$/);
+  if (delOrg && method === 'DELETE') { handleClientDeleteOrg(req, res, delOrg[1]); return true; }
+  if (method === 'GET' && pathname === '/client/api-token') { handleClientGetApiToken(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/api-token/rotate') { handleClientRotateApiToken(req, res); return true; }
+  if (method === 'GET' && pathname === '/client/team') { handleClientGetTeam(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/client/team/invite') { handleClientTeamInvite(req, res); return true; }
+  const teamM = pathname.match(/^\/client\/team\/([a-zA-Z0-9_-]+)$/);
+  if (teamM && method === 'PUT') { handleClientTeamUpdateRole(req, res, teamM[1]); return true; }
+  if (teamM && method === 'DELETE') { handleClientTeamRevoke(req, res, teamM[1]); return true; }
+  if (method === 'GET' && pathname === '/client/org') { handleClientGetOrg(req, res); return true; }
+  if (method === 'GET' && pathname === '/client/usage') { handleClientGetUsage(req, res, urlParams); return true; }
+  if (method === 'GET' && pathname === '/client/settings') { handleClientGetSettings(req, res); return true; }
+  if (method === 'GET' && pathname === '/client/lifecycle-stats') { handleClientLifecycleStats(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/client/ai/suggest-reply') { handleAiSuggestReply(req, res); return true; }
+  return false;
+}
+
+function routeClientInstallations(method, pathname, req, res) {
+  if (method === 'GET' && pathname === '/client/installations') { handleClientListInstallations(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/installations') { handleClientCreateInstallation(req, res); return true; }
+  const revoke = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/revoke$/);
+  if (revoke && method === 'POST') { handleClientRevokeInstallation(req, res, revoke[1]); return true; }
+  const rotate = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/rotate$/);
+  if (rotate && method === 'POST') { handleClientRotateInstallation(req, res, rotate[1]); return true; }
+  return false;
+}
+
+function routeClientShortlinks(method, pathname, req, res) {
+  if (method === 'GET' && pathname === '/client/shortlinks') { handleClientListShortlinks(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/shortlinks') { handleClientCreateShortlink(req, res); return true; }
+  const qr = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)\/qr$/);
+  if (qr && method === 'GET') { handleClientGetShortlinkQR(req, res, qr[1]); return true; }
+  const del = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)$/);
+  if (del && method === 'DELETE') { handleClientDeleteShortlink(req, res, del[1]); return true; }
+  return false;
+}
+
+function routeClientContacts(method, pathname, req, res, urlParams) {
+  if (method === 'GET' && pathname === '/client/contacts') { handleClientGetContacts(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/client/contacts') { handleClientCreateContact(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/contacts/import') { handleClientImportContacts(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/contacts/sync') { handleClientSyncContacts(req, res); return true; }
+  const del = pathname.match(/^\/client\/contacts\/([a-zA-Z0-9]+)$/);
+  if (del && method === 'DELETE') { handleClientDeleteContact(req, res, del[1]); return true; }
+  return false;
+}
+
+function routeClientCampaigns(method, pathname, req, res, urlParams) {
+  if (method === 'GET' && pathname === '/client/campaigns') { handleClientGetCampaigns(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/client/campaigns') { handleClientCreateCampaign(req, res); return true; }
+  const byId = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)$/);
+  if (byId && method === 'GET') { handleClientGetCampaign(req, res, byId[1]); return true; }
+  if (byId && method === 'PUT') { handleClientUpdateCampaign(req, res, byId[1]); return true; }
+  if (byId && method === 'DELETE') { handleClientDeleteCampaign(req, res, byId[1]); return true; }
+  const recip = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/recipients$/);
+  if (recip && method === 'POST') { handleClientAddCampaignRecipients(req, res, recip[1]); return true; }
+  const send = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/send$/);
+  if (send && method === 'POST') { handleClientSendCampaign(req, res, send[1]); return true; }
+  return false;
+}
+
+async function routeClientGoogle(method, pathname, req, res, urlParams) {
+  if (method === 'GET' && pathname === '/client/google/status') { handleGoogleStatus(req, res); return true; }
+  if (method === 'GET' && pathname === '/client/google/auth-url') { handleGoogleAuthUrl(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/google/callback') { await handleGoogleCallback(req, res); return true; }
+  if (method === 'GET' && pathname === '/client/google/accounts') { await handleGoogleListAccounts(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/google/select-location') { await handleGoogleSelectLocation(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/google/sync') { await handleGoogleSync(req, res); return true; }
+  const postReply = pathname.match(/^\/client\/google\/post-reply\/([a-zA-Z0-9_-]+)$/);
+  if (postReply && method === 'POST') { await handleGooglePostReply(req, res, postReply[1]); return true; }
+  if (method === 'POST' && pathname === '/client/google/disconnect') { handleGoogleDisconnect(req, res); return true; }
+  if (method === 'GET' && pathname === '/client/google/sync-log') { handleGoogleSyncLog(req, res, urlParams); return true; }
+  if (method === 'GET' && pathname === '/client/google/my-place') { await handleGoogleMyPlace(req, res); return true; }
+  return false;
+}
+
+async function routeClientCompetitors(method, pathname, req, res, urlParams) {
+  if (method === 'GET' && pathname === '/client/competitors') { handleClientGetCompetitors(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/client/competitors/configure') { await handleClientConfigureCompetitors(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/competitors/sync') { await handleClientSyncCompetitors(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/competitors/add') { await handleClientAddCompetitor(req, res); return true; }
+  const details = pathname.match(/^\/client\/competitors\/([a-zA-Z0-9_-]+)\/details$/);
+  if (details && method === 'GET') { await handleClientGetCompetitorDetails(req, res, details[1]); return true; }
+  if (method === 'GET' && pathname === '/client/places/autocomplete') { await handleClientPlacesAutocomplete(req, res, urlParams); return true; }
+  const geo = pathname.match(/^\/client\/places\/([a-zA-Z0-9_-]+)\/geometry$/);
+  if (geo && method === 'GET') { await handleClientPlaceGeometry(req, res, geo[1]); return true; }
+  return false;
+}
+
+function routeClientReviews(method, pathname, req, res, urlParams) {
+  if (method === 'GET' && pathname === '/client/reviews') { handleClientListReviews(req, res, urlParams); return true; }
+  if (method === 'GET' && pathname === '/client/reviews/stats') { handleClientReviewStats(req, res, urlParams); return true; }
+  if (method === 'GET' && pathname === '/client/reviews/analytics') { handleClientReviewAnalytics(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/client/reviews') { handleClientCreateReview(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/reviews/bulk') { handleClientBulkImportReviews(req, res); return true; }
+  const byId = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)$/);
+  if (byId && method === 'GET') { handleClientGetReview(req, res, byId[1]); return true; }
+  const reply = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/reply$/);
+  if (reply && method === 'POST') { handleClientReplyReview(req, res, reply[1]); return true; }
+  const status = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/status$/);
+  if (status && method === 'POST') { handleClientUpdateReviewStatus(req, res, status[1]); return true; }
+  return false;
+}
+
+function routeClientBilling(method, pathname, req, res) {
+  if (method === 'GET' && pathname === '/client/billing/status') { handleBillingStatus(req, res); return true; }
+  if (method === 'GET' && pathname === '/client/billing/invoices') { handleBillingInvoices(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/billing/checkout') { handleBillingCheckout(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/billing/portal') { handleBillingPortal(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/billing/pack/checkout') { handlePackCheckout(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/billing/pack/multi-checkout') { handleMultiPackCheckout(req, res); return true; }
+  if (method === 'POST' && pathname === '/client/billing/sepa') {
+    req._forceProvider = 'gocardless';
+    handleBillingCheckout(req, res); return true;
+  }
+  return false;
+}
+
+async function routeClient(method, pathname, req, res, urlParams) {
+  if (routeClientCore(method, pathname, req, res, urlParams)) return true;
+  if (pathname.startsWith('/client/installations') && routeClientInstallations(method, pathname, req, res)) return true;
+  if (pathname.startsWith('/client/shortlinks') && routeClientShortlinks(method, pathname, req, res)) return true;
+  if (pathname.startsWith('/client/contacts') && routeClientContacts(method, pathname, req, res, urlParams)) return true;
+  if (pathname.startsWith('/client/campaigns') && routeClientCampaigns(method, pathname, req, res, urlParams)) return true;
+  if (pathname.startsWith('/client/google') && await routeClientGoogle(method, pathname, req, res, urlParams)) return true;
+  if ((pathname.startsWith('/client/competitors') || pathname.startsWith('/client/places')) && await routeClientCompetitors(method, pathname, req, res, urlParams)) return true;
+  if (pathname.startsWith('/client/reviews') && routeClientReviews(method, pathname, req, res, urlParams)) return true;
+  if (pathname.startsWith('/client/billing') && routeClientBilling(method, pathname, req, res)) return true;
+  return false;
+}
+
+function routeInternalAdmin(method, pathname, req, res, urlParams) {
+  if (method === 'GET' && pathname === '/internal/admin/health') { handleAdminHealth(req, res); return true; }
+  if (method === 'GET' && pathname === '/internal/admin/metrics') { handleAdminMetrics(req, res, urlParams); return true; }
+  if (method === 'GET' && pathname === '/internal/admin/feedbacks') { handleAdminGetFeedbacks(req, res); return true; }
+  if (method === 'GET' && pathname === '/internal/admin/legacy-auth-stats') { handleLegacyAuthStats(req, res); return true; }
+  if (method === 'GET' && pathname === '/internal/admin/at-risk-orgs') { handleAdminAtRiskOrgs(req, res); return true; }
+  if (method === 'GET' && pathname === '/internal/admin/mrr-history') { handleAdminMrrHistory(req, res, urlParams); return true; }
+
+  if (method === 'GET' && pathname === '/api/email/admin/health') { handleEmailAdminHealth(req, res, urlParams); return true; }
+  if (method === 'GET' && pathname === '/api/email/admin/alerts') { handleEmailAdminAlerts(req, res, urlParams); return true; }
+  if (method === 'GET' && pathname === '/api/email/admin/org-stats') { handleEmailAdminOrgStats(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/api/email/admin/pause') { handleEmailAdminPause(req, res); return true; }
+  if (method === 'GET' && pathname === '/api/email/admin/pause-state') { handleEmailAdminPauseState(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/api/email/admin/force-warm') { handleEmailAdminForceWarm(req, res); return true; }
+  if (method === 'GET' && pathname === '/api/email/admin/top-risk-csv') { handleEmailAdminTopRiskCsv(req, res, urlParams); return true; }
+
+  if (method === 'GET' && pathname === '/internal/packs') { handleGetPacks(req, res); return true; }
+  if (method === 'GET' && pathname === '/internal/orgs') { handleListOrgs(req, res, urlParams); return true; }
+  if (method === 'POST' && pathname === '/internal/orgs') { handleCreateOrg(req, res); return true; }
+
+  const orgMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)$/);
+  if (orgMatch) {
+    if (method === 'GET') { handleGetOrg(req, res, orgMatch[1], urlParams); return true; }
+    if (method === 'PUT') { handleUpdateOrg(req, res, orgMatch[1]); return true; }
   }
 
-  // Send review request (from extension)
-  if (method === 'POST' && url === '/api/send-review-request') {
-    // P1.4: Rate limit send-review — 10 req/min per IP (anti-abuse)
-    if (applyAuthRateLimit(req, res, 'send_review', 10)) return;
-    return handleSendReview(req, res);
+  const ORG_ACTIONS = [
+    ['credits', 'POST', handleAddCredits],
+    ['status', 'POST', handleChangeStatus],
+    ['simulate-usage', 'POST', handleSimulateUsage],
+    ['reset-public-key', 'POST', handleResetPublicKey],
+    ['rotate-api-token', 'POST', handleRotateApiToken],
+    ['assign-plan', 'POST', handleAssignPlan],
+    ['apply-coupon', 'POST', handleApplyCoupon],
+    ['remove-coupon', 'POST', handleRemoveCoupon],
+  ];
+  for (const [action, verb, handler] of ORG_ACTIONS) {
+    const m = pathname.match(new RegExp(`^/internal/orgs/([a-f0-9]+)/${action}$`));
+    if (m && method === verb) { handler(req, res, m[1]); return true; }
   }
 
-  // Get feedbacks list (admin)
-  if (method === 'GET' && url === '/api/feedbacks') {
-    return handleGetFeedbacks(req, res);
-  }
-  
-  // Get requests list with status (admin) - Traçabilité
-  if (method === 'GET' && url === '/api/requests') {
-    return handleGetRequests(req, res);
+  const effectiveBillingMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/effective-billing$/);
+  if (effectiveBillingMatch && method === 'GET') { handleGetEffectiveBilling(req, res, effectiveBillingMatch[1]); return true; }
+  const usageMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/usage$/);
+  if (usageMatch && method === 'GET') { handleGetOrgUsage(req, res, usageMatch[1], urlParams); return true; }
+  const telemetryMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/telemetry$/);
+  if (telemetryMatch && method === 'GET') { handleGetOrgTelemetry(req, res, telemetryMatch[1], urlParams); return true; }
+  const apiTokenMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/api-token$/);
+  if (apiTokenMatch && method === 'GET') { handleGetApiToken(req, res, apiTokenMatch[1]); return true; }
+
+  return false;
+}
+
+// ============ SERVER ============
+
+const server = http.createServer(async (req, res) => {
+  try {
+  const { method, url } = req;
+
+  applySecurityHeaders(res);
+
+  const corsResult = applyCors(req, res);
+  if (corsResult === 'blocked' || corsResult === 'preflight') return;
+
+  if (method === 'GET' && url === '/health') {
+    return handleHealth(res);
   }
 
-  // Settings (admin)
-  if (method === 'GET' && url === '/api/settings') {
-    return handleGetSettings(req, res);
-  }
-  if (method === 'POST' && url === '/api/settings') {
-    return handleSaveSettings(req, res);
-  }
-  
-  // Review Routing Settings (admin)
-  if (method === 'GET' && url === '/api/settings/review-routing') {
-    return handleGetReviewRouting(req, res);
-  }
-  if (method === 'PUT' && url === '/api/settings/review-routing') {
-    return handleSaveReviewRouting(req, res);
+  if (method === 'GET' && url.startsWith('/google/oauth/callback')) {
+    return handleOAuthCallbackPage(req, res, url);
   }
 
-  // ============ AUTH ROUTES (Public) ============
-  
-  if (method === 'POST' && url === '/auth/signup') {
-    return handleSignup(req, res);
-  }
-  
-  // P0.4: Rate limiting on /auth/verify
-  if (method === 'POST' && url === '/auth/verify') {
-    if (applyAuthRateLimit(req, res, '/auth/verify')) return; // Blocked
-    return handleVerifyEmail(req, res);
-  }
-  
-  // P0.4: Rate limiting on /auth/resend-code
-  if (method === 'POST' && url === '/auth/resend-code') {
-    if (applyAuthRateLimit(req, res, '/auth/resend-code')) return; // Blocked
-    return handleResendCode(req, res);
-  }
-  
-  // P0.4: Rate limiting on /auth/login
-  if (method === 'POST' && url === '/auth/login') {
-    if (applyAuthRateLimit(req, res, '/auth/login')) return; // Blocked
-    return handleLogin(req, res);
-  }
-  
-  // PR-8b: Multi-org login selection
-  if (method === 'POST' && url === '/auth/select-org') {
-    if (applyAuthRateLimit(req, res, '/auth/select-org')) return;
-    return handleAuthSelectOrg(req, res);
-  }
+  if (url.startsWith('/api/') && routeApiLegacy(method, url, req, res)) return;
+  if ((url.startsWith('/auth/') || url === '/me') && routeAuth(method, url, req, res)) return;
 
-  // PR-8e: Accept invitation via invite token
-  if (method === 'POST' && url === '/auth/accept-invite') {
-    if (applyAuthRateLimit(req, res, '/auth/accept-invite')) return;
-    return handleAuthAcceptInvite(req, res);
-  }
-
-  if (method === 'POST' && url === '/auth/logout') {
-    return handleLogout(req, res);
-  }
-  
-  if (method === 'GET' && url === '/me') {
-    return handleGetMe(req, res);
-  }
-  
-  // ============ INTERNAL BACKOFFICE ROUTES (Super Admin) ============
-  
-  // Parse URL for query params
   const urlParts = url.split('?');
   const pathname = urlParts[0];
   const urlParams = new URLSearchParams(urlParts[1] || '');
   
-  // ============ CLIENT DASHBOARD ROUTES (Authenticated Users) ============
-  
-  if (method === 'GET' && pathname === '/client/memberships') {
-    return handleClientGetMemberships(req, res);
-  }
+  if (pathname.startsWith('/client/') && await routeClient(method, pathname, req, res, urlParams)) return;
 
-  // PR-8b: Multi-establishment routes
-  if (method === 'POST' && pathname === '/client/orgs/switch') {
-    return handleClientSwitchOrg(req, res);
-  }
-  
-  if (method === 'POST' && pathname === '/client/orgs') {
-    return handleClientCreateOrg(req, res);
-  }
+  if (method === 'POST' && pathname === '/webhooks/stripe') { return handleStripeWebhook(req, res); }
+  if (method === 'POST' && pathname === '/webhooks/gocardless') { return handleGoCardlessWebhook(req, res); }
 
-  // DELETE /client/orgs/:orgId — archive an establishment
-  const deleteOrgMatch = pathname.match(/^\/client\/orgs\/([a-f0-9]+)$/);
-  if (deleteOrgMatch && method === 'DELETE') {
-    return handleClientDeleteOrg(req, res, deleteOrgMatch[1]);
-  }
-
-  // Client API Token management (owner only)
-  if (method === 'GET' && pathname === '/client/api-token') {
-    return handleClientGetApiToken(req, res);
-  }
-  if (method === 'POST' && pathname === '/client/api-token/rotate') {
-    return handleClientRotateApiToken(req, res);
-  }
-
-  if (method === 'GET' && pathname === '/client/team') {
-    return handleClientGetTeam(req, res, urlParams);
-  }
-
-  if (method === 'POST' && pathname === '/client/team/invite') {
-    return handleClientTeamInvite(req, res);
-  }
-
-  // PUT/DELETE /client/team/:membershipId
-  const teamMemberMatch = pathname.match(/^\/client\/team\/([a-zA-Z0-9_-]+)$/);
-  if (teamMemberMatch && method === 'PUT') {
-    return handleClientTeamUpdateRole(req, res, teamMemberMatch[1]);
-  }
-  if (teamMemberMatch && method === 'DELETE') {
-    return handleClientTeamRevoke(req, res, teamMemberMatch[1]);
-  }
-
-  if (method === 'GET' && pathname === '/client/org') {
-    return handleClientGetOrg(req, res);
-  }
-  
-  if (method === 'GET' && pathname === '/client/usage') {
-    return handleClientGetUsage(req, res, urlParams);
-  }
-  
-  if (method === 'GET' && pathname === '/client/settings') {
-    return handleClientGetSettings(req, res);
-  }
-  
-  // ============ CLIENT INSTALLATIONS ROUTES ============
-  
-  if (method === 'GET' && pathname === '/client/installations') {
-    return handleClientListInstallations(req, res);
-  }
-  
-  if (method === 'POST' && pathname === '/client/installations') {
-    return handleClientCreateInstallation(req, res);
-  }
-  
-  // Revoke installation: /client/installations/:id/revoke
-  const revokeInstallMatch = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/revoke$/);
-  if (revokeInstallMatch && method === 'POST') {
-    return handleClientRevokeInstallation(req, res, revokeInstallMatch[1]);
-  }
-  
-  // Rotate installation token: /client/installations/:id/rotate
-  const rotateInstallMatch = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/rotate$/);
-  if (rotateInstallMatch && method === 'POST') {
-    return handleClientRotateInstallation(req, res, rotateInstallMatch[1]);
-  }
-  
-  // ============ CLIENT SHORTLINKS ROUTES ============
-  
-  if (method === 'GET' && pathname === '/client/shortlinks') {
-    return handleClientListShortlinks(req, res);
-  }
-  
-  if (method === 'POST' && pathname === '/client/shortlinks') {
-    return handleClientCreateShortlink(req, res);
-  }
-  
-  // Get QR code for shortlink: /client/shortlinks/:code/qr
-  const qrShortlinkMatch = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)\/qr$/);
-  if (qrShortlinkMatch && method === 'GET') {
-    return handleClientGetShortlinkQR(req, res, qrShortlinkMatch[1]);
-  }
-  
-  // Delete shortlink: /client/shortlinks/:code
-  const deleteShortlinkMatch = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)$/);
-  if (deleteShortlinkMatch && method === 'DELETE') {
-    return handleClientDeleteShortlink(req, res, deleteShortlinkMatch[1]);
-  }
-  
-  // ============ CLIENT CONTACTS ROUTES ============
-
-  if (method === 'GET' && pathname === '/client/contacts') {
-    return handleClientGetContacts(req, res, urlParams);
-  }
-  if (method === 'POST' && pathname === '/client/contacts') {
-    return handleClientCreateContact(req, res);
-  }
-  if (method === 'POST' && pathname === '/client/contacts/import') {
-    return handleClientImportContacts(req, res);
-  }
-  if (method === 'POST' && pathname === '/client/contacts/sync') {
-    return handleClientSyncContacts(req, res);
-  }
-  // Delete contact: /client/contacts/:id
-  const deleteContactMatch = pathname.match(/^\/client\/contacts\/([a-zA-Z0-9]+)$/);
-  if (deleteContactMatch && method === 'DELETE') {
-    return handleClientDeleteContact(req, res, deleteContactMatch[1]);
-  }
-
-  // ============ CLIENT CAMPAIGNS ROUTES ============
-
-  if (method === 'GET' && pathname === '/client/campaigns') {
-    return handleClientGetCampaigns(req, res, urlParams);
-  }
-  if (method === 'POST' && pathname === '/client/campaigns') {
-    return handleClientCreateCampaign(req, res);
-  }
-  // Campaign by ID: /client/campaigns/:id
-  const campaignIdMatch = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)$/);
-  if (campaignIdMatch && method === 'GET') {
-    return handleClientGetCampaign(req, res, campaignIdMatch[1]);
-  }
-  if (campaignIdMatch && method === 'PUT') {
-    return handleClientUpdateCampaign(req, res, campaignIdMatch[1]);
-  }
-  if (campaignIdMatch && method === 'DELETE') {
-    return handleClientDeleteCampaign(req, res, campaignIdMatch[1]);
-  }
-  // Campaign recipients: /client/campaigns/:id/recipients
-  const campaignRecipientsMatch = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/recipients$/);
-  if (campaignRecipientsMatch && method === 'POST') {
-    return handleClientAddCampaignRecipients(req, res, campaignRecipientsMatch[1]);
-  }
-  // Campaign send: /client/campaigns/:id/send
-  const campaignSendMatch = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/send$/);
-  if (campaignSendMatch && method === 'POST') {
-    return handleClientSendCampaign(req, res, campaignSendMatch[1]);
-  }
-
-  // ============ CLIENT LIFECYCLE STATS (P1a) ============
-  
-  if (method === 'GET' && pathname === '/client/lifecycle-stats') {
-    return handleClientLifecycleStats(req, res, urlParams);
-  }
-  
-  // ============ CLIENT AI (PR-3) ============
-  
-  if (method === 'POST' && pathname === '/client/ai/suggest-reply') {
-    return handleAiSuggestReply(req, res);
-  }
-  
-  // ============ CLIENT GOOGLE BUSINESS ROUTES ============
-  
-  // Google connection status
-  if (method === 'GET' && pathname === '/client/google/status') {
-    return handleGoogleStatus(req, res);
-  }
-  
-  // Generate OAuth URL
-  if (method === 'GET' && pathname === '/client/google/auth-url') {
-    return handleGoogleAuthUrl(req, res);
-  }
-  
-  // OAuth callback (exchange code)
-  if (method === 'POST' && pathname === '/client/google/callback') {
-    return await handleGoogleCallback(req, res);
-  }
-  
-  // List Google accounts/locations
-  if (method === 'GET' && pathname === '/client/google/accounts') {
-    return await handleGoogleListAccounts(req, res);
-  }
-  
-  // Select a Google location
-  if (method === 'POST' && pathname === '/client/google/select-location') {
-    return await handleGoogleSelectLocation(req, res);
-  }
-  
-  // Trigger manual sync
-  if (method === 'POST' && pathname === '/client/google/sync') {
-    return await handleGoogleSync(req, res);
-  }
-  
-  // Post a reply to Google
-  const googlePostReplyMatch = pathname.match(/^\/client\/google\/post-reply\/([a-zA-Z0-9_-]+)$/);
-  if (googlePostReplyMatch && method === 'POST') {
-    return await handleGooglePostReply(req, res, googlePostReplyMatch[1]);
-  }
-  
-  // Disconnect Google
-  if (method === 'POST' && pathname === '/client/google/disconnect') {
-    return handleGoogleDisconnect(req, res);
-  }
-  
-  // Sync log
-  if (method === 'GET' && pathname === '/client/google/sync-log') {
-    return handleGoogleSyncLog(req, res, urlParams);
-  }
-
-  // Client's own Google place info (rating, reviews) via Places API
-  if (method === 'GET' && pathname === '/client/google/my-place') {
-    return await handleGoogleMyPlace(req, res);
-  }
-  
-  // ============ CLIENT COMPETITORS ROUTES ============
-  
-  // Get competitors with server-side buckets
-  if (method === 'GET' && pathname === '/client/competitors') {
-    return handleClientGetCompetitors(req, res, urlParams);
-  }
-  
-  // Configure org coordinates for competitor search
-  if (method === 'POST' && pathname === '/client/competitors/configure') {
-    return await handleClientConfigureCompetitors(req, res);
-  }
-  
-  // Manual competitor sync (Google Places)
-  if (method === 'POST' && pathname === '/client/competitors/sync') {
-    return await handleClientSyncCompetitors(req, res);
-  }
-
-  // Add a single competitor manually (by Google Place ID)
-  if (method === 'POST' && pathname === '/client/competitors/add') {
-    return await handleClientAddCompetitor(req, res);
-  }
-  
-  // Get competitor place details (cached + Google Places)
-  const competitorDetailsMatch = pathname.match(/^\/client\/competitors\/([a-zA-Z0-9_-]+)\/details$/);
-  if (competitorDetailsMatch && method === 'GET') {
-    return await handleClientGetCompetitorDetails(req, res, competitorDetailsMatch[1]);
-  }
-  
-  // Places Autocomplete (proxy — keeps API key server-side)
-  if (method === 'GET' && pathname === '/client/places/autocomplete') {
-    return await handleClientPlacesAutocomplete(req, res, urlParams);
-  }
-  
-  // Places Geometry (get lat/lng from placeId)
-  const placeGeometryMatch = pathname.match(/^\/client\/places\/([a-zA-Z0-9_-]+)\/geometry$/);
-  if (placeGeometryMatch && method === 'GET') {
-    return await handleClientPlaceGeometry(req, res, placeGeometryMatch[1]);
-  }
-
-  // ============ CLIENT REVIEWS ROUTES (Phase 1A) ============
-  
-  // List reviews with filters and pagination
-  if (method === 'GET' && pathname === '/client/reviews') {
-    return handleClientListReviews(req, res, urlParams);
-  }
-  
-  // Get review stats (KPIs + star distribution)
-  if (method === 'GET' && pathname === '/client/reviews/stats') {
-    return handleClientReviewStats(req, res, urlParams);
-  }
-  
-  // Get review analytics (time series)
-  if (method === 'GET' && pathname === '/client/reviews/analytics') {
-    return handleClientReviewAnalytics(req, res, urlParams);
-  }
-  
-  // Create review (for dev/test/import)
-  if (method === 'POST' && pathname === '/client/reviews') {
-    return handleClientCreateReview(req, res);
-  }
-  
-  // Bulk import reviews
-  if (method === 'POST' && pathname === '/client/reviews/bulk') {
-    return handleClientBulkImportReviews(req, res);
-  }
-  
-  // Get single review by ID
-  const reviewIdMatch = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)$/);
-  if (reviewIdMatch && method === 'GET') {
-    return handleClientGetReview(req, res, reviewIdMatch[1]);
-  }
-  
-  // Reply to a review (idempotent)
-  const reviewReplyMatch = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/reply$/);
-  if (reviewReplyMatch && method === 'POST') {
-    return handleClientReplyReview(req, res, reviewReplyMatch[1]);
-  }
-  
-  // Update review status
-  const reviewStatusMatch = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/status$/);
-  if (reviewStatusMatch && method === 'POST') {
-    return handleClientUpdateReviewStatus(req, res, reviewStatusMatch[1]);
-  }
-  
-  // ============ CLIENT BILLING ROUTES ============
-  
-  // Get billing status
-  if (method === 'GET' && pathname === '/client/billing/status') {
-    return handleBillingStatus(req, res);
-  }
-  
-  // List invoices (Stripe)
-  if (method === 'GET' && pathname === '/client/billing/invoices') {
-    return handleBillingInvoices(req, res);
-  }
-  
-  // Create checkout session (Stripe)
-  if (method === 'POST' && pathname === '/client/billing/checkout') {
-    return handleBillingCheckout(req, res);
-  }
-  
-  // Create portal session (Stripe)
-  if (method === 'POST' && pathname === '/client/billing/portal') {
-    return handleBillingPortal(req, res);
-  }
-  
-  // Pack checkout (one-time purchase)
-  if (method === 'POST' && pathname === '/client/billing/pack/checkout') {
-    return handlePackCheckout(req, res);
-  }
-  
-  // Multi-pack checkout (cart functionality)
-  if (method === 'POST' && pathname === '/client/billing/pack/multi-checkout') {
-    return handleMultiPackCheckout(req, res);
-  }
-  
-  // SEPA mandate flow (GoCardless) - alias for checkout with provider=gocardless
-  if (method === 'POST' && pathname === '/client/billing/sepa') {
-    // Set provider to gocardless and forward to checkout
-    req._forceProvider = 'gocardless';
-    return handleBillingCheckout(req, res);
-  }
-  
-  // ============ WEBHOOK ROUTES ============
-  
-  // Stripe webhooks
-  if (method === 'POST' && pathname === '/webhooks/stripe') {
-    return handleStripeWebhook(req, res);
-  }
-  
-  // GoCardless webhooks
-  if (method === 'POST' && pathname === '/webhooks/gocardless') {
-    return handleGoCardlessWebhook(req, res);
-  }
-  
-  // ============ PUBLIC API ROUTES ============
-  
-  // Get org by publicKey (public, no auth)
   const publicOrgMatch = pathname.match(/^\/public\/org\/by-key\/([a-zA-Z0-9_]+)$/);
-  if (publicOrgMatch && method === 'GET') {
-    return handleGetOrgByPublicKey(req, res, publicOrgMatch[1]);
-  }
-  
-  // Extension telemetry (public endpoint, no admin token)
-  if (method === 'POST' && pathname === '/telemetry/extension') {
-    return handleExtensionTelemetry(req, res);
-  }
-  
-  // P1.1: Rich health check (admin-only, monitoring)
-  if (method === 'GET' && pathname === '/internal/admin/health') {
-    return handleAdminHealth(req, res);
-  }
+  if (publicOrgMatch && method === 'GET') { return handleGetOrgByPublicKey(req, res, publicOrgMatch[1]); }
+  if (method === 'POST' && pathname === '/telemetry/extension') { return handleExtensionTelemetry(req, res); }
 
-  // P1.2: Business metrics (admin-only)
-  if (method === 'GET' && pathname === '/internal/admin/metrics') {
-    return handleAdminMetrics(req, res, urlParams);
-  }
-
-  // P5: Admin feedbacks (replaces legacy /api/feedbacks + CABINET_API_TOKEN)
-  if (method === 'GET' && pathname === '/internal/admin/feedbacks') {
-    return handleAdminGetFeedbacks(req, res);
-  }
-  
-  // P5: Legacy auth stats (monitoring kill-switch migration)
-  if (method === 'GET' && pathname === '/internal/admin/legacy-auth-stats') {
-    return handleLegacyAuthStats(req, res);
-  }
-
-  // P1b: At-risk orgs (paying but not activated)
-  if (method === 'GET' && pathname === '/internal/admin/at-risk-orgs') {
-    return handleAdminAtRiskOrgs(req, res);
-  }
-
-  // P2: MRR history (daily snapshots)
-  if (method === 'GET' && pathname === '/internal/admin/mrr-history') {
-    return handleAdminMrrHistory(req, res, urlParams);
-  }
-
-  // Email Health API (Super Admin)
-  if (method === 'GET' && pathname === '/api/email/admin/health') {
-    return handleEmailAdminHealth(req, res, urlParams);
-  }
-  if (method === 'GET' && pathname === '/api/email/admin/alerts') {
-    return handleEmailAdminAlerts(req, res, urlParams);
-  }
-  if (method === 'GET' && pathname === '/api/email/admin/org-stats') {
-    return handleEmailAdminOrgStats(req, res, urlParams);
-  }
-  if (method === 'POST' && pathname === '/api/email/admin/pause') {
-    return handleEmailAdminPause(req, res);
-  }
-  if (method === 'GET' && pathname === '/api/email/admin/pause-state') {
-    return handleEmailAdminPauseState(req, res, urlParams);
-  }
-  if (method === 'POST' && pathname === '/api/email/admin/force-warm') {
-    return handleEmailAdminForceWarm(req, res);
-  }
-  if (method === 'GET' && pathname === '/api/email/admin/top-risk-csv') {
-    return handleEmailAdminTopRiskCsv(req, res, urlParams);
-  }
-  
-  // List packs catalog
-  if (method === 'GET' && pathname === '/internal/packs') {
-    return handleGetPacks(req, res);
-  }
-  
-  // List all orgs (supports ?now=ISO for debug)
-  if (method === 'GET' && pathname === '/internal/orgs') {
-    return handleListOrgs(req, res, urlParams);
-  }
-  
-  // Create org
-  if (method === 'POST' && pathname === '/internal/orgs') {
-    return handleCreateOrg(req, res);
-  }
-  
-  // Org-specific routes (supports ?now=ISO for debug on GET)
-  const orgMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)$/);
-  if (orgMatch) {
-    const orgId = orgMatch[1];
-    if (method === 'GET') return handleGetOrg(req, res, orgId, urlParams);
-    if (method === 'PUT') return handleUpdateOrg(req, res, orgId);
-  }
-  
-  // Org credits
-  const creditsMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/credits$/);
-  if (creditsMatch && method === 'POST') {
-    return handleAddCredits(req, res, creditsMatch[1]);
-  }
-  
-  // Org status
-  const statusMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/status$/);
-  if (statusMatch && method === 'POST') {
-    return handleChangeStatus(req, res, statusMatch[1]);
-  }
-  
-  // Simulate usage (for testing)
-  const simulateMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/simulate-usage$/);
-  if (simulateMatch && method === 'POST') {
-    return handleSimulateUsage(req, res, simulateMatch[1]);
-  }
-  
-  // Reset public key
-  const resetKeyMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/reset-public-key$/);
-  if (resetKeyMatch && method === 'POST') {
-    return handleResetPublicKey(req, res, resetKeyMatch[1]);
-  }
-  
-  // P1.3: Rotate API token
-  const rotateTokenMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/rotate-api-token$/);
-  if (rotateTokenMatch && method === 'POST') {
-    return handleRotateApiToken(req, res, rotateTokenMatch[1]);
-  }
-  
-  // P1.3: Get API token info (masked)
-  const getTokenMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/api-token$/);
-  if (getTokenMatch && method === 'GET') {
-    return handleGetApiToken(req, res, getTokenMatch[1]);
-  }
-  
-  // Assign plan
-  const assignPlanMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/assign-plan$/);
-  if (assignPlanMatch && method === 'POST') {
-    return handleAssignPlan(req, res, assignPlanMatch[1]);
-  }
-  
-  // Apply coupon
-  const applyCouponMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/apply-coupon$/);
-  if (applyCouponMatch && method === 'POST') {
-    return handleApplyCoupon(req, res, applyCouponMatch[1]);
-  }
-  
-  // Remove coupon
-  const removeCouponMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/remove-coupon$/);
-  if (removeCouponMatch && method === 'POST') {
-    return handleRemoveCoupon(req, res, removeCouponMatch[1]);
-  }
-  
-  // Get effective billing
-  const effectiveBillingMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/effective-billing$/);
-  if (effectiveBillingMatch && method === 'GET') {
-    return handleGetEffectiveBilling(req, res, effectiveBillingMatch[1]);
-  }
-  
-  // Org usage
-  const usageMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/usage$/);
-  if (usageMatch && method === 'GET') {
-    return handleGetOrgUsage(req, res, usageMatch[1], urlParams);
-  }
-  
-  // Org telemetry
-  const telemetryMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/telemetry$/);
-  if (telemetryMatch && method === 'GET') {
-    return handleGetOrgTelemetry(req, res, telemetryMatch[1], urlParams);
-  }
+  if (routeInternalAdmin(method, pathname, req, res, urlParams)) return;
 
   // Email review link with signed token (must be before shortlink match)
   if (pathname === '/r/review' && method === 'GET') {

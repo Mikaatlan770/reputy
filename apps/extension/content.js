@@ -349,10 +349,78 @@ function markAsSeen(rootEl) {
   }
 }
 
-/**
- * MOD: Extraction identité fiable depuis la colonne gauche (agenda + fiche RDV)
- * Cherche civilité -> NOM (caps) -> Prénom (ligne suivante)
- */
+function _buildIdentity(lastName, firstName) {
+  return {
+    lastName: (lastName || "").toUpperCase(),
+    firstName: firstName || "",
+    full: `${(lastName || "").toUpperCase()} ${firstName || ""}`.trim(),
+  };
+}
+
+const _isPlaceholderText = (s) =>
+  /provisoire|identité provisoire|trouver un créneau|filtrer les présents|rechercher/i.test(s || '');
+
+function _tryInlineCivility(lines) {
+  for (const line of lines) {
+    const civInline = line.match(/^(madame|monsieur|mme|mr|m\.?)\s+([A-ZÀ-ÖØ-Ýa-zà-öø-ÿ\s-]+)/i);
+    if (!civInline) continue;
+    const namePart = civInline[2].trim();
+    if (namePart.length < 3) continue;
+    const parsed = parseFullName(namePart);
+    if ((parsed.firstName || parsed.lastName) && !_isPlaceholderText(parsed.firstName) && !_isPlaceholderText(parsed.lastName)) {
+      return _buildIdentity(parsed.lastName, parsed.firstName);
+    }
+  }
+  return null;
+}
+
+function _trySeparateCivility(lines) {
+  const civRe = /^(madame|monsieur|mme|mr|m\.)$/i;
+  const civIdx = lines.findIndex((l) => civRe.test(l));
+  if (civIdx === -1) return null;
+
+  const lineAfterCiv = lines[civIdx + 1] || "";
+  const nextLine = lines[civIdx + 2] || "";
+
+  const parsedCombined = parseFullName(lineAfterCiv);
+  if (parsedCombined.lastName || parsedCombined.firstName) {
+    if (_isPlaceholderText(parsedCombined.lastName) || _isPlaceholderText(parsedCombined.firstName)) return 'skip';
+    return _buildIdentity(parsedCombined.lastName, parsedCombined.firstName);
+  }
+
+  const looksLikeLast = lineAfterCiv && lineAfterCiv === lineAfterCiv.toUpperCase() && lineAfterCiv.replace(/[^A-ZÀ-ÖØ-Ý]/g, "").length >= 2;
+  const looksLikeFirst = nextLine && nextLine.length >= 2 && nextLine.length <= 40 && !/\d/.test(nextLine);
+  if (!looksLikeLast || _isPlaceholderText(lineAfterCiv) || _isPlaceholderText(nextLine)) return 'skip';
+  return { lastName: lineAfterCiv, firstName: looksLikeFirst ? nextLine : "", full: `${lineAfterCiv} ${looksLikeFirst ? nextLine : ""}`.trim() };
+}
+
+function _tryUppercasePair(pool) {
+  for (const el of pool) {
+    const lines = (el.innerText || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const l1 = lines[i], l2 = lines[i + 1] || "";
+      const looksLast = l1 && l1 === l1.toUpperCase() && l1.replace(/[^A-ZÀ-ÖØ-Ý]/g, "").length >= 2 && !_isPlaceholderText(l1);
+      const looksFirst = l2 && l2.length >= 2 && l2.length <= 40 && !/\d/.test(l2) && !_isPlaceholderText(l2);
+      if (looksLast && looksFirst) return { lastName: l1, firstName: l2, full: `${l1} ${l2}`.trim() };
+    }
+  }
+  return null;
+}
+
+function _tryCombinedName(pool) {
+  for (const el of pool) {
+    const lines = (el.innerText || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    for (const line of lines) {
+      if (/\d/.test(line) || line.length < 4 || _isPlaceholderText(line)) continue;
+      const parsed = parseFullName(line);
+      if (parsed.lastName && parsed.firstName && !_isPlaceholderText(parsed.lastName) && !_isPlaceholderText(parsed.firstName)) {
+        return _buildIdentity(parsed.lastName, parsed.firstName);
+      }
+    }
+  }
+  return null;
+}
+
 function extractIdentityFromLeftPanel() {
   const containers = Array.from(document.querySelectorAll("aside, section, article, div"))
     .filter((el) => el && el.offsetParent !== null);
@@ -374,129 +442,19 @@ function extractIdentityFromLeftPanel() {
   if (!hoverPanels.length) return null;
 
   const pool = hoverPanels;
-  const civRe = /^(madame|monsieur|mme|mr|m\.)$/i;
-  const isPlaceholder = (s) =>
-    /provisoire|identité provisoire|trouver un créneau|filtrer les présents|rechercher/i.test(s || '');
 
   for (const el of pool) {
-    const lines = (el.innerText || "")
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
+    const lines = (el.innerText || "").split("\n").map((s) => s.trim()).filter(Boolean);
     if (lines.length < 2) continue;
 
-    // Cas où civilité + nom/prénom sont sur la même ligne : "M. LEMAIRE Mathieu" ou "M. LEMAIRE Mathieu 🔵"
-    for (const line of lines) {
-      // Regex plus souple : civilité au début, puis on prend tout ce qui suit jusqu'aux emojis/icônes
-      const civInline = line.match(/^(madame|monsieur|mme|mr|m\.?)\s+([A-ZÀ-ÖØ-Ýa-zà-öø-ÿ\s-]+)/i);
-      if (civInline) {
-        const namePart = civInline[2].trim();
-        if (namePart.length >= 3) {
-          const parsed = parseFullName(namePart);
-          if ((parsed.firstName || parsed.lastName) && !isPlaceholder(parsed.firstName) && !isPlaceholder(parsed.lastName)) {
-            return {
-              lastName: (parsed.lastName || "").toUpperCase(),
-              firstName: parsed.firstName || "",
-              full: `${(parsed.lastName || "").toUpperCase()} ${parsed.firstName || ""}`.trim(),
-            };
-          }
-        }
-      }
-    }
+    const inlineResult = _tryInlineCivility(lines);
+    if (inlineResult) return inlineResult;
 
-    const civIdx = lines.findIndex((l) => civRe.test(l));
-    if (civIdx === -1) continue;
-
-    const lineAfterCiv = lines[civIdx + 1] || "";
-    const nextLine = lines[civIdx + 2] || "";
-
-    // Cas combiné sur une ligne "AVERLANT Myriam"
-    const parsedCombined = parseFullName(lineAfterCiv);
-    if (parsedCombined.lastName || parsedCombined.firstName) {
-      if (isPlaceholder(parsedCombined.lastName) || isPlaceholder(parsedCombined.firstName)) continue;
-      const full = `${(parsedCombined.lastName || "").toUpperCase()} ${parsedCombined.firstName || ""}`.trim();
-      return {
-        lastName: (parsedCombined.lastName || "").toUpperCase(),
-        firstName: parsedCombined.firstName || "",
-        full,
-      };
-    }
-
-    // Cas sur deux lignes (ligne suivante = prénom)
-    const looksLikeLast =
-      lineAfterCiv &&
-      lineAfterCiv === lineAfterCiv.toUpperCase() &&
-      lineAfterCiv.replace(/[^A-ZÀ-ÖØ-Ý]/g, "").length >= 2;
-
-    const looksLikeFirst =
-      nextLine &&
-      nextLine.length >= 2 &&
-      nextLine.length <= 40 &&
-      !/\d/.test(nextLine);
-
-    if (!looksLikeLast) continue;
-    if (isPlaceholder(lineAfterCiv) || isPlaceholder(nextLine)) continue;
-
-    return {
-      lastName: lineAfterCiv,
-      firstName: looksLikeFirst ? nextLine : "",
-      full: `${lineAfterCiv} ${looksLikeFirst ? nextLine : ""}`.trim(),
-    };
+    const sepResult = _trySeparateCivility(lines);
+    if (sepResult && sepResult !== 'skip') return sepResult;
   }
 
-  // Fallback sans civilité : chercher une ligne tout en MAJ suivie d'une ligne prénom
-  for (const el of pool) {
-    const lines = (el.innerText || "")
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (let i = 0; i < lines.length; i++) {
-      const l1 = lines[i];
-      const l2 = lines[i + 1] || "";
-      const looksLikeLast =
-        l1 &&
-        l1 === l1.toUpperCase() &&
-        l1.replace(/[^A-ZÀ-ÖØ-Ý]/g, "").length >= 2 &&
-        !isPlaceholder(l1);
-      const looksLikeFirst =
-        l2 &&
-        l2.length >= 2 &&
-        l2.length <= 40 &&
-        !/\d/.test(l2) &&
-        !isPlaceholder(l2);
-      if (looksLikeLast && looksLikeFirst) {
-        return {
-          lastName: l1,
-          firstName: l2,
-          full: `${l1} ${l2}`.trim(),
-        };
-      }
-    }
-  }
-
-  // Dernier fallback : ligne combinée NOM Prénom (ex: "LEMAIRE Mathieu" sans civilité)
-  for (const el of pool) {
-    const lines = (el.innerText || "")
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (const line of lines) {
-      // Ignorer les lignes avec chiffres (téléphone, date) ou trop courtes
-      if (/\d/.test(line) || line.length < 4) continue;
-      if (isPlaceholder(line)) continue;
-      const parsed = parseFullName(line);
-      if (parsed.lastName && parsed.firstName && !isPlaceholder(parsed.lastName) && !isPlaceholder(parsed.firstName)) {
-        return {
-          lastName: (parsed.lastName || "").toUpperCase(),
-          firstName: parsed.firstName || "",
-          full: `${(parsed.lastName || "").toUpperCase()} ${parsed.firstName || ""}`.trim(),
-        };
-      }
-    }
-  }
-
-  return null;
+  return _tryUppercasePair(pool) || _tryCombinedName(pool) || null;
 }
 
 /**
