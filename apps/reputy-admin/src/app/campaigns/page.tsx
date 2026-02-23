@@ -363,8 +363,8 @@ function NewCampaignDialog({
         const data = await res.json()
         setContacts(data.contacts || [])
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.debug('[CAMPAIGNS] load contacts failed:', err)
     } finally {
       setContactsLoading(false)
     }

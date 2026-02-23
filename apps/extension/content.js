@@ -152,7 +152,7 @@ function updateAllReputyButtons(mode) {
       btn.innerHTML = `<span class="reputy-btn-logo">${ICONS.logo}</span> ${config.label.replace('R ', '')}`;
     }
     btn.title = config.tooltip;
-    btn.setAttribute('data-reputy-mode', mode);
+    btn.dataset.reputyMode = mode;
   });
 }
 
@@ -1254,7 +1254,7 @@ function injectReputyButtons() {
     reputyBtn.className = 'reputy-vu-btn';
     reputyBtn.innerHTML = `<span class="reputy-btn-logo">${ICONS.logo}</span> ${modeConfig.label.replace('R ', '')}`;
     reputyBtn.title = modeConfig.tooltip;
-    reputyBtn.setAttribute('data-reputy-mode', mode);
+    reputyBtn.dataset.reputyMode = mode;
     
     reputyBtn.addEventListener('click', (e) => {
       e.preventDefault();

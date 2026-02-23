@@ -163,6 +163,17 @@ function create(data) {
  * @param {object} updates - Fields to update
  * @returns {object|null} Updated organization
  */
+const SIMPLE_FIELD_MAP = {
+  name: 'name', email: 'email', vertical: 'vertical', status: 'status',
+  lat: 'lat', lng: 'lng', specialty: 'specialty', address: 'address',
+  googlePlaceId: 'google_place_id',
+};
+const JSON_FIELD_MAP = {
+  billing: 'billing_json', plan: 'plan_json', negotiated: 'negotiated_json',
+  options: 'options_json', quotas: 'quotas_json', balances: 'balances_json',
+  subscriptionCredits: 'subscription_credits_json',
+};
+
 function update(id, updates) {
   const org = getById(id);
   if (!org) return null;
@@ -171,72 +182,19 @@ function update(id, updates) {
   const fields = [];
   const params = { id };
   
-  // Simple fields
-  if (updates.name !== undefined) {
-    fields.push('name = $name');
-    params.name = updates.name;
-  }
-  if (updates.email !== undefined) {
-    fields.push('email = $email');
-    params.email = updates.email;
-  }
-  if (updates.vertical !== undefined) {
-    fields.push('vertical = $vertical');
-    params.vertical = updates.vertical;
-  }
-  if (updates.status !== undefined) {
-    fields.push('status = $status');
-    params.status = updates.status;
-  }
-  if (updates.lat !== undefined) {
-    fields.push('lat = $lat');
-    params.lat = updates.lat;
-  }
-  if (updates.lng !== undefined) {
-    fields.push('lng = $lng');
-    params.lng = updates.lng;
-  }
-  if (updates.specialty !== undefined) {
-    fields.push('specialty = $specialty');
-    params.specialty = updates.specialty;
-  }
-  if (updates.address !== undefined) {
-    fields.push('address = $address');
-    params.address = updates.address;
-  }
-  if (updates.googlePlaceId !== undefined) {
-    fields.push('google_place_id = $googlePlaceId');
-    params.googlePlaceId = updates.googlePlaceId;
+  for (const [key, col] of Object.entries(SIMPLE_FIELD_MAP)) {
+    if (updates[key] !== undefined) {
+      fields.push(`${col} = $${key}`);
+      params[key] = updates[key];
+    }
   }
   
-  // JSON fields
-  if (updates.billing !== undefined) {
-    fields.push('billing_json = $billingJson');
-    params.billingJson = db.toJson(updates.billing);
-  }
-  if (updates.plan !== undefined) {
-    fields.push('plan_json = $planJson');
-    params.planJson = db.toJson(updates.plan);
-  }
-  if (updates.negotiated !== undefined) {
-    fields.push('negotiated_json = $negotiatedJson');
-    params.negotiatedJson = db.toJson(updates.negotiated);
-  }
-  if (updates.options !== undefined) {
-    fields.push('options_json = $optionsJson');
-    params.optionsJson = db.toJson(updates.options);
-  }
-  if (updates.quotas !== undefined) {
-    fields.push('quotas_json = $quotasJson');
-    params.quotasJson = db.toJson(updates.quotas);
-  }
-  if (updates.balances !== undefined) {
-    fields.push('balances_json = $balancesJson');
-    params.balancesJson = db.toJson(updates.balances);
-  }
-  if (updates.subscriptionCredits !== undefined) {
-    fields.push('subscription_credits_json = $subscriptionCreditsJson');
-    params.subscriptionCreditsJson = db.toJson(updates.subscriptionCredits);
+  for (const [key, col] of Object.entries(JSON_FIELD_MAP)) {
+    if (updates[key] !== undefined) {
+      const paramName = key + 'Json';
+      fields.push(`${col} = $${paramName}`);
+      params[paramName] = db.toJson(updates[key]);
+    }
   }
   
   if (fields.length === 0) return org;

@@ -1150,6 +1150,49 @@ function ensureOrgBilling(org) {
   return org;
 }
 
+function migrateFromOldAllocations(org, allocations, period) {
+  const currentAllocations = allocations.filter(
+    a => a.periodStart === period.periodStart && a.periodEnd === period.periodEnd
+  );
+  
+  let smsGift = 0, emailGift = 0;
+  let smsUsed = 0, emailUsed = 0;
+  
+  for (const alloc of currentAllocations) {
+    if (alloc.source === 'gift') {
+      smsGift += alloc.smsAllocated || 0;
+      emailGift += alloc.emailAllocated || 0;
+    }
+    if (alloc.source === 'included' || alloc.source === 'gift') {
+      smsUsed += alloc.smsUsed || 0;
+      emailUsed += alloc.emailUsed || 0;
+    }
+  }
+  
+  org.subscriptionCredits.smsGiftMonthly = smsGift;
+  org.subscriptionCredits.emailGiftMonthly = emailGift;
+  org.subscriptionCredits.smsUsedThisPeriod = smsUsed;
+  org.subscriptionCredits.emailUsedThisPeriod = emailUsed;
+  
+  const packAllocations = allocations.filter(a => a.source === 'pack');
+  let packSmsTotal = 0, packEmailTotal = 0;
+  let packSmsUsed = 0, packEmailUsed = 0;
+  
+  for (const alloc of packAllocations) {
+    packSmsTotal += alloc.smsAllocated || 0;
+    packEmailTotal += alloc.emailAllocated || 0;
+    packSmsUsed += alloc.smsUsed || 0;
+    packEmailUsed += alloc.emailUsed || 0;
+  }
+  
+  org.packWallet.smsRemaining = Math.max(0, packSmsTotal - packSmsUsed);
+  org.packWallet.emailRemaining = Math.max(0, packEmailTotal - packEmailUsed);
+  
+  console.log(`[BILLING] 📦 Migrated org ${org.id}:`);
+  console.log(`[BILLING]    Subscription: ${org.subscriptionCredits.smsIncludedMonthly}+${smsGift} SMS, ${org.subscriptionCredits.emailIncludedMonthly}+${emailGift} Email (used: ${smsUsed}/${emailUsed})`);
+  console.log(`[BILLING]    PackWallet: ${org.packWallet.smsRemaining} SMS, ${org.packWallet.emailRemaining} Email`);
+}
+
 /**
  * Migrate org from old allocation system to new subscriptionCredits + packWallet
  * Also upgrades old subscriptionCredits structure if it lacks prorata fields
@@ -1199,49 +1242,7 @@ function migrateOrgCredits(data, org) {
   const allocations = (data.creditAllocations || []).filter(a => a.orgId === org.id);
   
   if (allocations.length > 0 && !existingUsage) {
-    // Current period allocations
-    const currentAllocations = allocations.filter(
-      a => a.periodStart === period.periodStart && a.periodEnd === period.periodEnd
-    );
-    
-    // Sum subscription credits (included + gift) for current period
-    let smsGift = 0, emailGift = 0;
-    let smsUsed = 0, emailUsed = 0;
-    
-    for (const alloc of currentAllocations) {
-      if (alloc.source === 'gift') {
-        smsGift += alloc.smsAllocated || 0;
-        emailGift += alloc.emailAllocated || 0;
-      }
-      if (alloc.source === 'included' || alloc.source === 'gift') {
-        smsUsed += alloc.smsUsed || 0;
-        emailUsed += alloc.emailUsed || 0;
-      }
-    }
-    
-    org.subscriptionCredits.smsGiftMonthly = smsGift;
-    org.subscriptionCredits.emailGiftMonthly = emailGift;
-    org.subscriptionCredits.smsUsedThisPeriod = smsUsed;
-    org.subscriptionCredits.emailUsedThisPeriod = emailUsed;
-    
-    // Migrate packs: sum all pack allocations (they persist)
-    const packAllocations = allocations.filter(a => a.source === 'pack');
-    let packSmsTotal = 0, packEmailTotal = 0;
-    let packSmsUsed = 0, packEmailUsed = 0;
-    
-    for (const alloc of packAllocations) {
-      packSmsTotal += alloc.smsAllocated || 0;
-      packEmailTotal += alloc.emailAllocated || 0;
-      packSmsUsed += alloc.smsUsed || 0;
-      packEmailUsed += alloc.emailUsed || 0;
-    }
-    
-    org.packWallet.smsRemaining = Math.max(0, packSmsTotal - packSmsUsed);
-    org.packWallet.emailRemaining = Math.max(0, packEmailTotal - packEmailUsed);
-    
-    console.log(`[BILLING] 📦 Migrated org ${org.id}:`);
-    console.log(`[BILLING]    Subscription: ${org.subscriptionCredits.smsIncludedMonthly}+${smsGift} SMS, ${org.subscriptionCredits.emailIncludedMonthly}+${emailGift} Email (used: ${smsUsed}/${emailUsed})`);
-    console.log(`[BILLING]    PackWallet: ${org.packWallet.smsRemaining} SMS, ${org.packWallet.emailRemaining} Email`);
+    migrateFromOldAllocations(org, allocations, period);
   }
   
   // Also migrate legacy balances.smsExtra/emailExtra to packWallet
@@ -3212,7 +3213,7 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
     const googleBtn = document.getElementById('googleBtn');
     // Track Google redirect click (lifecycle: → public_redirected)
     googleBtn.addEventListener('click', function() {
-      try { navigator.sendBeacon('/r/${requestId}/redirected'); } catch(e) { void e; }
+      try { navigator.sendBeacon('/r/${requestId}/redirected'); } catch(e) { console.debug(e); }
     });
     
     stars.forEach(star => {
@@ -13292,12 +13293,12 @@ const server = http.createServer(async (req, res) => {
   
   // Google connection status
   if (method === 'GET' && pathname === '/client/google/status') {
-    return await handleGoogleStatus(req, res);
+    return handleGoogleStatus(req, res);
   }
   
   // Generate OAuth URL
   if (method === 'GET' && pathname === '/client/google/auth-url') {
-    return await handleGoogleAuthUrl(req, res);
+    return handleGoogleAuthUrl(req, res);
   }
   
   // OAuth callback (exchange code)
@@ -13328,12 +13329,12 @@ const server = http.createServer(async (req, res) => {
   
   // Disconnect Google
   if (method === 'POST' && pathname === '/client/google/disconnect') {
-    return await handleGoogleDisconnect(req, res);
+    return handleGoogleDisconnect(req, res);
   }
   
   // Sync log
   if (method === 'GET' && pathname === '/client/google/sync-log') {
-    return await handleGoogleSyncLog(req, res, urlParams);
+    return handleGoogleSyncLog(req, res, urlParams);
   }
 
   // Client's own Google place info (rating, reviews) via Places API

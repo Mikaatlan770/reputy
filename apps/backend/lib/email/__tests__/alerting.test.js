@@ -175,7 +175,7 @@ console.log('\n=== readJsonFile / writeJsonFile ===');
   assert(Object.keys(r3).length === 0, 'corrupt JSON → empty object');
 
   // Cleanup
-  try { fs.rmSync(tmpDir, { recursive: true }); } catch (err) { void err; }
+  try { fs.rmSync(tmpDir, { recursive: true }); } catch (err) { console.debug('[TEST] cleanup:', err.message); }
 }
 
 // ============================================================

@@ -74,35 +74,16 @@ function isServerRunning() {
 // Main
 // ──────────────────────────────────────────────
 
-function main() {
-  // 1. Parse arguments
-  const backupPath = process.argv[2];
-  if (!backupPath) {
-    console.error('Usage: node scripts/db-restore.js <path-to-backup.db>');
-    console.error('  e.g. node scripts/db-restore.js backups/reputy-20260210143055.db');
-    process.exit(1);
-  }
-
-  const resolvedBackup = path.resolve(backupPath);
-
-  log('Starting restore…');
-  log(`  Backup source: ${resolvedBackup}`);
-  log(`  Target DB    : ${DB_PATH}`);
-  log(`  PM2 app name : ${PM2_NAME}`);
-
-  // 2. Validate backup file exists and is non-empty
+function validateBackupFile(resolvedBackup) {
   if (!fs.existsSync(resolvedBackup)) {
     logError(`Backup file not found: ${resolvedBackup}`);
     process.exit(1);
   }
-
   const backupStat = fs.statSync(resolvedBackup);
   if (backupStat.size === 0) {
     logError('Backup file is empty!');
     process.exit(1);
   }
-
-  // 3. Verify backup is a valid SQLite DB
   let verifyDb;
   try {
     verifyDb = new Database(resolvedBackup, { readonly: true, fileMustExist: true });
@@ -115,8 +96,51 @@ function main() {
   } finally {
     if (verifyDb) verifyDb.close();
   }
+}
 
-  // 4. Check if server is running — refuse
+function verifyRestoredDb() {
+  let restoredDb;
+  try {
+    restoredDb = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+    const row = restoredDb.prepare('SELECT 1 AS ok').get();
+    if (row?.ok !== 1) throw new Error('SELECT 1 failed after restore');
+    const tables = restoredDb.prepare(
+      "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table'"
+    ).get();
+    let orgsInfo = '';
+    const hasOrgs = restoredDb.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='orgs'"
+    ).get();
+    if (hasOrgs) {
+      const orgs = restoredDb.prepare('SELECT COUNT(*) AS cnt FROM orgs').get();
+      orgsInfo = `, ${orgs.cnt} orgs`;
+    }
+    log(`Restored DB verified ✓ (${tables.cnt} tables${orgsInfo})`);
+  } catch (err) {
+    logError(`Post-restore verification FAILED: ${err.message}`);
+    logError('The .pre-restore.bak file can be used to revert manually.');
+    process.exit(1);
+  } finally {
+    if (restoredDb) restoredDb.close();
+  }
+}
+
+function main() {
+  const backupPath = process.argv[2];
+  if (!backupPath) {
+    console.error('Usage: node scripts/db-restore.js <path-to-backup.db>');
+    console.error('  e.g. node scripts/db-restore.js backups/reputy-20260210143055.db');
+    process.exit(1);
+  }
+
+  const resolvedBackup = path.resolve(backupPath);
+  log('Starting restore…');
+  log(`  Backup source: ${resolvedBackup}`);
+  log(`  Target DB    : ${DB_PATH}`);
+  log(`  PM2 app name : ${PM2_NAME}`);
+
+  validateBackupFile(resolvedBackup);
+
   if (isServerRunning()) {
     logError(
       `Server appears to be RUNNING (PM2 "${PM2_NAME}" or port in use).\n` +
@@ -127,7 +151,6 @@ function main() {
   }
   log('Server not running ✓');
 
-  // 5. Backup current DB as .bak (safety net)
   if (fs.existsSync(DB_PATH)) {
     const bakPath = DB_PATH + '.pre-restore.bak';
     fs.copyFileSync(DB_PATH, bakPath);
@@ -136,50 +159,17 @@ function main() {
     log('No existing DB to back up (first restore?)');
   }
 
-  // 6. Remove WAL/SHM files (they belong to old DB state)
-  const walPath = DB_PATH + '-wal';
-  const shmPath = DB_PATH + '-shm';
-
-  for (const sidecar of [walPath, shmPath]) {
+  for (const sidecar of [DB_PATH + '-wal', DB_PATH + '-shm']) {
     if (fs.existsSync(sidecar)) {
       fs.unlinkSync(sidecar);
       log(`Removed sidecar: ${path.basename(sidecar)}`);
     }
   }
 
-  // 7. Copy backup to target DB path
   fs.copyFileSync(resolvedBackup, DB_PATH);
   log('Backup copied to target path ✓');
 
-  // 8. Post-restore verification
-  let restoredDb;
-  try {
-    restoredDb = new Database(DB_PATH, { readonly: true, fileMustExist: true });
-    const row = restoredDb.prepare('SELECT 1 AS ok').get();
-    if (row?.ok !== 1) throw new Error('SELECT 1 failed after restore');
-
-    const tables = restoredDb.prepare(
-      "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table'"
-    ).get();
-
-    // Best-effort: log orgs count if table exists
-    let orgsInfo = '';
-    const hasOrgs = restoredDb.prepare(
-      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='orgs'"
-    ).get();
-    if (hasOrgs) {
-      const orgs = restoredDb.prepare('SELECT COUNT(*) AS cnt FROM orgs').get();
-      orgsInfo = `, ${orgs.cnt} orgs`;
-    }
-
-    log(`Restored DB verified ✓ (${tables.cnt} tables${orgsInfo})`);
-  } catch (err) {
-    logError(`Post-restore verification FAILED: ${err.message}`);
-    logError('The .pre-restore.bak file can be used to revert manually.');
-    process.exit(1);
-  } finally {
-    if (restoredDb) restoredDb.close();
-  }
+  verifyRestoredDb();
 
   log('Restore complete ✅');
   log('You can now start the server:  npm run pm2:start');

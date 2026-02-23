@@ -59,14 +59,7 @@ function parseSnsEnvelope(rawBody) {
  * @param {object} headers - Request headers
  * @returns {Promise<{ valid: boolean, error?: string }>}
  */
-async function validateSnsMessage(snsMessage, headers) {
-  const messageType = headers['x-amz-sns-message-type'];
-  if (!messageType) {
-    return { valid: false, error: 'missing_sns_message_type_header' };
-  }
-
-  // 1) Validate TopicArn
-  const topicArn = snsMessage.TopicArn;
+function validateTopicArn(topicArn) {
   if (SES_SNS_TOPIC_ARN) {
     if (topicArn !== SES_SNS_TOPIC_ARN) {
       return { valid: false, error: `topic_arn_mismatch: got ${topicArn}` };
@@ -77,47 +70,45 @@ async function validateSnsMessage(snsMessage, headers) {
   } else {
     logger.logWarn('SES_WEBHOOK', 'SES_SNS_TOPIC_ARN not configured — accepting in dev mode', { topicArn });
   }
+  return null;
+}
 
-  // 2) Validate SigningCertURL
-  const certUrl = snsMessage.SigningCertURL || snsMessage.SigningCertUrl;
-  if (!certUrl) {
-    return { valid: false, error: 'missing_signing_cert_url' };
-  }
-
+function validateCertUrl(certUrl) {
+  if (!certUrl) return { valid: false, error: 'missing_signing_cert_url' };
   try {
     const url = new URL(certUrl);
-    if (url.protocol !== 'https:') {
-      return { valid: false, error: 'signing_cert_not_https' };
-    }
-    if (!url.hostname.endsWith('.amazonaws.com')) {
-      return { valid: false, error: `signing_cert_invalid_host: ${url.hostname}` };
-    }
-  } catch {
+    if (url.protocol !== 'https:') return { valid: false, error: 'signing_cert_not_https' };
+    if (!url.hostname.endsWith('.amazonaws.com')) return { valid: false, error: `signing_cert_invalid_host: ${url.hostname}` };
+  } catch (err) {
     return { valid: false, error: 'signing_cert_url_invalid' };
   }
+  return null;
+}
 
-  // 3) Verify RSA signature
-  const signatureVersion = snsMessage.SignatureVersion;
+async function validateSnsMessage(snsMessage, headers) {
+  const messageType = headers['x-amz-sns-message-type'];
+  if (!messageType) return { valid: false, error: 'missing_sns_message_type_header' };
+
+  const arnError = validateTopicArn(snsMessage.TopicArn);
+  if (arnError) return arnError;
+
+  const certUrl = snsMessage.SigningCertURL || snsMessage.SigningCertUrl;
+  const certError = validateCertUrl(certUrl);
+  if (certError) return certError;
+
   const signature = snsMessage.Signature;
-
-  if (!signature) {
-    return { valid: false, error: 'missing_signature' };
-  }
+  if (!signature) return { valid: false, error: 'missing_signature' };
 
   try {
     const stringToSign = buildStringToSign(snsMessage, messageType);
     const cert = await fetchCertificate(certUrl);
-    const algo = signatureVersion === '2' ? 'RSA-SHA256' : 'RSA-SHA1';
-
+    const algo = snsMessage.SignatureVersion === '2' ? 'RSA-SHA256' : 'RSA-SHA1';
     const verifier = createVerify(algo);
     verifier.update(stringToSign, 'utf8');
-    const isValid = verifier.verify(cert, signature, 'base64');
-
-    if (!isValid) {
+    if (!verifier.verify(cert, signature, 'base64')) {
       return { valid: false, error: 'signature_verification_failed' };
     }
   } catch (err) {
-    // In dev with dry-run, we can be more lenient
     if (!IS_PRODUCTION) {
       logger.logWarn('SES_WEBHOOK', `Signature verification error (dev mode, continuing): ${err.message}`);
       return { valid: true };

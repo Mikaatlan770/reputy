@@ -65,6 +65,20 @@ function getRatingLabel(rating: number): string {
   return 'Mauvais'
 }
 
+function computeCombinedAvg(
+  googleRating: number | null,
+  googleCount: number,
+  feedbackAvg: number,
+  feedbackCount: number
+): string {
+  if (googleRating !== null && googleCount > 0 && feedbackCount > 0) {
+    const weighted = (googleRating * googleCount + feedbackAvg * feedbackCount) / (googleCount + feedbackCount)
+    return weighted.toFixed(1)
+  }
+  if (googleRating !== null && googleCount > 0) return googleRating.toFixed(1)
+  return feedbackAvg > 0 ? feedbackAvg.toFixed(1) : '0'
+}
+
 export default function FeedbacksPage() {
   const { getClientToken } = useAuth()
   const clientOrg = useClientOrg()
@@ -115,18 +129,9 @@ export default function FeedbacksPage() {
     ? feedbacks.reduce((sum, f) => sum + f.rating, 0) / feedbacks.length
     : 0
 
-  // Weighted average: Google live rating + internal feedbacks (blocked by routing)
   const googleRating = googleData?.configured ? (googleData.rating ?? null) : null
   const googleCount = googleData?.configured ? (googleData.totalReviews ?? 0) : 0
-  let combinedAvg: string
-  if (googleRating != null && googleCount > 0 && feedbacks.length > 0) {
-    const weighted = (googleRating * googleCount + feedbackAvg * feedbacks.length) / (googleCount + feedbacks.length)
-    combinedAvg = weighted.toFixed(1)
-  } else if (googleRating != null && googleCount > 0) {
-    combinedAvg = googleRating.toFixed(1)
-  } else {
-    combinedAvg = feedbackAvg > 0 ? feedbackAvg.toFixed(1) : '0'
-  }
+  const combinedAvg = computeCombinedAvg(googleRating, googleCount, feedbackAvg, feedbacks.length)
 
   const stats = {
     total: feedbacks.length,
