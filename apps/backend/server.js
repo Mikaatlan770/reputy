@@ -11181,10 +11181,10 @@ async function handleBillingStatus(req, res) {
   // Plan labels
   const planLabels = {
     health_bronze: 'Pack Bronze (Gratuit)',
-    health_argent: 'Pack Argent (49€)',
-    health_or: 'Pack Platinum',
-    health_gold: 'Pack Platinum',
-    health_platinum: 'Pack Platinum (99€)',
+    health_argent: 'Pack Argent (49€ HT)',
+    health_or: 'Pack Platinum (99€ HT)',
+    health_gold: 'Pack Platinum (99€ HT)',
+    health_platinum: 'Pack Platinum (99€ HT)',
   };
   
   // Billing provider info

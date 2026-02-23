@@ -116,6 +116,11 @@ function formatPrice(cents: number): string {
   }).format(cents / 100)
 }
 
+function formatPriceHT(cents: number): string {
+  if (cents === 0) return 'Gratuit'
+  return `${(cents / 100).toFixed(0)} € HT`
+}
+
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   // Use fixed format to avoid hydration mismatch between server and client
@@ -797,7 +802,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                   if (!raw) {
                     return (
                       <p className="text-2xl font-bold text-white">
-                        {formatPrice(getCatalogPrice(org.plan.code))}
+                        {formatPriceHT(getCatalogPrice(org.plan.code))}
                       </p>
                     )
                   }
@@ -811,15 +816,15 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                       {b.hasDiscount ? (
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500 line-through text-sm">
-                            {formatPrice(catalog)}
+                            {formatPriceHT(catalog)}
                           </span>
                           <span className="text-2xl font-bold text-emerald-400">
-                            {formatPrice(effective)}
+                            {formatPriceHT(effective)}
                           </span>
                         </div>
                       ) : (
                         <p className="text-2xl font-bold text-white">
-                          {formatPrice(effective)}
+                          {formatPriceHT(effective)}
                         </p>
                       )}
                       <div className="flex flex-wrap items-center gap-1 mt-1">
@@ -839,13 +844,13 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                           </Badge>
                         )}
                         <span className="text-xs text-slate-500">
-                          {!b.isProrata && '/mois'}
+                          {!b.isProrata && ' /mois'}
                           {b.isNegotiated && !b.isProrata && !b.hasDiscount && ' (négocié)'}
                         </span>
                       </div>
                       {b.isProrata && (
                         <p className="text-[10px] text-slate-500 mt-1">
-                          Base mensuelle: {formatPrice(b.priceEffectiveCents)}/mois
+                          Base mensuelle: {formatPriceHT(b.priceEffectiveCents)}/mois
                         </p>
                       )}
                     </>
@@ -1187,13 +1192,13 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                     }>
                       {org.plan.code}
                     </Badge>
-                    <span className="text-white">{formatPrice(getCatalogPrice(org.plan.code))}/mois</span>
+                    <span className="text-white">{formatPriceHT(getCatalogPrice(org.plan.code))}/mois</span>
                   </div>
                 </div>
                 <div>
                   <label className="text-sm text-slate-500">Prix catalogue</label>
                   <p className="text-white mt-1">
-                    {effectiveBillingData?.priceCatalogFormatted || formatPrice(getCatalogPrice(org.plan.code))}/mois
+                    {formatPriceHT(getCatalogPrice(org.plan.code))}/mois
                   </p>
                 </div>
               </div>
@@ -1237,13 +1242,13 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                             <SelectItem value="health_argent">
                               <div className="flex items-center gap-2">
                                 <span className="w-3 h-3 rounded-full bg-slate-400"></span>
-                                Argent - 49€/mois
+                                Argent - 49€ HT/mois
                               </div>
                             </SelectItem>
                             <SelectItem value="health_platinum">
                               <div className="flex items-center gap-2">
                                 <span className="w-3 h-3 rounded-full bg-purple-400"></span>
-                                Platinum - 99€/mois
+                                Platinum - 99€ HT/mois
                               </div>
                             </SelectItem>
                           </SelectContent>
@@ -1431,7 +1436,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                       className="bg-slate-700 border-slate-600 mt-1"
                     />
                   ) : (
-                    <p className="text-white">{formatPrice(getCatalogPrice(org.plan.code))}</p>
+                    <p className="text-white">{formatPriceHT(getCatalogPrice(org.plan.code))}</p>
                   )}
                 </div>
                 <div>

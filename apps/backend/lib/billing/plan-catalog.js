@@ -196,7 +196,7 @@ function getPlanDisplayInfo(planCode) {
   
   return {
     name: plan.name,
-    priceFormatted: `${(plan.priceCents / 100).toFixed(0)} €`,
+    priceFormatted: plan.priceCents === 0 ? 'Gratuit' : `${(plan.priceCents / 100).toFixed(0)} € HT`,
     priceCents: plan.priceCents,
     color: colors[plan.code] || 'gray',
     tier: plan.tier,

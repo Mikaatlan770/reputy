@@ -194,7 +194,8 @@ function computeEffectiveBilling({ org, now = new Date(), repos = null, ensurePe
  * @returns {string}
  */
 function formatPrice(cents) {
-  return `${(cents / 100).toFixed(0)} €`;
+  if (cents === 0) return 'Gratuit';
+  return `${(cents / 100).toFixed(0)} € HT`;
 }
 
 /**

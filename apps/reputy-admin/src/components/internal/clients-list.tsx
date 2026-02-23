@@ -328,7 +328,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         </Card>
         <Card className="bg-slate-800/50 border-slate-400/30">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-300 font-medium">🥈 Argent (49€)</p>
+            <p className="text-xs text-slate-300 font-medium">🥈 Argent (49€ HT)</p>
             <p className="text-2xl font-bold text-slate-300">
               {orgs.filter(o => getPlanType(o) === 'argent').length}
             </p>
@@ -336,7 +336,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
         </Card>
         <Card className="bg-slate-800/50 border-slate-300/30">
           <CardContent className="p-4">
-            <p className="text-xs text-slate-200 font-medium">💎 Platinum (99€)</p>
+            <p className="text-xs text-slate-200 font-medium">💎 Platinum (99€ HT)</p>
             <p className="text-2xl font-bold text-slate-200">
               {orgs.filter(o => getPlanType(o) === 'platinum').length}
             </p>
