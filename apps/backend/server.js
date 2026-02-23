@@ -9973,6 +9973,125 @@ function handleGoogleSyncLog(req, res, urlParams) {
   });
 }
 
+/**
+ * GET /client/google/my-place - Get client's own Google rating, reviews, and place info
+ * Uses Places API (New) with the org's google_place_id.
+ * Falls back to text search if no place_id is stored.
+ * Caches results for 24h to minimize API calls.
+ */
+async function handleGoogleMyPlace(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) {
+    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  }
+
+  if (!googlePlaces.isConfigured()) {
+    return sendJson(res, 503, { ok: false, error: 'Google Places API non configurée' });
+  }
+
+  const repos = storage.getRepos();
+  if (!repos) {
+    return sendJson(res, 503, { ok: false, error: 'Storage unavailable' });
+  }
+
+  const org = repos.org.getById(auth.user.orgId);
+  if (!org) {
+    return sendJson(res, 404, { ok: false, error: 'Organisation non trouvée' });
+  }
+
+  try {
+    let placeId = org.googlePlaceId || null;
+
+    // google_place_id from SQLite (set during OAuth connection)
+    if (!placeId || placeId.startsWith('gpage_') || placeId.startsWith('cid_') || placeId.startsWith('url_')) {
+      const dbInstance = storage.getDb();
+      if (dbInstance) {
+        const row = dbInstance.get('SELECT google_place_id FROM orgs WHERE id = $id', { id: org.id });
+        if (row?.google_place_id && !row.google_place_id.startsWith('gpage_') && !row.google_place_id.startsWith('cid_')) {
+          placeId = row.google_place_id;
+        }
+      }
+    }
+
+    // If still no valid Place ID, try text search with org name
+    if (!placeId || placeId.startsWith('gpage_') || placeId.startsWith('cid_') || placeId.startsWith('url_')) {
+      const searchQuery = org.name || org.options?.cabinetName || '';
+      if (!searchQuery || !org.lat || !org.lng) {
+        return sendJson(res, 200, {
+          ok: true,
+          configured: false,
+          message: 'Aucun Place ID Google trouvé. Connectez votre fiche Google Business ou configurez vos coordonnées GPS.',
+        });
+      }
+
+      const searchResults = await googlePlaces.textSearch({
+        textQuery: searchQuery,
+        lat: org.lat,
+        lng: org.lng,
+        radiusMeters: 1000,
+        maxResultCount: 3,
+      });
+      if (searchResults && searchResults.length > 0) {
+        placeId = searchResults[0].placeId;
+        // Save for future use
+        const dbInstance = storage.getDb();
+        if (dbInstance && placeId) {
+          dbInstance.run('UPDATE orgs SET google_place_id = $placeId, updated_at = $now WHERE id = $id', {
+            placeId,
+            now: new Date().toISOString(),
+            id: org.id,
+          });
+        }
+      } else {
+        return sendJson(res, 200, {
+          ok: true,
+          configured: false,
+          message: 'Fiche Google introuvable. Vérifiez le nom de votre établissement ou connectez Google Business.',
+        });
+      }
+    }
+
+    // Check cache (24h TTL for own place)
+    let details = competitorRepo.getCachedPlaceDetails(placeId, 1);
+
+    if (!details) {
+      details = await googlePlaces.getPlaceDetails(placeId);
+      if (details) {
+        competitorRepo.cachePlaceDetails(details);
+      }
+    }
+
+    if (!details) {
+      return sendJson(res, 200, { ok: true, configured: false, message: 'Impossible de récupérer les détails de la fiche.' });
+    }
+
+    return sendJson(res, 200, {
+      ok: true,
+      configured: true,
+      placeId,
+      name: details.name,
+      address: details.address,
+      phone: details.phone,
+      website: details.website,
+      rating: details.rating,
+      totalReviews: details.userRatingsTotal,
+      reviews: (details.reviews || []).map(r => ({
+        author: r.author,
+        rating: r.rating,
+        text: r.text,
+        publishTime: r.publishTime,
+        relativeTime: r.relativePublishTimeDescription,
+      })),
+      openingHours: details.openingHours,
+      cachedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.logError('GOOGLE_MY_PLACE_ERROR', { orgId: org.id, error: err.message });
+    return sendJson(res, 500, { ok: false, error: `Erreur lors de la récupération: ${err.message}` });
+  }
+}
+
 // ============================================================
 // REVIEWS HANDLERS (Phase 1A)
 // ============================================================
@@ -13216,6 +13335,11 @@ const server = http.createServer(async (req, res) => {
   // Sync log
   if (method === 'GET' && pathname === '/client/google/sync-log') {
     return await handleGoogleSyncLog(req, res, urlParams);
+  }
+
+  // Client's own Google place info (rating, reviews) via Places API
+  if (method === 'GET' && pathname === '/client/google/my-place') {
+    return await handleGoogleMyPlace(req, res);
   }
   
   // ============ CLIENT COMPETITORS ROUTES ============
