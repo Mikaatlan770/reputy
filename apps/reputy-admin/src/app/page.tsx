@@ -10,6 +10,7 @@ import { PendingReviews } from '@/components/dashboard/pending-reviews'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { toBillingUIFromClient, displayPrice } from '@/lib/internal/billing-ui'
 import { StarDistribution } from '@/components/dashboard/star-distribution'
+import { GoogleMyPlace } from '@/components/dashboard/google-my-place'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -389,6 +390,9 @@ export default function DashboardPage() {
 
       {/* Credits Section for clients */}
       <CreditsSection />
+
+      {/* Google My Place Widget */}
+      <GoogleMyPlace />
 
       {/* Lifecycle KPI Cards (P1a) */}
       <div className="space-y-2">
