@@ -94,6 +94,8 @@ const { suggestReply: aiSuggestReply } = require('./lib/ai/openai-provider');
 // Email provider (Brevo API or dry-run)
 const emailProvider = require('./lib/email/provider');
 const emailSigner = require('./lib/email/signer');
+const emailMonitoring = require('./lib/email/monitoring');
+const emailWarmup = require('./lib/email/warmup');
 
 // Sentry — optional error tracking (PR-5, no-op if SENTRY_DSN absent)
 const sentry = require('./lib/sentry');
@@ -5294,6 +5296,257 @@ function handleAdminMrrHistory(req, res, urlParams = new URLSearchParams()) {
   });
 }
 
+// ============================================================
+// EMAIL HEALTH API (Super Admin)
+// ============================================================
+
+/**
+ * GET /api/email/admin/health — Global email health stats.
+ * Query: ?window=7d&include=topRisk,lastWebhook,alerts
+ */
+function handleEmailAdminHealth(req, res, urlParams = new URLSearchParams()) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  try {
+    const windowStr = urlParams.get('window') || '7d';
+    const includeStr = urlParams.get('include') || '';
+    const includes = includeStr.split(',').filter(Boolean);
+
+    const global = emailMonitoring.getGlobalEmailHealth(windowStr);
+    const result = {
+      ok: true,
+      window: global.window,
+      sinceISO: global.sinceISO,
+      global,
+    };
+
+    if (includes.includes('topRisk')) {
+      result.topRiskOrgs = emailMonitoring.getTopRiskOrgs(windowStr, 20);
+    }
+
+    if (includes.includes('lastWebhook')) {
+      result.lastSesWebhook = emailMonitoring.getLastSesWebhookSeen();
+    }
+
+    if (includes.includes('alerts')) {
+      result.alerts = emailMonitoring.computeAlerts(windowStr, {
+        globalStats: global,
+        lastSesWebhook: result.lastSesWebhook,
+        topRiskOrgs: result.topRiskOrgs,
+      });
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    return sendJson(res, 200, result);
+  } catch (err) {
+    logger.error('emailAdminHealth error', err);
+    return sendJson(res, 500, { ok: false, error: 'Internal error' });
+  }
+}
+
+/**
+ * GET /api/email/admin/alerts — Email deliverability alerts.
+ * Query: ?window=7d
+ */
+function handleEmailAdminAlerts(req, res, urlParams = new URLSearchParams()) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  try {
+    const windowStr = urlParams.get('window') || '7d';
+    const alerts = emailMonitoring.computeAlerts(windowStr);
+
+    res.setHeader('Cache-Control', 'no-store');
+    return sendJson(res, 200, {
+      ok: true,
+      window: windowStr,
+      alertCount: alerts.length,
+      alerts,
+    });
+  } catch (err) {
+    logger.error('emailAdminAlerts error', err);
+    return sendJson(res, 500, { ok: false, error: 'Internal error' });
+  }
+}
+
+/**
+ * GET /api/email/admin/org-stats — Per-org email stats.
+ * Query: ?org_id=xxx&window=7d
+ */
+function handleEmailAdminOrgStats(req, res, urlParams = new URLSearchParams()) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  try {
+    const orgId = urlParams.get('org_id');
+    if (!orgId) {
+      return sendJson(res, 400, { ok: false, error: 'org_id required' });
+    }
+
+    const windowStr = urlParams.get('window') || '7d';
+    const repos = storage.getRepos();
+    const org = repos?.org?.getById(orgId);
+    if (!org) {
+      return sendJson(res, 404, { ok: false, error: 'Org not found' });
+    }
+
+    const stats = emailMonitoring.getOrgEmailStats(orgId, windowStr);
+    const warmupState = emailWarmup.getWarmupState(org);
+
+    res.setHeader('Cache-Control', 'no-store');
+    return sendJson(res, 200, {
+      ok: true,
+      orgId,
+      orgName: org.name,
+      plan: org.plan?.code || 'unknown',
+      window: windowStr,
+      stats,
+      warmupState,
+    });
+  } catch (err) {
+    logger.error('emailAdminOrgStats error', err);
+    return sendJson(res, 500, { ok: false, error: 'Internal error' });
+  }
+}
+
+/**
+ * POST /api/email/admin/pause — Pause/unpause email sending for an org.
+ * Body: { org_id, paused, reason? }
+ */
+async function handleEmailAdminPause(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  try {
+    const body = await parseBody(req);
+    const orgId = body.org_id;
+    const paused = !!body.paused;
+    const reason = body.reason || null;
+
+    if (!orgId) {
+      return sendJson(res, 400, { ok: false, error: 'org_id required' });
+    }
+
+    const repos = storage.getRepos();
+    const org = repos?.org?.getById(orgId);
+    if (!org) {
+      return sendJson(res, 404, { ok: false, error: 'Org not found' });
+    }
+
+    const options = org.options || {};
+    options.emailPaused = paused;
+    options.emailPausedReason = reason;
+    repos.org.update(orgId, { options });
+
+    logger.logAudit('EMAIL_PAUSE_TOGGLED', { orgId, paused, reason });
+    return sendJson(res, 200, { ok: true, orgId, paused, reason });
+  } catch (err) {
+    logger.error('emailAdminPause error', err);
+    return sendJson(res, 400, { ok: false, error: 'Invalid request' });
+  }
+}
+
+/**
+ * GET /api/email/admin/pause-state — Get pause state for an org.
+ * Query: ?org_id=xxx
+ */
+function handleEmailAdminPauseState(req, res, urlParams = new URLSearchParams()) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  const orgId = urlParams.get('org_id');
+  if (!orgId) {
+    return sendJson(res, 400, { ok: false, error: 'org_id required' });
+  }
+
+  const repos = storage.getRepos();
+  const org = repos?.org?.getById(orgId);
+  if (!org) {
+    return sendJson(res, 404, { ok: false, error: 'Org not found' });
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    orgId,
+    paused: !!org.options?.emailPaused,
+    reason: org.options?.emailPausedReason || null,
+  });
+}
+
+/**
+ * POST /api/email/admin/force-warm — Force an org to warm status.
+ * Body: { org_id }
+ */
+async function handleEmailAdminForceWarm(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  try {
+    const body = await parseBody(req);
+    const orgId = body.org_id;
+    if (!orgId) {
+      return sendJson(res, 400, { ok: false, error: 'org_id required' });
+    }
+
+    const result = emailWarmup.forceWarm(orgId);
+    if (!result.ok) {
+      return sendJson(res, 404, { ok: false, error: result.error || 'Failed' });
+    }
+
+    logger.logAudit('EMAIL_FORCE_WARM', { orgId });
+    return sendJson(res, 200, { ok: true, orgId, state: result.state });
+  } catch (err) {
+    logger.error('emailAdminForceWarm error', err);
+    return sendJson(res, 400, { ok: false, error: 'Invalid request' });
+  }
+}
+
+/**
+ * GET /api/email/admin/top-risk-csv — Download top-risk orgs as CSV.
+ * Query: ?window=7d&limit=50
+ */
+function handleEmailAdminTopRiskCsv(req, res, urlParams = new URLSearchParams()) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) {
+    return sendJson(res, auth.status || 401, { error: auth.error });
+  }
+
+  try {
+    const windowStr = urlParams.get('window') || '7d';
+    const limit = Math.min(parseInt(urlParams.get('limit') || '50', 10) || 50, 200);
+    const rows = emailMonitoring.getTopRiskOrgs(windowStr, limit);
+
+    const header = 'org_id,org_name,plan,sent,bounces,complaints,delivered,bounce_rate,complaint_rate,warmup_status,warmup_day';
+    const lines = rows.map(r =>
+      `${r.org_id},"${(r.org_name || '').replace(/"/g, '""')}",${r.plan},${r.sent},${r.bounces},${r.complaints},${r.delivered},${r.bounceRate},${r.complaintRate},${r.warmupStatus},${r.warmupDay ?? ''}`
+    );
+
+    const csv = [header, ...lines].join('\n');
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="top-risk-${windowStr}.csv"`,
+      'Cache-Control': 'no-store',
+    });
+    res.end(csv);
+  } catch (err) {
+    logger.error('emailAdminTopRiskCsv error', err);
+    return sendJson(res, 500, { ok: false, error: 'Internal error' });
+  }
+}
+
 function handleListOrgs(req, res, urlParams = new URLSearchParams()) {
   const auth = requireAdmin(req);
   if (!auth.ok) {
@@ -6328,8 +6581,8 @@ async function handleSignup(req, res) {
   const planCode = `${vertical}_${plan === 'bronze' ? 'basic' : plan}`;
   const planDefaults = PLAN_DEFAULTS[planCode] || PLAN_DEFAULTS[`${vertical}_basic`] || {};
   
-  // Determine price based on plan
-  const PLAN_PRICES = { bronze: 0, argent: 5900, or: 9900, platinum: 12900 };
+  // Determine price based on plan (must match plan-catalog.js)
+  const PLAN_PRICES = { bronze: 0, argent: 4900, platinum: 9900 };
   const basePriceCents = PLAN_PRICES[plan] || 0;
   
   // Create org (status = pending until email verified)
@@ -10928,9 +11181,10 @@ async function handleBillingStatus(req, res) {
   // Plan labels
   const planLabels = {
     health_bronze: 'Pack Bronze (Gratuit)',
-    health_argent: 'Pack Argent',
-    health_or: 'Pack Or',
-    health_platinum: 'Pack Platinum'
+    health_argent: 'Pack Argent (49€)',
+    health_or: 'Pack Platinum',
+    health_gold: 'Pack Platinum',
+    health_platinum: 'Pack Platinum (99€)',
   };
   
   // Billing provider info
@@ -13140,6 +13394,29 @@ const server = http.createServer(async (req, res) => {
   // P2: MRR history (daily snapshots)
   if (method === 'GET' && pathname === '/internal/admin/mrr-history') {
     return handleAdminMrrHistory(req, res, urlParams);
+  }
+
+  // Email Health API (Super Admin)
+  if (method === 'GET' && pathname === '/api/email/admin/health') {
+    return handleEmailAdminHealth(req, res, urlParams);
+  }
+  if (method === 'GET' && pathname === '/api/email/admin/alerts') {
+    return handleEmailAdminAlerts(req, res, urlParams);
+  }
+  if (method === 'GET' && pathname === '/api/email/admin/org-stats') {
+    return handleEmailAdminOrgStats(req, res, urlParams);
+  }
+  if (method === 'POST' && pathname === '/api/email/admin/pause') {
+    return handleEmailAdminPause(req, res);
+  }
+  if (method === 'GET' && pathname === '/api/email/admin/pause-state') {
+    return handleEmailAdminPauseState(req, res, urlParams);
+  }
+  if (method === 'POST' && pathname === '/api/email/admin/force-warm') {
+    return handleEmailAdminForceWarm(req, res);
+  }
+  if (method === 'GET' && pathname === '/api/email/admin/top-risk-csv') {
+    return handleEmailAdminTopRiskCsv(req, res, urlParams);
   }
   
   // List packs catalog

@@ -93,6 +93,22 @@ const statusLabels = {
   cancelled: 'Annulé',
 }
 
+const CATALOG_PRICES: Record<string, number> = {
+  health_bronze: 0,
+  health_basic: 0,
+  health_argent: 4900,
+  health_silver: 4900,
+  health_pro: 4900,
+  health_platinum: 9900,
+  health_or: 9900,
+  health_gold: 9900,
+  health_enterprise: 9900,
+}
+
+function getCatalogPrice(planCode: string): number {
+  return CATALOG_PRICES[planCode] ?? 0
+}
+
 function formatPrice(cents: number): string {
   return new Intl.NumberFormat('fr-FR', {
     style: 'currency',
@@ -462,9 +478,10 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
     setRemoveCouponLoading(false)
   }
 
+  const catalogPrice = getCatalogPrice(org.plan.code)
   const effectivePrice = org.negotiated?.enabled 
-    ? (org.negotiated.customPriceCents || org.plan.basePriceCents)
-    : org.plan.basePriceCents
+    ? (org.negotiated.customPriceCents || catalogPrice)
+    : catalogPrice
 
   return (
     <div className="space-y-6">
@@ -780,7 +797,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                   if (!raw) {
                     return (
                       <p className="text-2xl font-bold text-white">
-                        {formatPrice(org.plan.basePriceCents)}
+                        {formatPrice(getCatalogPrice(org.plan.code))}
                       </p>
                     )
                   }
@@ -1170,13 +1187,13 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                     }>
                       {org.plan.code}
                     </Badge>
-                    <span className="text-white">{formatPrice(org.plan.basePriceCents)}/mois</span>
+                    <span className="text-white">{formatPrice(getCatalogPrice(org.plan.code))}/mois</span>
                   </div>
                 </div>
                 <div>
                   <label className="text-sm text-slate-500">Prix catalogue</label>
                   <p className="text-white mt-1">
-                    {effectiveBillingData?.priceCatalogFormatted || formatPrice(org.plan.basePriceCents)}/mois
+                    {effectiveBillingData?.priceCatalogFormatted || formatPrice(getCatalogPrice(org.plan.code))}/mois
                   </p>
                 </div>
               </div>
@@ -1414,7 +1431,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                       className="bg-slate-700 border-slate-600 mt-1"
                     />
                   ) : (
-                    <p className="text-white">{formatPrice(org.plan.basePriceCents)}</p>
+                    <p className="text-white">{formatPrice(getCatalogPrice(org.plan.code))}</p>
                   )}
                 </div>
                 <div>
@@ -2029,7 +2046,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                           {resend && (
                             <Badge variant="outline" className="text-xs text-amber-400">Renvoi</Badge>
                           )}
-                          {entry.type === 'sms' && segments && segments > 1 && (
+                          {entry.type === 'sms' && segments != null && segments >= 1 && (
                             <Badge variant="outline" className="text-xs text-purple-400">
                               {segments} segment{segments > 1 ? 's' : ''}
                             </Badge>
