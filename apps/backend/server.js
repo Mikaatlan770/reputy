@@ -2857,516 +2857,137 @@ function sanitizeUrl(url) {
   return '#';
 }
 
-function generateRatingPage(requestId, request, existingFeedback, settings) {
+const _RATING_SVG_LOGO = `<div class="logo">
+  <svg viewBox="70 155 60 75" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M86.016 165.703 C 85.258 166.461,85.390 173.225,86.178 174.013 C 86.733 174.568,88.117 174.635,97.604 174.568 C 109.900 174.480,110.750 174.655,113.474 177.837 C 119.472 184.845,114.689 194.457,105.176 194.514 L 102.344 194.531 102.344 196.901 C 102.344 199.699,101.981 200.548,100.064 202.241 L 98.633 203.506 106.270 211.128 L 113.907 218.750 119.427 218.750 C 126.825 218.750,127.216 217.980,122.099 213.487 C 120.710 212.268,117.884 209.445,115.818 207.214 L 112.062 203.158 114.893 201.733 C 130.915 193.665,128.463 170.351,111.117 165.832 C 108.134 165.056,86.773 164.946,86.016 165.703 M89.519 204.744 C 86.576 206.201,85.769 207.936,85.603 213.161 C 85.421 218.902,85.283 218.750,90.650 218.750 C 95.966 218.750,95.528 219.795,95.362 207.520 L 95.313 203.906 93.262 203.907 C 91.952 203.907,90.599 204.210,89.519 204.744" fill="#242c34"/>
+  </svg>
+  <span class="logo-text">health</span>
+</div>`;
+
+const _RATING_BASE_CSS = `* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; background: #9ca3af; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.card { background: #f3f4f6; border-radius: 24px; padding: 48px 40px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); border: 2px solid #111827; }
+.logo { width: 80px; margin: 0 auto 12px; text-align: center; }
+.logo svg { width: 60px; height: 60px; }
+.logo-text { display: block; font-family: 'Cormorant Garamond', Georgia, serif; font-style: italic; font-weight: 500; font-size: 14px; color: #242c34; margin-top: 4px; }
+.slogan { font-family: 'Cormorant Garamond', Georgia, serif; font-style: italic; font-size: 15px; color: #242c34; letter-spacing: 0.3px; }`;
+
+const _RATING_FONTS = `<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital@1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">`;
+
+function _ratingPageData(request, settings) {
   const patientName = request?.patient?.name || 'Patient';
   const patientFirstName = request?.patient?.firstName || '';
   const patientLastName = request?.patient?.lastName || '';
-  // Afficher Prénom + Nom si disponibles, sinon fallback sur name
-  const displayName = patientFirstName && patientLastName 
-    ? `${patientFirstName} ${patientLastName}`
-    : patientName;
-  const firstName = patientFirstName || patientName.split(' ')[0]; // Pour le message de remerciement
-  const CABINET_NAME = settings?.cabinetName || DEFAULT_SETTINGS.cabinetName;
-  const GOOGLE_REVIEW_URL = settings?.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl;
+  const displayName = patientFirstName && patientLastName
+    ? `${patientFirstName} ${patientLastName}` : patientName;
+  const firstName = patientFirstName || patientName.split(' ')[0];
+  const cabinetName = settings?.cabinetName || DEFAULT_SETTINGS.cabinetName;
+  const googleUrl = settings?.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl;
+  return {
+    displayNameSafe: escapeHtml(displayName),
+    firstNameSafe: escapeHtml(firstName),
+    firstName,
+    cabinetNameSafe: escapeHtml(cabinetName),
+    googleUrlSafe: sanitizeUrl(googleUrl),
+  };
+}
 
-  // XSS-safe versions for HTML injection
-  const displayNameSafe = escapeHtml(displayName);
-  const firstNameSafe = escapeHtml(firstName);
-  const CABINET_NAME_SAFE = escapeHtml(CABINET_NAME);
-  const GOOGLE_REVIEW_URL_SAFE = sanitizeUrl(GOOGLE_REVIEW_URL);
-  
-  // Si feedback déjà soumis
-  if (existingFeedback) {
-    return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Merci ! - ${CABINET_NAME_SAFE}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital@1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
-      background: #9ca3af;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .card {
-      background: #f3f4f6;
-      border-radius: 24px;
-      padding: 48px 40px;
-      max-width: 420px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-      border: 2px solid #111827;
-    }
-    .logo {
-      width: 80px;
-      margin: 0 auto 12px;
-      text-align: center;
-    }
-    .logo svg {
-      width: 60px;
-      height: 60px;
-    }
-    .logo-text {
-      display: block;
-      font-family: 'Cormorant Garamond', Georgia, serif;
-      font-style: italic;
-      font-weight: 500;
-      font-size: 14px;
-      color: #242c34;
-      margin-top: 4px;
-    }
-    .slogan {
-      font-family: 'Cormorant Garamond', Georgia, serif;
-      font-style: italic;
-      font-size: 15px;
-      color: #242c34;
-      margin-bottom: 24px;
-      letter-spacing: 0.3px;
-    }
-    h1 { font-size: 28px; font-weight: 700; color: #1f2937; margin-bottom: 12px; }
-    p { color: #1f2937; font-size: 16px; line-height: 1.6; }
-    .rating-display {
-      display: flex;
-      justify-content: center;
-      gap: 8px;
-      margin: 24px 0;
-    }
-    .star { font-size: 32px; }
-    .star.filled { color: #fbbf24; }
-    .star.empty { color: #9ca3af; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="logo">
-      <svg viewBox="70 155 60 75" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M86.016 165.703 C 85.258 166.461,85.390 173.225,86.178 174.013 C 86.733 174.568,88.117 174.635,97.604 174.568 C 109.900 174.480,110.750 174.655,113.474 177.837 C 119.472 184.845,114.689 194.457,105.176 194.514 L 102.344 194.531 102.344 196.901 C 102.344 199.699,101.981 200.548,100.064 202.241 L 98.633 203.506 106.270 211.128 L 113.907 218.750 119.427 218.750 C 126.825 218.750,127.216 217.980,122.099 213.487 C 120.710 212.268,117.884 209.445,115.818 207.214 L 112.062 203.158 114.893 201.733 C 130.915 193.665,128.463 170.351,111.117 165.832 C 108.134 165.056,86.773 164.946,86.016 165.703 M89.519 204.744 C 86.576 206.201,85.769 207.936,85.603 213.161 C 85.421 218.902,85.283 218.750,90.650 218.750 C 95.966 218.750,95.528 219.795,95.362 207.520 L 95.313 203.906 93.262 203.907 C 91.952 203.907,90.599 204.210,89.519 204.744" fill="#242c34"/>
-      </svg>
-      <span class="logo-text">health</span>
-    </div>
-    <p class="slogan">La réputation qui inspire confiance</p>
-    <h1>Merci ${displayNameSafe} !</h1>
-    <p>Votre avis a déjà été enregistré. Nous vous remercions pour votre retour.</p>
-    <div class="rating-display">
-      ${[1,2,3,4,5].map(i => `<span class="star ${i <= existingFeedback.rating ? 'filled' : 'empty'}">★</span>`).join('')}
-    </div>
-  </div>
-</body>
-</html>`;
-  }
+function _generateAlreadySubmittedPage(data, existingFeedback) {
+  const starsHtml = [1,2,3,4,5].map(i =>
+    `<span class="star ${i <= existingFeedback.rating ? 'filled' : 'empty'}">★</span>`
+  ).join('');
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Merci ! - ${data.cabinetNameSafe}</title>${_RATING_FONTS}
+<style>${_RATING_BASE_CSS} .slogan { margin-bottom: 24px; }
+h1 { font-size: 28px; font-weight: 700; color: #1f2937; margin-bottom: 12px; }
+p { color: #1f2937; font-size: 16px; line-height: 1.6; }
+.rating-display { display: flex; justify-content: center; gap: 8px; margin: 24px 0; }
+.star { font-size: 32px; } .star.filled { color: #fbbf24; } .star.empty { color: #9ca3af; }
+</style></head><body><div class="card">${_RATING_SVG_LOGO}
+<p class="slogan">La réputation qui inspire confiance</p>
+<h1>Merci ${data.displayNameSafe} !</h1>
+<p>Votre avis a déjà été enregistré. Nous vous remercions pour votre retour.</p>
+<div class="rating-display">${starsHtml}</div></div></body></html>`;
+}
 
-  // Page de notation
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Donnez votre avis - ${CABINET_NAME_SAFE}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital@1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
-      background: #9ca3af;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .card {
-      background: #f3f4f6;
-      border-radius: 24px;
-      padding: 48px 40px;
-      max-width: 420px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-      border: 2px solid #111827;
-    }
-    .logo {
-      width: 80px;
-      margin: 0 auto 12px;
-      text-align: center;
-    }
-    .logo svg {
-      width: 60px;
-      height: 60px;
-    }
-    .logo-text {
-      display: block;
-      font-family: 'Cormorant Garamond', Georgia, serif;
-      font-style: italic;
-      font-weight: 500;
-      font-size: 14px;
-      color: #242c34;
-      margin-top: 4px;
-    }
-    .slogan {
-      font-family: 'Cormorant Garamond', Georgia, serif;
-      font-style: italic;
-      font-size: 15px;
-      color: #242c34;
-      margin-bottom: 28px;
-      letter-spacing: 0.3px;
-    }
-    h1 {
-      font-size: 24px;
-      font-weight: 700;
-      color: #1f2937;
-      margin-bottom: 8px;
-    }
-    .cabinet-name {
-      font-size: 14px;
-      color: #1f2937;
-      margin-bottom: 32px;
-    }
-    .greeting {
-      font-size: 18px;
-      color: #1f2937;
-      margin-bottom: 8px;
-    }
-    .question {
-      font-size: 16px;
-      color: #1f2937;
-      margin-bottom: 24px;
-    }
-    .stars {
-      display: flex;
-      justify-content: center;
-      gap: 8px;
-      margin-bottom: 32px;
-    }
-    .star {
-      font-size: 48px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      color: #e5e7eb;
-      user-select: none;
-    }
-    .star:hover { transform: scale(1.15); }
-    .star.active { color: #fbbf24; }
-    .star.hover { color: #fcd34d; }
-    .comment-section {
-      display: none;
-      margin-bottom: 24px;
-    }
-    .comment-section.visible { display: block; }
-    .comment-section label {
-      display: block;
-      text-align: left;
-      font-size: 14px;
-      font-weight: 500;
-      color: #1f2937;
-      margin-bottom: 8px;
-    }
-    textarea {
-      width: 100%;
-      min-height: 100px;
-      padding: 12px 16px;
-      border: 2px solid #e5e7eb;
-      border-radius: 12px;
-      font-family: inherit;
-      font-size: 14px;
-      resize: vertical;
-      transition: border-color 0.2s;
-    }
-    textarea:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-    .btn {
-      display: none;
-      width: 100%;
-      padding: 16px 24px;
-      border: none;
-      border-radius: 12px;
-      font-family: inherit;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .btn.visible { display: block; }
-    .btn-primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 20px -5px rgba(102, 126, 234, 0.4);
-    }
-    .btn-primary:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
-    .btn-google {
-      background: white;
-      border: 2px solid #e5e7eb;
-      color: #374151;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-    }
-    .btn-google:hover {
-      border-color: #4285f4;
-      background: #f8fafc;
-    }
-    .btn-google svg { width: 24px; height: 24px; }
-    .success-message {
-      display: none;
-      padding: 16px;
-      background: #ecfdf5;
-      border-radius: 12px;
-      color: #059669;
-      font-weight: 500;
-    }
-    .success-message.visible { display: block; }
-    .privacy {
-      margin-top: 24px;
-      font-size: 12px;
-      color: #6b7280;
-    }
-    .loading { opacity: 0.7; pointer-events: none; }
-  </style>
-</head>
-<body>
-  <div class="card" id="card">
-    <div class="logo">
-      <svg viewBox="70 155 60 75" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M86.016 165.703 C 85.258 166.461,85.390 173.225,86.178 174.013 C 86.733 174.568,88.117 174.635,97.604 174.568 C 109.900 174.480,110.750 174.655,113.474 177.837 C 119.472 184.845,114.689 194.457,105.176 194.514 L 102.344 194.531 102.344 196.901 C 102.344 199.699,101.981 200.548,100.064 202.241 L 98.633 203.506 106.270 211.128 L 113.907 218.750 119.427 218.750 C 126.825 218.750,127.216 217.980,122.099 213.487 C 120.710 212.268,117.884 209.445,115.818 207.214 L 112.062 203.158 114.893 201.733 C 130.915 193.665,128.463 170.351,111.117 165.832 C 108.134 165.056,86.773 164.946,86.016 165.703 M89.519 204.744 C 86.576 206.201,85.769 207.936,85.603 213.161 C 85.421 218.902,85.283 218.750,90.650 218.750 C 95.966 218.750,95.528 219.795,95.362 207.520 L 95.313 203.906 93.262 203.907 C 91.952 203.907,90.599 204.210,89.519 204.744" fill="#242c34"/>
-      </svg>
-      <span class="logo-text">health</span>
-    </div>
-    <p class="slogan">La réputation qui inspire confiance</p>
-    <h1>Votre avis compte</h1>
-    <p class="cabinet-name">${CABINET_NAME_SAFE}</p>
-    
-    <p class="greeting">Bonjour ${displayNameSafe},</p>
-    <p class="question">Comment s'est passée votre visite ?</p>
-    
-    <div class="stars" id="stars">
-      <span class="star" data-value="1">★</span>
-      <span class="star" data-value="2">★</span>
-      <span class="star" data-value="3">★</span>
-      <span class="star" data-value="4">★</span>
-      <span class="star" data-value="5">★</span>
-    </div>
-    
-    <div class="comment-section" id="commentSection">
-      <label for="comment">Un commentaire ? (optionnel)</label>
-      <textarea id="comment" placeholder="Partagez votre expérience..."></textarea>
-    </div>
-    
-    <button class="btn btn-primary" id="submitBtn" onclick="submitFeedback()">
-      Envoyer mon avis
-    </button>
-    
-    <a href="${GOOGLE_REVIEW_URL_SAFE}" target="_blank" rel="noopener noreferrer" class="btn btn-google" id="googleBtn" style="display:none;text-decoration:none;">
-      <svg viewBox="0 0 24 24">
-        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-      </svg>
-      Laisser un avis sur Google
-    </a>
-    
-    <div class="success-message" id="successMessage">
-      ✓ Merci pour votre retour !
-    </div>
-    
-    <p class="privacy">Vos données sont traitées de manière confidentielle.</p>
-  </div>
+function _generateRatingFormPage(requestId, data, settings) {
+  const threshold = settings?.reviewRouting?.threshold ?? 4;
+  const routingEnabled = settings?.reviewRouting?.enabled !== false;
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Donnez votre avis - ${data.cabinetNameSafe}</title>${_RATING_FONTS}
+<style>${_RATING_BASE_CSS} .slogan { margin-bottom: 28px; }
+h1 { font-size: 24px; font-weight: 700; color: #1f2937; margin-bottom: 8px; }
+.cabinet-name { font-size: 14px; color: #1f2937; margin-bottom: 32px; }
+.greeting { font-size: 18px; color: #1f2937; margin-bottom: 8px; }
+.question { font-size: 16px; color: #1f2937; margin-bottom: 24px; }
+.stars { display: flex; justify-content: center; gap: 8px; margin-bottom: 32px; }
+.star { font-size: 48px; cursor: pointer; transition: all 0.2s ease; color: #e5e7eb; user-select: none; }
+.star:hover { transform: scale(1.15); } .star.active { color: #fbbf24; } .star.hover { color: #fcd34d; }
+.comment-section { display: none; margin-bottom: 24px; } .comment-section.visible { display: block; }
+.comment-section label { display: block; text-align: left; font-size: 14px; font-weight: 500; color: #1f2937; margin-bottom: 8px; }
+textarea { width: 100%; min-height: 100px; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 12px; font-family: inherit; font-size: 14px; resize: vertical; transition: border-color 0.2s; }
+textarea:focus { outline: none; border-color: #667eea; }
+.btn { display: none; width: 100%; padding: 16px 24px; border: none; border-radius: 12px; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; }
+.btn.visible { display: block; }
+.btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 20px -5px rgba(102, 126, 234, 0.4); }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-google { background: white; border: 2px solid #e5e7eb; color: #374151; display: flex; align-items: center; justify-content: center; gap: 12px; }
+.btn-google:hover { border-color: #4285f4; background: #f8fafc; } .btn-google svg { width: 24px; height: 24px; }
+.success-message { display: none; padding: 16px; background: #ecfdf5; border-radius: 12px; color: #059669; font-weight: 500; }
+.success-message.visible { display: block; }
+.privacy { margin-top: 24px; font-size: 12px; color: #6b7280; }
+.loading { opacity: 0.7; pointer-events: none; }
+</style></head><body>
+<div class="card" id="card">${_RATING_SVG_LOGO}
+<p class="slogan">La réputation qui inspire confiance</p>
+<h1>Votre avis compte</h1>
+<p class="cabinet-name">${data.cabinetNameSafe}</p>
+<p class="greeting">Bonjour ${data.displayNameSafe},</p>
+<p class="question">Comment s'est passée votre visite ?</p>
+<div class="stars" id="stars">
+  <span class="star" data-value="1">★</span><span class="star" data-value="2">★</span>
+  <span class="star" data-value="3">★</span><span class="star" data-value="4">★</span>
+  <span class="star" data-value="5">★</span>
+</div>
+<div class="comment-section" id="commentSection">
+  <label for="comment">Un commentaire ? (optionnel)</label>
+  <textarea id="comment" placeholder="Partagez votre expérience..."></textarea>
+</div>
+<button class="btn btn-primary" id="submitBtn" onclick="submitFeedback()">Envoyer mon avis</button>
+<a href="${data.googleUrlSafe}" target="_blank" rel="noopener noreferrer" class="btn btn-google" id="googleBtn" style="display:none;text-decoration:none;">
+  <svg viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+  </svg>Laisser un avis sur Google
+</a>
+<div class="success-message" id="successMessage">✓ Merci pour votre retour !</div>
+<p class="privacy">Vos données sont traitées de manière confidentielle.</p>
+</div>
+<script>
+const requestId=${JSON.stringify(requestId)};const STORAGE_KEY='reputy_submitted_'+requestId;
+const ROUTING_THRESHOLD=${threshold};const ROUTING_ENABLED=${routingEnabled};
+const GOOGLE_URL=${JSON.stringify(data.googleUrlSafe)};
+let selectedRating=0;let isSubmitting=false;
+if(localStorage.getItem(STORAGE_KEY)==='true'){showAlreadySubmitted();}
+const stars=document.querySelectorAll('.star');const commentSection=document.getElementById('commentSection');
+const submitBtn=document.getElementById('submitBtn');const googleBtn=document.getElementById('googleBtn');
+googleBtn.addEventListener('click',function(){try{navigator.sendBeacon('/r/'+requestId+'/redirected');}catch(e){console.debug(e);}});
+stars.forEach(star=>{star.addEventListener('click',()=>{if(isSubmitting)return;selectedRating=parseInt(star.dataset.value);updateStars();commentSection.classList.add('visible');if(ROUTING_ENABLED&&selectedRating>=ROUTING_THRESHOLD){submitBtn.classList.remove('visible');googleBtn.href=GOOGLE_URL;googleBtn.style.display='flex';submitFeedbackSilent();}else{submitBtn.classList.add('visible');googleBtn.style.display='none';}});star.addEventListener('mouseenter',()=>{const val=parseInt(star.dataset.value);stars.forEach((s,i)=>{s.classList.toggle('hover',i<val);});});star.addEventListener('mouseleave',()=>{stars.forEach(s=>s.classList.remove('hover'));});});
+function updateStars(){stars.forEach((star,i)=>{star.classList.toggle('active',i<selectedRating);});}
+function showAlreadySubmitted(){document.getElementById('stars').style.display='none';document.getElementById('commentSection').style.display='none';document.getElementById('submitBtn').style.display='none';document.querySelector('.question').style.display='none';const msg=document.getElementById('successMessage');msg.textContent='✓ Merci, votre avis a déjà été enregistré.';msg.classList.add('visible');document.querySelector('.greeting').textContent='Merci !';}
+async function submitFeedbackSilent(){if(isSubmitting)return;isSubmitting=true;try{const comment=document.getElementById('comment').value;const response=await fetch('/r/'+requestId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:selectedRating,comment})});if(response.ok||response.status===409){localStorage.setItem(STORAGE_KEY,'true');}}catch(e){console.error('Silent submit error:',e);}isSubmitting=false;}
+async function submitFeedback(){if(isSubmitting)return;const card=document.getElementById('card');const comment=document.getElementById('comment').value;if(!selectedRating){alert('Veuillez sélectionner une note');return;}isSubmitting=true;card.classList.add('loading');submitBtn.disabled=true;submitBtn.textContent='Envoi...';try{const response=await fetch('/r/'+requestId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:selectedRating,comment})});const result=await response.json();if(response.status===409){localStorage.setItem(STORAGE_KEY,'true');showAlreadySubmitted();card.classList.remove('loading');return;}if(result.success||result.ok){localStorage.setItem(STORAGE_KEY,'true');document.getElementById('stars').style.display='none';commentSection.style.display='none';submitBtn.style.display='none';document.querySelector('.question').style.display='none';const routing=result.routing||{};if(routing.mode==='PUBLIC_REVIEW'&&routing.redirectUrl){googleBtn.href=routing.redirectUrl;googleBtn.style.display='flex';document.getElementById('successMessage').innerHTML='✓ Merci ! Partagez votre expérience sur Google ?';document.getElementById('successMessage').classList.add('visible');}else{document.getElementById('successMessage').innerHTML='✓ Merci pour votre retour !';document.getElementById('successMessage').classList.add('visible');}document.querySelector('.greeting').textContent='Merci '+${JSON.stringify(data.firstName)}+' !';}else{alert(result.error||'Une erreur est survenue');submitBtn.disabled=false;submitBtn.textContent='Envoyer mon avis';isSubmitting=false;}}catch(e){console.error('Submit error:',e);alert('Erreur de connexion');submitBtn.disabled=false;submitBtn.textContent='Envoyer mon avis';isSubmitting=false;}card.classList.remove('loading');}
+</script></body></html>`;
+}
 
-  <script>
-    const requestId = ${JSON.stringify(requestId)};
-    const STORAGE_KEY = 'reputy_submitted_' + requestId;
-    const ROUTING_THRESHOLD = ${settings?.reviewRouting?.threshold ?? 4};
-    const ROUTING_ENABLED = ${settings?.reviewRouting?.enabled !== false};
-    const GOOGLE_URL = ${JSON.stringify(GOOGLE_REVIEW_URL_SAFE)};
-    let selectedRating = 0;
-    let isSubmitting = false;
-    
-    // Anti double-clic: vérifier si déjà soumis via localStorage
-    if (localStorage.getItem(STORAGE_KEY) === 'true') {
-      showAlreadySubmitted();
-    }
-    
-    // Star rating
-    const stars = document.querySelectorAll('.star');
-    const commentSection = document.getElementById('commentSection');
-    const submitBtn = document.getElementById('submitBtn');
-    const googleBtn = document.getElementById('googleBtn');
-    // Track Google redirect click (lifecycle: → public_redirected)
-    googleBtn.addEventListener('click', function() {
-      try { navigator.sendBeacon('/r/${requestId}/redirected'); } catch(e) { console.debug(e); }
-    });
-    
-    stars.forEach(star => {
-      star.addEventListener('click', () => {
-        if (isSubmitting) return;
-        selectedRating = parseInt(star.dataset.value);
-        updateStars();
-        
-        // Show comment section
-        commentSection.classList.add('visible');
-        
-        // Check routing: si note >= seuil ET routing activé => Google direct
-        if (ROUTING_ENABLED && selectedRating >= ROUTING_THRESHOLD) {
-          submitBtn.classList.remove('visible');
-          googleBtn.href = GOOGLE_URL;
-          googleBtn.style.display = 'flex';
-          // Auto-submit en arrière-plan (la note est enregistrée même si le client ne va pas sur Google)
-          submitFeedbackSilent();
-        } else {
-          submitBtn.classList.add('visible');
-          googleBtn.style.display = 'none';
-        }
-      });
-      
-      star.addEventListener('mouseenter', () => {
-        const val = parseInt(star.dataset.value);
-        stars.forEach((s, i) => {
-          s.classList.toggle('hover', i < val);
-        });
-      });
-      
-      star.addEventListener('mouseleave', () => {
-        stars.forEach(s => s.classList.remove('hover'));
-      });
-    });
-    
-    function updateStars() {
-      stars.forEach((star, i) => {
-        star.classList.toggle('active', i < selectedRating);
-      });
-    }
-    
-    function showAlreadySubmitted() {
-      document.getElementById('stars').style.display = 'none';
-      document.getElementById('commentSection').style.display = 'none';
-      document.getElementById('submitBtn').style.display = 'none';
-      document.querySelector('.question').style.display = 'none';
-      const msg = document.getElementById('successMessage');
-      msg.textContent = '✓ Merci, votre avis a déjà été enregistré.';
-      msg.classList.add('visible');
-      document.querySelector('.greeting').textContent = 'Merci !';
-    }
-    
-    async function submitFeedbackSilent() {
-      if (isSubmitting) return;
-      isSubmitting = true;
-      
-      try {
-        const comment = document.getElementById('comment').value;
-        const response = await fetch('/r/${requestId}', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rating: selectedRating, comment })
-        });
-        
-        // Marquer comme soumis même si 409 (déjà fait)
-        if (response.ok || response.status === 409) {
-          localStorage.setItem(STORAGE_KEY, 'true');
-        }
-      } catch (e) {
-        console.error('Silent submit error:', e);
-      }
-      
-      isSubmitting = false;
-    }
-    
-    async function submitFeedback() {
-      if (isSubmitting) return;
-      
-      const card = document.getElementById('card');
-      const comment = document.getElementById('comment').value;
-      
-      if (!selectedRating) {
-        alert('Veuillez sélectionner une note');
-        return;
-      }
-      
-      isSubmitting = true;
-      card.classList.add('loading');
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Envoi...';
-      
-      try {
-        const response = await fetch('/r/${requestId}', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rating: selectedRating, comment })
-        });
-        
-        const result = await response.json();
-        
-        // Gérer le 409 Conflict (déjà soumis)
-        if (response.status === 409) {
-          localStorage.setItem(STORAGE_KEY, 'true');
-          showAlreadySubmitted();
-          card.classList.remove('loading');
-          return;
-        }
-        
-        if (result.success || result.ok) {
-          localStorage.setItem(STORAGE_KEY, 'true');
-          
-          // Hide form elements
-          document.getElementById('stars').style.display = 'none';
-          commentSection.style.display = 'none';
-          submitBtn.style.display = 'none';
-          document.querySelector('.question').style.display = 'none';
-          
-          // Check routing decision from backend
-          const routing = result.routing || {};
-          
-          if (routing.mode === 'PUBLIC_REVIEW' && routing.redirectUrl) {
-            // Show Google button for public review
-            googleBtn.href = routing.redirectUrl;
-            googleBtn.style.display = 'flex';
-            document.getElementById('successMessage').innerHTML = '✓ Merci ! Partagez votre expérience sur Google ?';
-            document.getElementById('successMessage').classList.add('visible');
-          } else {
-            // Internal feedback only
-            document.getElementById('successMessage').innerHTML = '✓ Merci pour votre retour !';
-            document.getElementById('successMessage').classList.add('visible');
-          }
-          
-          document.querySelector('.greeting').textContent = 'Merci ' + ${JSON.stringify(firstName)} + ' !';
-        } else {
-          alert(result.error || 'Une erreur est survenue');
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Envoyer mon avis';
-          isSubmitting = false;
-        }
-      } catch (e) {
-        console.error('Submit error:', e);
-        alert('Erreur de connexion');
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Envoyer mon avis';
-        isSubmitting = false;
-      }
-      
-      card.classList.remove('loading');
-    }
-  </script>
-</body>
-</html>`;
+function generateRatingPage(requestId, request, existingFeedback, settings) {
+  const data = _ratingPageData(request, settings);
+  if (existingFeedback) return _generateAlreadySubmittedPage(data, existingFeedback);
+  return _generateRatingFormPage(requestId, data, settings);
 }
 
 function generate404Page() {
@@ -4588,145 +4209,104 @@ async function handleSaveReviewRouting(req, res) {
  * HTTP 200 if ok/degraded, 503 if error.
  * Constraint: < 100ms, no sensitive data, Cache-Control: no-store.
  */
-function handleAdminHealth(req, res) {
-  const auth = requireAdmin(req);
-  if (!auth.ok) {
-    return sendJson(res, auth.status || 401, { error: auth.error });
-  }
-
+function _healthCheckDb(issues) {
+  const info = { status: 'ok', wal_mode: null, foreign_keys: null, integrity_ok: null, latency_ms: null };
   let globalStatus = 'ok';
-  const issues = [];
-
-  // --- DB checks (fast) ---
-  const dbInfo = { status: 'ok', wal_mode: null, foreign_keys: null, integrity_ok: null, latency_ms: null };
   try {
     const dbModule = storage.getDb();
     const database = dbModule ? dbModule.getDb() : null;
     if (database) {
       const t0 = Date.now();
       database.prepare('SELECT 1').get();
-      dbInfo.latency_ms = Date.now() - t0;
-
-      const jm = database.pragma('journal_mode', { simple: true });
-      dbInfo.wal_mode = String(jm).toLowerCase() === 'wal';
-
-      const fk = database.pragma('foreign_keys', { simple: true });
-      dbInfo.foreign_keys = Boolean(fk);
-
-      const ic = database.prepare('PRAGMA integrity_check(1)').get();
-      dbInfo.integrity_ok = (ic?.integrity_check === 'ok');
-      if (!dbInfo.integrity_ok) {
-        dbInfo.status = 'error';
-        globalStatus = 'error';
-        issues.push('integrity_check failed');
-      }
+      info.latency_ms = Date.now() - t0;
+      info.wal_mode = String(database.pragma('journal_mode', { simple: true })).toLowerCase() === 'wal';
+      info.foreign_keys = Boolean(database.pragma('foreign_keys', { simple: true }));
+      info.integrity_ok = (database.prepare('PRAGMA integrity_check(1)').get()?.integrity_check === 'ok');
+      if (!info.integrity_ok) { info.status = 'error'; globalStatus = 'error'; issues.push('integrity_check failed'); }
     } else if (!storage.USE_SQLITE) {
-      // JSON mode — DB checks not applicable
-      dbInfo.status = 'n/a';
+      info.status = 'n/a';
     } else {
-      dbInfo.status = 'error';
-      globalStatus = 'error';
-      issues.push('db not available');
+      info.status = 'error'; globalStatus = 'error'; issues.push('db not available');
     }
   } catch (err) {
-    dbInfo.status = 'error';
-    globalStatus = 'error';
-    issues.push('db error');
-    logger.logError('ADMIN_HEALTH_DB_ERROR', 'DB check failed during health check', {
-      errorMessage: err.message
-    });
+    info.status = 'error'; globalStatus = 'error'; issues.push('db error');
+    logger.logError('ADMIN_HEALTH_DB_ERROR', 'DB check failed during health check', { errorMessage: err.message });
   }
+  return { info, globalStatus };
+}
 
-  // --- Backup checks (fast, non-blocking) ---
-  const backupsInfo = { last_backup_utc: null, count_24h: 0, dir: 'backups' };
+function _healthCheckBackups() {
+  const info = { last_backup_utc: null, count_24h: 0, dir: 'backups' };
   try {
     const backupDir = process.env.BACKUP_DIR || path.resolve(process.cwd(), 'backups');
     if (fs.existsSync(backupDir)) {
       const files = fs.readdirSync(backupDir)
         .filter(f => f.endsWith('.db'))
-        .map(f => ({
-          name: f,
-          mtime: fs.statSync(path.join(backupDir, f)).mtime
-        }))
+        .map(f => ({ name: f, mtime: fs.statSync(path.join(backupDir, f)).mtime }))
         .sort((a, b) => b.mtime - a.mtime);
-
-      if (files.length > 0) {
-        backupsInfo.last_backup_utc = files[0].mtime.toISOString();
-      }
+      if (files.length > 0) info.last_backup_utc = files[0].mtime.toISOString();
       const now = Date.now();
-      backupsInfo.count_24h = files.filter(f =>
-        now - f.mtime.getTime() < 24 * 60 * 60 * 1000
-      ).length;
+      info.count_24h = files.filter(f => now - f.mtime.getTime() < 86400000).length;
     }
-    // If dir doesn't exist: degraded but not error
-  } catch (err) {
-    console.debug('[HEALTH] Backup check failed:', err.message);
-  }
+  } catch (err) { console.debug('[HEALTH] Backup check failed:', err.message); }
+  return info;
+}
 
-  // --- Process info ---
+function _healthCheckMrr() {
+  const info = { last_snapshot_date: null, fresh: false };
+  try {
+    const repos = storage.getRepos();
+    if (repos && repos.mrrSnapshot) {
+      const latest = repos.mrrSnapshot.getLatest();
+      if (latest) {
+        info.last_snapshot_date = latest.date;
+        info.fresh = (latest.date === new Date().toISOString().slice(0, 10));
+      }
+    }
+  } catch (err) { console.debug('[HEALTH] MRR snapshot check failed:', err.message); }
+  return info;
+}
+
+function handleAdminHealth(req, res) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) return sendJson(res, auth.status || 401, { error: auth.error });
+
+  const issues = [];
+  const { info: dbInfo, globalStatus: dbStatus } = _healthCheckDb(issues);
+  const backupsInfo = _healthCheckBackups();
+  const mrrSnapshotsInfo = _healthCheckMrr();
+
   const mem = process.memoryUsage();
   const processInfo = {
     rss_mb: +(mem.rss / 1048576).toFixed(1),
     heap_used_mb: +(mem.heapUsed / 1048576).toFixed(1),
     heap_total_mb: +(mem.heapTotal / 1048576).toFixed(1),
     uptime_seconds: Math.floor(process.uptime()),
-    event_loop_lag_ms: null // placeholder for future monitoring
+    event_loop_lag_ms: null
   };
 
-  // --- MRR snapshot freshness check ---
-  const mrrSnapshotsInfo = { last_snapshot_date: null, fresh: false };
-  try {
-    const repos = storage.getRepos();
-    if (repos && repos.mrrSnapshot) {
-      const latest = repos.mrrSnapshot.getLatest();
-      if (latest) {
-        mrrSnapshotsInfo.last_snapshot_date = latest.date;
-        const todayUTC = new Date().toISOString().slice(0, 10);
-        mrrSnapshotsInfo.fresh = (latest.date === todayUTC);
-      }
-    }
-  } catch (err) {
-    console.debug('[HEALTH] MRR snapshot check failed:', err.message);
-  }
-
-  // --- Global status resolution ---
-  if (globalStatus === 'ok' && backupsInfo.count_24h === 0) {
-    globalStatus = 'degraded';
-    issues.push('no backup in last 24h');
-  }
-  if (globalStatus === 'ok' && dbInfo.status === 'ok' && !dbInfo.wal_mode) {
-    globalStatus = 'degraded';
-    issues.push('WAL mode not active');
-  }
-  if (globalStatus === 'ok' && dbInfo.status === 'ok' && !dbInfo.foreign_keys) {
-    globalStatus = 'degraded';
-    issues.push('foreign keys not enabled');
-  }
-  if (globalStatus === 'ok' && !mrrSnapshotsInfo.fresh) {
-    globalStatus = 'degraded';
-    issues.push('mrr snapshot missing for today');
+  let globalStatus = dbStatus;
+  const degradedChecks = [
+    [backupsInfo.count_24h === 0, 'no backup in last 24h'],
+    [dbInfo.status === 'ok' && !dbInfo.wal_mode, 'WAL mode not active'],
+    [dbInfo.status === 'ok' && !dbInfo.foreign_keys, 'foreign keys not enabled'],
+    [!mrrSnapshotsInfo.fresh, 'mrr snapshot missing for today'],
+  ];
+  for (const [cond, msg] of degradedChecks) {
+    if (globalStatus === 'ok' && cond) { globalStatus = 'degraded'; issues.push(msg); }
   }
 
   const payload = {
-    status: globalStatus,
-    version: VERSION,
+    status: globalStatus, version: VERSION,
     uptime_seconds: Math.floor(process.uptime()),
     node: { version: process.version },
     storage: { mode: storage.USE_SQLITE ? 'sqlite' : 'json' },
-    db: dbInfo,
-    backups: backupsInfo,
-    mrr_snapshots: mrrSnapshotsInfo,
-    process: processInfo
+    db: dbInfo, backups: backupsInfo, mrr_snapshots: mrrSnapshotsInfo, process: processInfo
   };
 
-  // Only log if not OK (avoid spam)
-  if (globalStatus !== 'ok') {
-    logger.logWarn('ADMIN_HEALTH', `Health check: ${globalStatus}`, { issues });
-  }
-
-  const httpStatus = globalStatus === 'error' ? 503 : 200;
+  if (globalStatus !== 'ok') logger.logWarn('ADMIN_HEALTH', `Health check: ${globalStatus}`, { issues });
   res.setHeader('Cache-Control', 'no-store');
-  return sendJson(res, httpStatus, payload);
+  return sendJson(res, globalStatus === 'error' ? 503 : 200, payload);
 }
 
 /**
@@ -4821,243 +4401,171 @@ function handleAdminMetrics(req, res, urlParams = new URLSearchParams()) {
     },
   };
 
+  const database = dbModule ? dbModule.getDb() : null;
+  if (!database) {
+    payload.performance = { duration_ms: Date.now() - t0 };
+    res.setHeader('Cache-Control', 'no-store');
+    return sendJson(res, 200, payload);
+  }
+
   try {
-    const database = dbModule ? dbModule.getDb() : null;
-
-    if (!database) {
-      // JSON mode — return zeroes, no error
-      payload.performance = { duration_ms: Date.now() - t0 };
-      res.setHeader('Cache-Control', 'no-store');
-      return sendJson(res, 200, payload);
-    }
-
-    // ============================================================
-    // Orgs
-    // ============================================================
-    payload.orgs.total = database.prepare(
-      'SELECT COUNT(*) as cnt FROM orgs'
-    ).get().cnt;
-    payload.orgs.active_in_period = database.prepare(
-      'SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE created_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-
-    // ============================================================
-    // Requests — lifecycle counts (in-period + all-time)
-    // ============================================================
-    payload.requests.total = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests'
-    ).get().cnt;
-
-    // In-period lifecycle counts (6 queries, all indexed)
-    payload.requests.created_in_period = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE created_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-    payload.requests.queued_in_period = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE queued_at IS NOT NULL AND queued_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-    payload.requests.sent_in_period = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE sent_at IS NOT NULL AND sent_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-    payload.requests.failed_in_period = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE failed_at IS NOT NULL AND failed_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-    payload.requests.feedback_received_in_period = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE feedback_received_at IS NOT NULL AND feedback_received_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-    payload.requests.public_redirected_in_period = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE public_redirected_at IS NOT NULL AND public_redirected_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-
-    // All-time lifecycle totals
-    payload.requests.total_sent = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE sent_at IS NOT NULL'
-    ).get().cnt;
-    payload.requests.total_failed = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE failed_at IS NOT NULL'
-    ).get().cnt;
-    payload.requests.total_feedback_received = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE feedback_received_at IS NOT NULL'
-    ).get().cnt;
-    payload.requests.total_public_redirected = database.prepare(
-      'SELECT COUNT(*) as cnt FROM review_requests WHERE public_redirected_at IS NOT NULL'
-    ).get().cnt;
-
-    // ============================================================
-    // North Star V1 = public_redirected_in_period
-    // ============================================================
-    payload.north_star_v1 = payload.requests.public_redirected_in_period;
-
-    // ============================================================
-    // Feedback (authoritative: feedback_received_at on review_requests)
-    // ============================================================
-    payload.feedback.total = database.prepare(
-      'SELECT COUNT(*) as cnt FROM feedbacks'
-    ).get().cnt;
-    payload.feedback.in_period = payload.requests.feedback_received_in_period;
-    payload.feedback.in_period_crosscheck = database.prepare(
-      'SELECT COUNT(*) as cnt FROM feedbacks WHERE created_at >= $since'
-    ).get({ since: sinceISO }).cnt;
-
-    // ============================================================
-    // Usage (aggregated across all orgs via usage_ledger)
-    // ============================================================
-    const usageRows = database.prepare(
-      'SELECT type, SUM(qty) as total FROM usage_ledger WHERE created_at >= $since GROUP BY type'
-    ).all({ since: sinceISO });
-    for (const row of usageRows) {
-      if (row.type === 'email') payload.usage.emails_sent = row.total || 0;
-      if (row.type === 'sms') payload.usage.sms_sent = row.total || 0;
-      if (row.type === 'ai') payload.usage.ai_used = row.total || 0;
-    }
-
-    // ============================================================
-    // Activation — official: activated_at-based (see metrics-definition.md §3)
-    // ============================================================
-    try {
-      payload.activation.total_orgs = payload.orgs.total;
-      payload.activation.activated_orgs = database.prepare(
-        'SELECT COUNT(*) as cnt FROM orgs WHERE activated_at IS NOT NULL'
-      ).get().cnt;
-      if (payload.activation.total_orgs > 0) {
-        payload.activation.activation_rate_percent = +(
-          (payload.activation.activated_orgs / payload.activation.total_orgs) * 100
-        ).toFixed(1);
-      }
-
-      // Deprecated usage-based signals (still useful for breakdowns, not for rate)
-      const dep = payload.activation.deprecated_usage_signals;
-      dep.orgs_with_email = database.prepare(
-        "SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE type='email' AND created_at >= $since"
-      ).get({ since: sinceISO }).cnt || 0;
-      dep.orgs_with_sms = database.prepare(
-        "SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE type='sms' AND created_at >= $since"
-      ).get({ since: sinceISO }).cnt || 0;
-      dep.orgs_with_ai = database.prepare(
-        "SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE type='ai' AND created_at >= $since"
-      ).get({ since: sinceISO }).cnt || 0;
-      dep.orgs_with_feedback = database.prepare(
-        `SELECT COUNT(DISTINCT rr.org_id) as cnt
-         FROM feedbacks f
-         JOIN review_requests rr ON rr.id = f.request_db_id
-         WHERE f.created_at >= $since`
-      ).get({ since: sinceISO }).cnt || 0;
-      dep.orgs_with_request = database.prepare(
-        'SELECT COUNT(DISTINCT org_id) as cnt FROM review_requests WHERE created_at >= $since'
-      ).get({ since: sinceISO }).cnt || 0;
-    } catch (activErr) {
-      logger.logWarn('ADMIN_METRICS_ERROR', 'Activation aggregation failed', {
-        message: activErr.message
-      });
-    }
-
-    // ============================================================
-    // Revenue / MRR (unchanged logic — see metrics-definition.md §5)
-    // ============================================================
-    // Monthly effective price:
-    //   1. negotiated.enabled + customPriceCents > 0  → customPriceCents
-    //   2. negotiated.enabled + discountPercent > 0   → round(base * (1 - disc/100))
-    //   3. else                                       → basePriceCents
-    const MRR_CASE = `
-      CASE
-        WHEN CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
-          AND CAST(json_extract(negotiated_json,'$.customPriceCents') AS INTEGER) > 0
-        THEN CAST(json_extract(negotiated_json,'$.customPriceCents') AS INTEGER)
-        WHEN CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
-          AND CAST(json_extract(negotiated_json,'$.discountPercent') AS REAL) > 0
-        THEN CAST(ROUND(
-          CAST(json_extract(plan_json,'$.basePriceCents') AS REAL)
-          * (1.0 - CAST(json_extract(negotiated_json,'$.discountPercent') AS REAL) / 100.0)
-        ) AS INTEGER)
-        WHEN json_extract(plan_json,'$.basePriceCents') IS NULL THEN 0
-        ELSE CAST(json_extract(plan_json,'$.basePriceCents') AS INTEGER)
-      END`;
-    const TIER_CASE = `
-      CASE
-        WHEN json_extract(plan_json,'$.code') IS NULL THEN 'unknown'
-        WHEN INSTR(json_extract(plan_json,'$.code'),'_') = 0 THEN json_extract(plan_json,'$.code')
-        ELSE SUBSTR(json_extract(plan_json,'$.code'), INSTR(json_extract(plan_json,'$.code'),'_') + 1)
-      END`;
-    const ACTIVE_FILTER = `status = 'active' AND json_extract(billing_json,'$.status') = 'active'`;
-
-    try {
-      // MRR total + orgs_paid
-      const mrrRow = database.prepare(`
-        SELECT SUM(monthly) AS total_mrr, COUNT(*) AS paid_count
-        FROM (
-          SELECT ${MRR_CASE} AS monthly
-          FROM orgs
-          WHERE ${ACTIVE_FILTER}
-        )
-        WHERE monthly > 0
-      `).get();
-      payload.revenue.mrr_total_cents = mrrRow?.total_mrr || 0;
-      payload.revenue.orgs_paid = mrrRow?.paid_count || 0;
-
-      // orgs_free (active + billing active + monthly = 0)
-      const freeRow = database.prepare(`
-        SELECT COUNT(*) AS cnt
-        FROM (
-          SELECT ${MRR_CASE} AS monthly
-          FROM orgs
-          WHERE ${ACTIVE_FILTER}
-        )
-        WHERE monthly = 0
-      `).get();
-      payload.revenue.orgs_free = freeRow?.cnt || 0;
-
-      // negotiated_orgs (active + billing active + negotiated enabled)
-      const negRow = database.prepare(`
-        SELECT COUNT(*) AS cnt FROM orgs
-        WHERE ${ACTIVE_FILTER}
-          AND CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
-      `).get();
-      payload.revenue.negotiated_orgs = negRow?.cnt || 0;
-
-      // MRR by tier
-      const tierRows = database.prepare(`
-        SELECT tier, SUM(monthly) AS total
-        FROM (
-          SELECT ${TIER_CASE} AS tier, ${MRR_CASE} AS monthly
-          FROM orgs
-          WHERE ${ACTIVE_FILTER}
-        )
-        WHERE monthly > 0
-        GROUP BY tier
-      `).all();
-      const TIER_ALIASES = { basic: 'bronze', silver: 'argent', or: 'gold' };
-      for (const row of tierRows) {
-        const normalized = TIER_ALIASES[row.tier] || row.tier;
-        const t = (normalized in payload.revenue.mrr_by_tier) ? normalized : 'custom';
-        payload.revenue.mrr_by_tier[t] += (row.total || 0);
-      }
-
-      // ARPU + EUR conversions
-      if (payload.revenue.orgs_paid > 0) {
-        payload.revenue.arpu_cents = Math.round(
-          payload.revenue.mrr_total_cents / payload.revenue.orgs_paid
-        );
-        payload.revenue.negotiated_percent = +(
-          (payload.revenue.negotiated_orgs / payload.revenue.orgs_paid) * 100
-        ).toFixed(1);
-      }
-      payload.revenue.mrr_total_eur = +(payload.revenue.mrr_total_cents / 100).toFixed(2);
-      payload.revenue.arpu_eur = +(payload.revenue.arpu_cents / 100).toFixed(2);
-
-    } catch (revErr) {
-      logger.logWarn('ADMIN_REVENUE_ERROR', 'Revenue aggregation failed', {
-        message: revErr.message
-      });
-    }
-
+    _metricsOrgs(database, sinceISO, payload);
+    _metricsRequests(database, sinceISO, payload);
+    _metricsFeedback(database, sinceISO, payload);
+    _metricsUsage(database, sinceISO, payload);
+    _metricsActivation(database, sinceISO, payload);
+    _metricsRevenue(database, payload);
   } catch (err) {
-    logger.logWarn('ADMIN_METRICS_ERROR', 'Metrics aggregation failed', {
-      message: err.message
-    });
+    logger.logWarn('ADMIN_METRICS_ERROR', 'Metrics aggregation failed', { message: err.message });
   }
 
   payload.performance = { duration_ms: Date.now() - t0 };
   res.setHeader('Cache-Control', 'no-store');
   return sendJson(res, 200, payload);
+}
+
+function _metricsOrgs(db, since, p) {
+  p.orgs.total = db.prepare('SELECT COUNT(*) as cnt FROM orgs').get().cnt;
+  p.orgs.active_in_period = db.prepare(
+    'SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE created_at >= $since'
+  ).get({ since }).cnt;
+}
+
+function _metricsRequests(db, since, p) {
+  p.requests.total = db.prepare('SELECT COUNT(*) as cnt FROM review_requests').get().cnt;
+
+  const PERIOD_COLS = ['created_at', 'queued_at', 'sent_at', 'failed_at', 'feedback_received_at', 'public_redirected_at'];
+  const PERIOD_KEYS = ['created_in_period', 'queued_in_period', 'sent_in_period', 'failed_in_period', 'feedback_received_in_period', 'public_redirected_in_period'];
+  for (let i = 0; i < PERIOD_COLS.length; i++) {
+    const col = PERIOD_COLS[i];
+    const nullClause = col === 'created_at' ? '' : `${col} IS NOT NULL AND `;
+    p.requests[PERIOD_KEYS[i]] = db.prepare(
+      `SELECT COUNT(*) as cnt FROM review_requests WHERE ${nullClause}${col} >= $since`
+    ).get({ since }).cnt;
+  }
+
+  const ALL_TIME_COLS = ['sent_at', 'failed_at', 'feedback_received_at', 'public_redirected_at'];
+  const ALL_TIME_KEYS = ['total_sent', 'total_failed', 'total_feedback_received', 'total_public_redirected'];
+  for (let i = 0; i < ALL_TIME_COLS.length; i++) {
+    p.requests[ALL_TIME_KEYS[i]] = db.prepare(
+      `SELECT COUNT(*) as cnt FROM review_requests WHERE ${ALL_TIME_COLS[i]} IS NOT NULL`
+    ).get().cnt;
+  }
+
+  p.north_star_v1 = p.requests.public_redirected_in_period;
+}
+
+function _metricsFeedback(db, since, p) {
+  p.feedback.total = db.prepare('SELECT COUNT(*) as cnt FROM feedbacks').get().cnt;
+  p.feedback.in_period = p.requests.feedback_received_in_period;
+  p.feedback.in_period_crosscheck = db.prepare(
+    'SELECT COUNT(*) as cnt FROM feedbacks WHERE created_at >= $since'
+  ).get({ since }).cnt;
+}
+
+function _metricsUsage(db, since, p) {
+  const rows = db.prepare(
+    'SELECT type, SUM(qty) as total FROM usage_ledger WHERE created_at >= $since GROUP BY type'
+  ).all({ since });
+  const MAP = { email: 'emails_sent', sms: 'sms_sent', ai: 'ai_used' };
+  for (const row of rows) {
+    const key = MAP[row.type];
+    if (key) p.usage[key] = row.total || 0;
+  }
+}
+
+function _metricsActivation(db, since, p) {
+  try {
+    p.activation.total_orgs = p.orgs.total;
+    p.activation.activated_orgs = db.prepare(
+      'SELECT COUNT(*) as cnt FROM orgs WHERE activated_at IS NOT NULL'
+    ).get().cnt;
+    if (p.activation.total_orgs > 0) {
+      p.activation.activation_rate_percent = +(
+        (p.activation.activated_orgs / p.activation.total_orgs) * 100
+      ).toFixed(1);
+    }
+    const dep = p.activation.deprecated_usage_signals;
+    const USAGE_TYPES = [['email', 'orgs_with_email'], ['sms', 'orgs_with_sms'], ['ai', 'orgs_with_ai']];
+    for (const [type, key] of USAGE_TYPES) {
+      dep[key] = db.prepare(
+        `SELECT COUNT(DISTINCT org_id) as cnt FROM usage_ledger WHERE type='${type}' AND created_at >= $since`
+      ).get({ since }).cnt || 0;
+    }
+    dep.orgs_with_feedback = db.prepare(
+      `SELECT COUNT(DISTINCT rr.org_id) as cnt FROM feedbacks f JOIN review_requests rr ON rr.id = f.request_db_id WHERE f.created_at >= $since`
+    ).get({ since }).cnt || 0;
+    dep.orgs_with_request = db.prepare(
+      'SELECT COUNT(DISTINCT org_id) as cnt FROM review_requests WHERE created_at >= $since'
+    ).get({ since }).cnt || 0;
+  } catch (activErr) {
+    logger.logWarn('ADMIN_METRICS_ERROR', 'Activation aggregation failed', { message: activErr.message });
+  }
+}
+
+// Monthly effective price SQL fragments for revenue metrics
+const _MRR_CASE = `CASE
+  WHEN CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
+    AND CAST(json_extract(negotiated_json,'$.customPriceCents') AS INTEGER) > 0
+  THEN CAST(json_extract(negotiated_json,'$.customPriceCents') AS INTEGER)
+  WHEN CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
+    AND CAST(json_extract(negotiated_json,'$.discountPercent') AS REAL) > 0
+  THEN CAST(ROUND(
+    CAST(json_extract(plan_json,'$.basePriceCents') AS REAL)
+    * (1.0 - CAST(json_extract(negotiated_json,'$.discountPercent') AS REAL) / 100.0)
+  ) AS INTEGER)
+  WHEN json_extract(plan_json,'$.basePriceCents') IS NULL THEN 0
+  ELSE CAST(json_extract(plan_json,'$.basePriceCents') AS INTEGER)
+END`;
+const _TIER_CASE = `CASE
+  WHEN json_extract(plan_json,'$.code') IS NULL THEN 'unknown'
+  WHEN INSTR(json_extract(plan_json,'$.code'),'_') = 0 THEN json_extract(plan_json,'$.code')
+  ELSE SUBSTR(json_extract(plan_json,'$.code'), INSTR(json_extract(plan_json,'$.code'),'_') + 1)
+END`;
+const _ACTIVE_FILTER = `status = 'active' AND json_extract(billing_json,'$.status') = 'active'`;
+const _TIER_ALIASES = { basic: 'bronze', silver: 'argent', or: 'gold' };
+
+function _metricsRevenue(db, p) {
+  try {
+    const mrrRow = db.prepare(`
+      SELECT SUM(monthly) AS total_mrr, COUNT(*) AS paid_count
+      FROM (SELECT ${_MRR_CASE} AS monthly FROM orgs WHERE ${_ACTIVE_FILTER})
+      WHERE monthly > 0
+    `).get();
+    p.revenue.mrr_total_cents = mrrRow?.total_mrr || 0;
+    p.revenue.orgs_paid = mrrRow?.paid_count || 0;
+
+    p.revenue.orgs_free = db.prepare(`
+      SELECT COUNT(*) AS cnt
+      FROM (SELECT ${_MRR_CASE} AS monthly FROM orgs WHERE ${_ACTIVE_FILTER})
+      WHERE monthly = 0
+    `).get()?.cnt || 0;
+
+    p.revenue.negotiated_orgs = db.prepare(`
+      SELECT COUNT(*) AS cnt FROM orgs
+      WHERE ${_ACTIVE_FILTER} AND CAST(json_extract(negotiated_json,'$.enabled') AS INTEGER) = 1
+    `).get()?.cnt || 0;
+
+    const tierRows = db.prepare(`
+      SELECT tier, SUM(monthly) AS total
+      FROM (SELECT ${_TIER_CASE} AS tier, ${_MRR_CASE} AS monthly FROM orgs WHERE ${_ACTIVE_FILTER})
+      WHERE monthly > 0 GROUP BY tier
+    `).all();
+    for (const row of tierRows) {
+      const normalized = _TIER_ALIASES[row.tier] || row.tier;
+      const t = (normalized in p.revenue.mrr_by_tier) ? normalized : 'custom';
+      p.revenue.mrr_by_tier[t] += (row.total || 0);
+    }
+
+    if (p.revenue.orgs_paid > 0) {
+      p.revenue.arpu_cents = Math.round(p.revenue.mrr_total_cents / p.revenue.orgs_paid);
+      p.revenue.negotiated_percent = +((p.revenue.negotiated_orgs / p.revenue.orgs_paid) * 100).toFixed(1);
+    }
+    p.revenue.mrr_total_eur = +(p.revenue.mrr_total_cents / 100).toFixed(2);
+    p.revenue.arpu_eur = +(p.revenue.arpu_cents / 100).toFixed(2);
+  } catch (revErr) {
+    logger.logWarn('ADMIN_REVENUE_ERROR', 'Revenue aggregation failed', { message: revErr.message });
+  }
 }
 
 /**
@@ -12816,45 +12324,40 @@ function recordTelemetry(data, orgId, level, code, message, extra = {}) {
 
 // ============ ROUTE HANDLERS (extracted for cognitive complexity) ============
 
+const _API_ROUTES = [
+  ['POST', '/api/send-review-request', (req, res) => { if (!applyAuthRateLimit(req, res, 'send_review', 10)) handleSendReview(req, res); }],
+  ['GET',  '/api/feedbacks', handleGetFeedbacks],
+  ['GET',  '/api/requests', handleGetRequests],
+  ['GET',  '/api/settings', handleGetSettings],
+  ['POST', '/api/settings', handleSaveSettings],
+  ['GET',  '/api/settings/review-routing', handleGetReviewRouting],
+  ['PUT',  '/api/settings/review-routing', handleSaveReviewRouting],
+];
+
 function routeApiLegacy(method, url, req, res) {
-  if (method === 'POST' && url === '/api/send-review-request') {
-    if (applyAuthRateLimit(req, res, 'send_review', 10)) return true;
-    handleSendReview(req, res); return true;
-  }
-  if (method === 'GET' && url === '/api/feedbacks') { handleGetFeedbacks(req, res); return true; }
-  if (method === 'GET' && url === '/api/requests') { handleGetRequests(req, res); return true; }
-  if (method === 'GET' && url === '/api/settings') { handleGetSettings(req, res); return true; }
-  if (method === 'POST' && url === '/api/settings') { handleSaveSettings(req, res); return true; }
-  if (method === 'GET' && url === '/api/settings/review-routing') { handleGetReviewRouting(req, res); return true; }
-  if (method === 'PUT' && url === '/api/settings/review-routing') { handleSaveReviewRouting(req, res); return true; }
+  const match = _API_ROUTES.find(([v, p]) => v === method && p === url);
+  if (match) { match[2](req, res); return true; }
   return false;
 }
 
+const _AUTH_RATE_LIMITED = new Set(['/auth/verify', '/auth/resend-code', '/auth/login', '/auth/select-org', '/auth/accept-invite']);
+const _AUTH_ROUTES = [
+  ['POST', '/auth/signup', handleSignup],
+  ['POST', '/auth/verify', handleVerifyEmail],
+  ['POST', '/auth/resend-code', handleResendCode],
+  ['POST', '/auth/login', handleLogin],
+  ['POST', '/auth/select-org', handleAuthSelectOrg],
+  ['POST', '/auth/accept-invite', handleAuthAcceptInvite],
+  ['POST', '/auth/logout', handleLogout],
+  ['GET',  '/me', handleGetMe],
+];
+
 function routeAuth(method, url, req, res) {
-  if (method === 'POST' && url === '/auth/signup') { handleSignup(req, res); return true; }
-  if (method === 'POST' && url === '/auth/verify') {
-    if (applyAuthRateLimit(req, res, '/auth/verify')) return true;
-    handleVerifyEmail(req, res); return true;
-  }
-  if (method === 'POST' && url === '/auth/resend-code') {
-    if (applyAuthRateLimit(req, res, '/auth/resend-code')) return true;
-    handleResendCode(req, res); return true;
-  }
-  if (method === 'POST' && url === '/auth/login') {
-    if (applyAuthRateLimit(req, res, '/auth/login')) return true;
-    handleLogin(req, res); return true;
-  }
-  if (method === 'POST' && url === '/auth/select-org') {
-    if (applyAuthRateLimit(req, res, '/auth/select-org')) return true;
-    handleAuthSelectOrg(req, res); return true;
-  }
-  if (method === 'POST' && url === '/auth/accept-invite') {
-    if (applyAuthRateLimit(req, res, '/auth/accept-invite')) return true;
-    handleAuthAcceptInvite(req, res); return true;
-  }
-  if (method === 'POST' && url === '/auth/logout') { handleLogout(req, res); return true; }
-  if (method === 'GET' && url === '/me') { handleGetMe(req, res); return true; }
-  return false;
+  const match = _AUTH_ROUTES.find(([v, p]) => v === method && p === url);
+  if (!match) return false;
+  if (_AUTH_RATE_LIMITED.has(url) && applyAuthRateLimit(req, res, url)) return true;
+  match[2](req, res);
+  return true;
 }
 
 function handleOAuthCallbackPage(req, res, url) {
@@ -12898,125 +12401,199 @@ function handleOAuthCallbackPage(req, res, url) {
   res.end(html);
 }
 
+const _CLIENT_CORE_ROUTES = [
+  ['GET',  '/client/memberships', (r, s, u) => handleClientGetMemberships(r, s)],
+  ['POST', '/client/orgs/switch', (r, s) => handleClientSwitchOrg(r, s)],
+  ['POST', '/client/orgs', (r, s) => handleClientCreateOrg(r, s)],
+  ['GET',  '/client/api-token', (r, s) => handleClientGetApiToken(r, s)],
+  ['POST', '/client/api-token/rotate', (r, s) => handleClientRotateApiToken(r, s)],
+  ['GET',  '/client/team', (r, s, u) => handleClientGetTeam(r, s, u)],
+  ['POST', '/client/team/invite', (r, s) => handleClientTeamInvite(r, s)],
+  ['GET',  '/client/org', (r, s) => handleClientGetOrg(r, s)],
+  ['GET',  '/client/usage', (r, s, u) => handleClientGetUsage(r, s, u)],
+  ['GET',  '/client/settings', (r, s) => handleClientGetSettings(r, s)],
+  ['GET',  '/client/lifecycle-stats', (r, s, u) => handleClientLifecycleStats(r, s, u)],
+  ['POST', '/client/ai/suggest-reply', (r, s) => handleAiSuggestReply(r, s)],
+];
+const _CLIENT_CORE_PATTERNS = [
+  [/^\/client\/orgs\/([a-f0-9]+)$/, 'DELETE', (r, s, m) => handleClientDeleteOrg(r, s, m[1])],
+  [/^\/client\/team\/([a-zA-Z0-9_-]+)$/, 'PUT', (r, s, m) => handleClientTeamUpdateRole(r, s, m[1])],
+  [/^\/client\/team\/([a-zA-Z0-9_-]+)$/, 'DELETE', (r, s, m) => handleClientTeamRevoke(r, s, m[1])],
+];
+
 function routeClientCore(method, pathname, req, res, urlParams) {
-  if (method === 'GET' && pathname === '/client/memberships') { handleClientGetMemberships(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/orgs/switch') { handleClientSwitchOrg(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/orgs') { handleClientCreateOrg(req, res); return true; }
-  const delOrg = pathname.match(/^\/client\/orgs\/([a-f0-9]+)$/);
-  if (delOrg && method === 'DELETE') { handleClientDeleteOrg(req, res, delOrg[1]); return true; }
-  if (method === 'GET' && pathname === '/client/api-token') { handleClientGetApiToken(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/api-token/rotate') { handleClientRotateApiToken(req, res); return true; }
-  if (method === 'GET' && pathname === '/client/team') { handleClientGetTeam(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/client/team/invite') { handleClientTeamInvite(req, res); return true; }
-  const teamM = pathname.match(/^\/client\/team\/([a-zA-Z0-9_-]+)$/);
-  if (teamM && method === 'PUT') { handleClientTeamUpdateRole(req, res, teamM[1]); return true; }
-  if (teamM && method === 'DELETE') { handleClientTeamRevoke(req, res, teamM[1]); return true; }
-  if (method === 'GET' && pathname === '/client/org') { handleClientGetOrg(req, res); return true; }
-  if (method === 'GET' && pathname === '/client/usage') { handleClientGetUsage(req, res, urlParams); return true; }
-  if (method === 'GET' && pathname === '/client/settings') { handleClientGetSettings(req, res); return true; }
-  if (method === 'GET' && pathname === '/client/lifecycle-stats') { handleClientLifecycleStats(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/client/ai/suggest-reply') { handleAiSuggestReply(req, res); return true; }
+  const exact = _CLIENT_CORE_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { exact[2](req, res, urlParams); return true; }
+  for (const [re, verb, handler] of _CLIENT_CORE_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { handler(req, res, m); return true; }
+  }
   return false;
 }
+
+const _INSTALL_ROUTES = [
+  ['GET',  '/client/installations', (r, s) => handleClientListInstallations(r, s)],
+  ['POST', '/client/installations', (r, s) => handleClientCreateInstallation(r, s)],
+];
+const _INSTALL_PATTERNS = [
+  [/^\/client\/installations\/([a-zA-Z0-9_-]+)\/revoke$/, 'POST', (r, s, m) => handleClientRevokeInstallation(r, s, m[1])],
+  [/^\/client\/installations\/([a-zA-Z0-9_-]+)\/rotate$/, 'POST', (r, s, m) => handleClientRotateInstallation(r, s, m[1])],
+];
 
 function routeClientInstallations(method, pathname, req, res) {
-  if (method === 'GET' && pathname === '/client/installations') { handleClientListInstallations(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/installations') { handleClientCreateInstallation(req, res); return true; }
-  const revoke = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/revoke$/);
-  if (revoke && method === 'POST') { handleClientRevokeInstallation(req, res, revoke[1]); return true; }
-  const rotate = pathname.match(/^\/client\/installations\/([a-zA-Z0-9_-]+)\/rotate$/);
-  if (rotate && method === 'POST') { handleClientRotateInstallation(req, res, rotate[1]); return true; }
+  const exact = _INSTALL_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { exact[2](req, res); return true; }
+  for (const [re, verb, handler] of _INSTALL_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { handler(req, res, m); return true; }
+  }
   return false;
 }
+
+const _SHORTLINK_ROUTES = [
+  ['GET',  '/client/shortlinks', (r, s) => handleClientListShortlinks(r, s)],
+  ['POST', '/client/shortlinks', (r, s) => handleClientCreateShortlink(r, s)],
+];
+const _SHORTLINK_PATTERNS = [
+  [/^\/client\/shortlinks\/([a-zA-Z0-9]+)\/qr$/, 'GET', (r, s, m) => handleClientGetShortlinkQR(r, s, m[1])],
+  [/^\/client\/shortlinks\/([a-zA-Z0-9]+)$/, 'DELETE', (r, s, m) => handleClientDeleteShortlink(r, s, m[1])],
+];
 
 function routeClientShortlinks(method, pathname, req, res) {
-  if (method === 'GET' && pathname === '/client/shortlinks') { handleClientListShortlinks(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/shortlinks') { handleClientCreateShortlink(req, res); return true; }
-  const qr = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)\/qr$/);
-  if (qr && method === 'GET') { handleClientGetShortlinkQR(req, res, qr[1]); return true; }
-  const del = pathname.match(/^\/client\/shortlinks\/([a-zA-Z0-9]+)$/);
-  if (del && method === 'DELETE') { handleClientDeleteShortlink(req, res, del[1]); return true; }
+  const exact = _SHORTLINK_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { exact[2](req, res); return true; }
+  for (const [re, verb, handler] of _SHORTLINK_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { handler(req, res, m); return true; }
+  }
   return false;
 }
+
+const _CONTACT_ROUTES = [
+  ['GET',  '/client/contacts', (r, s, u) => handleClientGetContacts(r, s, u)],
+  ['POST', '/client/contacts', (r, s) => handleClientCreateContact(r, s)],
+  ['POST', '/client/contacts/import', (r, s) => handleClientImportContacts(r, s)],
+  ['POST', '/client/contacts/sync', (r, s) => handleClientSyncContacts(r, s)],
+];
+const _CONTACT_PATTERNS = [
+  [/^\/client\/contacts\/([a-zA-Z0-9]+)$/, 'DELETE', (r, s, m) => handleClientDeleteContact(r, s, m[1])],
+];
 
 function routeClientContacts(method, pathname, req, res, urlParams) {
-  if (method === 'GET' && pathname === '/client/contacts') { handleClientGetContacts(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/client/contacts') { handleClientCreateContact(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/contacts/import') { handleClientImportContacts(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/contacts/sync') { handleClientSyncContacts(req, res); return true; }
-  const del = pathname.match(/^\/client\/contacts\/([a-zA-Z0-9]+)$/);
-  if (del && method === 'DELETE') { handleClientDeleteContact(req, res, del[1]); return true; }
+  const exact = _CONTACT_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { exact[2](req, res, urlParams); return true; }
+  for (const [re, verb, handler] of _CONTACT_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { handler(req, res, m); return true; }
+  }
   return false;
 }
+
+const _CAMPAIGN_ROUTES = [
+  ['GET',  '/client/campaigns', (r, s, u) => handleClientGetCampaigns(r, s, u)],
+  ['POST', '/client/campaigns', (r, s) => handleClientCreateCampaign(r, s)],
+];
+const _CAMPAIGN_PATTERNS = [
+  [/^\/client\/campaigns\/([a-zA-Z0-9]+)$/, 'GET', (r, s, m) => handleClientGetCampaign(r, s, m[1])],
+  [/^\/client\/campaigns\/([a-zA-Z0-9]+)$/, 'PUT', (r, s, m) => handleClientUpdateCampaign(r, s, m[1])],
+  [/^\/client\/campaigns\/([a-zA-Z0-9]+)$/, 'DELETE', (r, s, m) => handleClientDeleteCampaign(r, s, m[1])],
+  [/^\/client\/campaigns\/([a-zA-Z0-9]+)\/recipients$/, 'POST', (r, s, m) => handleClientAddCampaignRecipients(r, s, m[1])],
+  [/^\/client\/campaigns\/([a-zA-Z0-9]+)\/send$/, 'POST', (r, s, m) => handleClientSendCampaign(r, s, m[1])],
+];
 
 function routeClientCampaigns(method, pathname, req, res, urlParams) {
-  if (method === 'GET' && pathname === '/client/campaigns') { handleClientGetCampaigns(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/client/campaigns') { handleClientCreateCampaign(req, res); return true; }
-  const byId = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)$/);
-  if (byId && method === 'GET') { handleClientGetCampaign(req, res, byId[1]); return true; }
-  if (byId && method === 'PUT') { handleClientUpdateCampaign(req, res, byId[1]); return true; }
-  if (byId && method === 'DELETE') { handleClientDeleteCampaign(req, res, byId[1]); return true; }
-  const recip = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/recipients$/);
-  if (recip && method === 'POST') { handleClientAddCampaignRecipients(req, res, recip[1]); return true; }
-  const send = pathname.match(/^\/client\/campaigns\/([a-zA-Z0-9]+)\/send$/);
-  if (send && method === 'POST') { handleClientSendCampaign(req, res, send[1]); return true; }
+  const exact = _CAMPAIGN_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { exact[2](req, res, urlParams); return true; }
+  for (const [re, verb, handler] of _CAMPAIGN_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { handler(req, res, m); return true; }
+  }
   return false;
 }
+
+const _GOOGLE_ROUTES = [
+  ['GET',  '/client/google/status', (r, s) => handleGoogleStatus(r, s)],
+  ['GET',  '/client/google/auth-url', (r, s) => handleGoogleAuthUrl(r, s)],
+  ['POST', '/client/google/callback', (r, s) => handleGoogleCallback(r, s)],
+  ['GET',  '/client/google/accounts', (r, s) => handleGoogleListAccounts(r, s)],
+  ['POST', '/client/google/select-location', (r, s) => handleGoogleSelectLocation(r, s)],
+  ['POST', '/client/google/sync', (r, s) => handleGoogleSync(r, s)],
+  ['POST', '/client/google/disconnect', (r, s) => handleGoogleDisconnect(r, s)],
+  ['GET',  '/client/google/sync-log', (r, s, u) => handleGoogleSyncLog(r, s, u)],
+  ['GET',  '/client/google/my-place', (r, s) => handleGoogleMyPlace(r, s)],
+];
+const _GOOGLE_PATTERNS = [
+  [/^\/client\/google\/post-reply\/([a-zA-Z0-9_-]+)$/, 'POST', (r, s, m) => handleGooglePostReply(r, s, m[1])],
+];
 
 async function routeClientGoogle(method, pathname, req, res, urlParams) {
-  if (method === 'GET' && pathname === '/client/google/status') { handleGoogleStatus(req, res); return true; }
-  if (method === 'GET' && pathname === '/client/google/auth-url') { handleGoogleAuthUrl(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/google/callback') { await handleGoogleCallback(req, res); return true; }
-  if (method === 'GET' && pathname === '/client/google/accounts') { await handleGoogleListAccounts(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/google/select-location') { await handleGoogleSelectLocation(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/google/sync') { await handleGoogleSync(req, res); return true; }
-  const postReply = pathname.match(/^\/client\/google\/post-reply\/([a-zA-Z0-9_-]+)$/);
-  if (postReply && method === 'POST') { await handleGooglePostReply(req, res, postReply[1]); return true; }
-  if (method === 'POST' && pathname === '/client/google/disconnect') { handleGoogleDisconnect(req, res); return true; }
-  if (method === 'GET' && pathname === '/client/google/sync-log') { handleGoogleSyncLog(req, res, urlParams); return true; }
-  if (method === 'GET' && pathname === '/client/google/my-place') { await handleGoogleMyPlace(req, res); return true; }
+  const exact = _GOOGLE_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { await exact[2](req, res, urlParams); return true; }
+  for (const [re, verb, handler] of _GOOGLE_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { await handler(req, res, m); return true; }
+  }
   return false;
 }
+
+const _COMPETITOR_ROUTES = [
+  ['GET',  '/client/competitors', (r, s, u) => handleClientGetCompetitors(r, s, u)],
+  ['POST', '/client/competitors/configure', (r, s) => handleClientConfigureCompetitors(r, s)],
+  ['POST', '/client/competitors/sync', (r, s) => handleClientSyncCompetitors(r, s)],
+  ['POST', '/client/competitors/add', (r, s) => handleClientAddCompetitor(r, s)],
+  ['GET',  '/client/places/autocomplete', (r, s, u) => handleClientPlacesAutocomplete(r, s, u)],
+];
+const _COMPETITOR_PATTERNS = [
+  [/^\/client\/competitors\/([a-zA-Z0-9_-]+)\/details$/, 'GET', (r, s, m) => handleClientGetCompetitorDetails(r, s, m[1])],
+  [/^\/client\/places\/([a-zA-Z0-9_-]+)\/geometry$/, 'GET', (r, s, m) => handleClientPlaceGeometry(r, s, m[1])],
+];
 
 async function routeClientCompetitors(method, pathname, req, res, urlParams) {
-  if (method === 'GET' && pathname === '/client/competitors') { handleClientGetCompetitors(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/client/competitors/configure') { await handleClientConfigureCompetitors(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/competitors/sync') { await handleClientSyncCompetitors(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/competitors/add') { await handleClientAddCompetitor(req, res); return true; }
-  const details = pathname.match(/^\/client\/competitors\/([a-zA-Z0-9_-]+)\/details$/);
-  if (details && method === 'GET') { await handleClientGetCompetitorDetails(req, res, details[1]); return true; }
-  if (method === 'GET' && pathname === '/client/places/autocomplete') { await handleClientPlacesAutocomplete(req, res, urlParams); return true; }
-  const geo = pathname.match(/^\/client\/places\/([a-zA-Z0-9_-]+)\/geometry$/);
-  if (geo && method === 'GET') { await handleClientPlaceGeometry(req, res, geo[1]); return true; }
+  const exact = _COMPETITOR_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { await exact[2](req, res, urlParams); return true; }
+  for (const [re, verb, handler] of _COMPETITOR_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { await handler(req, res, m); return true; }
+  }
   return false;
 }
+
+const _REVIEW_ROUTES = [
+  ['GET',  '/client/reviews', (r, s, u) => handleClientListReviews(r, s, u)],
+  ['GET',  '/client/reviews/stats', (r, s, u) => handleClientReviewStats(r, s, u)],
+  ['GET',  '/client/reviews/analytics', (r, s, u) => handleClientReviewAnalytics(r, s, u)],
+  ['POST', '/client/reviews', (r, s) => handleClientCreateReview(r, s)],
+  ['POST', '/client/reviews/bulk', (r, s) => handleClientBulkImportReviews(r, s)],
+];
+const _REVIEW_PATTERNS = [
+  [/^\/client\/reviews\/([a-zA-Z0-9_-]+)$/, 'GET', (r, s, m) => handleClientGetReview(r, s, m[1])],
+  [/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/reply$/, 'POST', (r, s, m) => handleClientReplyReview(r, s, m[1])],
+  [/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/status$/, 'POST', (r, s, m) => handleClientUpdateReviewStatus(r, s, m[1])],
+];
 
 function routeClientReviews(method, pathname, req, res, urlParams) {
-  if (method === 'GET' && pathname === '/client/reviews') { handleClientListReviews(req, res, urlParams); return true; }
-  if (method === 'GET' && pathname === '/client/reviews/stats') { handleClientReviewStats(req, res, urlParams); return true; }
-  if (method === 'GET' && pathname === '/client/reviews/analytics') { handleClientReviewAnalytics(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/client/reviews') { handleClientCreateReview(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/reviews/bulk') { handleClientBulkImportReviews(req, res); return true; }
-  const byId = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)$/);
-  if (byId && method === 'GET') { handleClientGetReview(req, res, byId[1]); return true; }
-  const reply = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/reply$/);
-  if (reply && method === 'POST') { handleClientReplyReview(req, res, reply[1]); return true; }
-  const status = pathname.match(/^\/client\/reviews\/([a-zA-Z0-9_-]+)\/status$/);
-  if (status && method === 'POST') { handleClientUpdateReviewStatus(req, res, status[1]); return true; }
+  const exact = _REVIEW_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { exact[2](req, res, urlParams); return true; }
+  for (const [re, verb, handler] of _REVIEW_PATTERNS) {
+    const m = pathname.match(re);
+    if (m && method === verb) { handler(req, res, m); return true; }
+  }
   return false;
 }
 
+const _BILLING_ROUTES = [
+  ['GET',  '/client/billing/status', handleBillingStatus],
+  ['GET',  '/client/billing/invoices', handleBillingInvoices],
+  ['POST', '/client/billing/checkout', handleBillingCheckout],
+  ['POST', '/client/billing/portal', handleBillingPortal],
+  ['POST', '/client/billing/pack/checkout', handlePackCheckout],
+  ['POST', '/client/billing/pack/multi-checkout', handleMultiPackCheckout],
+  ['POST', '/client/billing/sepa', (r, s) => { r._forceProvider = 'gocardless'; handleBillingCheckout(r, s); }],
+];
+
 function routeClientBilling(method, pathname, req, res) {
-  if (method === 'GET' && pathname === '/client/billing/status') { handleBillingStatus(req, res); return true; }
-  if (method === 'GET' && pathname === '/client/billing/invoices') { handleBillingInvoices(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/billing/checkout') { handleBillingCheckout(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/billing/portal') { handleBillingPortal(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/billing/pack/checkout') { handlePackCheckout(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/billing/pack/multi-checkout') { handleMultiPackCheckout(req, res); return true; }
-  if (method === 'POST' && pathname === '/client/billing/sepa') {
-    req._forceProvider = 'gocardless';
-    handleBillingCheckout(req, res); return true;
-  }
+  const match = _BILLING_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (match) { match[2](req, res); return true; }
   return false;
 }
 
@@ -13033,25 +12610,46 @@ async function routeClient(method, pathname, req, res, urlParams) {
   return false;
 }
 
+const _ADMIN_ROUTES = [
+  ['GET',  '/internal/admin/health', (r, s) => handleAdminHealth(r, s)],
+  ['GET',  '/internal/admin/metrics', (r, s, u) => handleAdminMetrics(r, s, u)],
+  ['GET',  '/internal/admin/feedbacks', (r, s) => handleAdminGetFeedbacks(r, s)],
+  ['GET',  '/internal/admin/legacy-auth-stats', (r, s) => handleLegacyAuthStats(r, s)],
+  ['GET',  '/internal/admin/at-risk-orgs', (r, s) => handleAdminAtRiskOrgs(r, s)],
+  ['GET',  '/internal/admin/mrr-history', (r, s, u) => handleAdminMrrHistory(r, s, u)],
+  ['GET',  '/api/email/admin/health', (r, s, u) => handleEmailAdminHealth(r, s, u)],
+  ['GET',  '/api/email/admin/alerts', (r, s, u) => handleEmailAdminAlerts(r, s, u)],
+  ['GET',  '/api/email/admin/org-stats', (r, s, u) => handleEmailAdminOrgStats(r, s, u)],
+  ['POST', '/api/email/admin/pause', (r, s) => handleEmailAdminPause(r, s)],
+  ['GET',  '/api/email/admin/pause-state', (r, s, u) => handleEmailAdminPauseState(r, s, u)],
+  ['POST', '/api/email/admin/force-warm', (r, s) => handleEmailAdminForceWarm(r, s)],
+  ['GET',  '/api/email/admin/top-risk-csv', (r, s, u) => handleEmailAdminTopRiskCsv(r, s, u)],
+  ['GET',  '/internal/packs', (r, s) => handleGetPacks(r, s)],
+  ['GET',  '/internal/orgs', (r, s, u) => handleListOrgs(r, s, u)],
+  ['POST', '/internal/orgs', (r, s) => handleCreateOrg(r, s)],
+];
+
+const _ADMIN_ORG_ACTIONS = new Map([
+  ['credits', handleAddCredits],
+  ['status', handleChangeStatus],
+  ['simulate-usage', handleSimulateUsage],
+  ['reset-public-key', handleResetPublicKey],
+  ['rotate-api-token', handleRotateApiToken],
+  ['assign-plan', handleAssignPlan],
+  ['apply-coupon', handleApplyCoupon],
+  ['remove-coupon', handleRemoveCoupon],
+]);
+
+const _ADMIN_ORG_GET_PATTERNS = [
+  [/^\/internal\/orgs\/([a-f0-9]+)\/effective-billing$/, (r, s, m, u) => handleGetEffectiveBilling(r, s, m[1])],
+  [/^\/internal\/orgs\/([a-f0-9]+)\/usage$/, (r, s, m, u) => handleGetOrgUsage(r, s, m[1], u)],
+  [/^\/internal\/orgs\/([a-f0-9]+)\/telemetry$/, (r, s, m, u) => handleGetOrgTelemetry(r, s, m[1], u)],
+  [/^\/internal\/orgs\/([a-f0-9]+)\/api-token$/, (r, s, m) => handleGetApiToken(r, s, m[1])],
+];
+
 function routeInternalAdmin(method, pathname, req, res, urlParams) {
-  if (method === 'GET' && pathname === '/internal/admin/health') { handleAdminHealth(req, res); return true; }
-  if (method === 'GET' && pathname === '/internal/admin/metrics') { handleAdminMetrics(req, res, urlParams); return true; }
-  if (method === 'GET' && pathname === '/internal/admin/feedbacks') { handleAdminGetFeedbacks(req, res); return true; }
-  if (method === 'GET' && pathname === '/internal/admin/legacy-auth-stats') { handleLegacyAuthStats(req, res); return true; }
-  if (method === 'GET' && pathname === '/internal/admin/at-risk-orgs') { handleAdminAtRiskOrgs(req, res); return true; }
-  if (method === 'GET' && pathname === '/internal/admin/mrr-history') { handleAdminMrrHistory(req, res, urlParams); return true; }
-
-  if (method === 'GET' && pathname === '/api/email/admin/health') { handleEmailAdminHealth(req, res, urlParams); return true; }
-  if (method === 'GET' && pathname === '/api/email/admin/alerts') { handleEmailAdminAlerts(req, res, urlParams); return true; }
-  if (method === 'GET' && pathname === '/api/email/admin/org-stats') { handleEmailAdminOrgStats(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/api/email/admin/pause') { handleEmailAdminPause(req, res); return true; }
-  if (method === 'GET' && pathname === '/api/email/admin/pause-state') { handleEmailAdminPauseState(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/api/email/admin/force-warm') { handleEmailAdminForceWarm(req, res); return true; }
-  if (method === 'GET' && pathname === '/api/email/admin/top-risk-csv') { handleEmailAdminTopRiskCsv(req, res, urlParams); return true; }
-
-  if (method === 'GET' && pathname === '/internal/packs') { handleGetPacks(req, res); return true; }
-  if (method === 'GET' && pathname === '/internal/orgs') { handleListOrgs(req, res, urlParams); return true; }
-  if (method === 'POST' && pathname === '/internal/orgs') { handleCreateOrg(req, res); return true; }
+  const exact = _ADMIN_ROUTES.find(([v, p]) => v === method && p === pathname);
+  if (exact) { exact[2](req, res, urlParams); return true; }
 
   const orgMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)$/);
   if (orgMatch) {
@@ -13059,29 +12657,18 @@ function routeInternalAdmin(method, pathname, req, res, urlParams) {
     if (method === 'PUT') { handleUpdateOrg(req, res, orgMatch[1]); return true; }
   }
 
-  const ORG_ACTIONS = [
-    ['credits', 'POST', handleAddCredits],
-    ['status', 'POST', handleChangeStatus],
-    ['simulate-usage', 'POST', handleSimulateUsage],
-    ['reset-public-key', 'POST', handleResetPublicKey],
-    ['rotate-api-token', 'POST', handleRotateApiToken],
-    ['assign-plan', 'POST', handleAssignPlan],
-    ['apply-coupon', 'POST', handleApplyCoupon],
-    ['remove-coupon', 'POST', handleRemoveCoupon],
-  ];
-  for (const [action, verb, handler] of ORG_ACTIONS) {
-    const m = pathname.match(new RegExp(`^/internal/orgs/([a-f0-9]+)/${action}$`));
-    if (m && method === verb) { handler(req, res, m[1]); return true; }
+  const actionMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/([a-z-]+)$/);
+  if (actionMatch && method === 'POST') {
+    const handler = _ADMIN_ORG_ACTIONS.get(actionMatch[2]);
+    if (handler) { handler(req, res, actionMatch[1]); return true; }
   }
 
-  const effectiveBillingMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/effective-billing$/);
-  if (effectiveBillingMatch && method === 'GET') { handleGetEffectiveBilling(req, res, effectiveBillingMatch[1]); return true; }
-  const usageMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/usage$/);
-  if (usageMatch && method === 'GET') { handleGetOrgUsage(req, res, usageMatch[1], urlParams); return true; }
-  const telemetryMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/telemetry$/);
-  if (telemetryMatch && method === 'GET') { handleGetOrgTelemetry(req, res, telemetryMatch[1], urlParams); return true; }
-  const apiTokenMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/api-token$/);
-  if (apiTokenMatch && method === 'GET') { handleGetApiToken(req, res, apiTokenMatch[1]); return true; }
+  if (method === 'GET') {
+    for (const [re, handler] of _ADMIN_ORG_GET_PATTERNS) {
+      const m = pathname.match(re);
+      if (m) { handler(req, res, m, urlParams); return true; }
+    }
+  }
 
   return false;
 }
