@@ -165,7 +165,7 @@ function gracefulShutdown(reason, err = null) {
   const flushAndExit = async () => {
     try {
       await sentry.flush(2000);
-    } catch (_) { /* best-effort */ }
+    } catch (err) { console.debug('[SHUTDOWN] Sentry flush failed:', err.message); }
     process.exit(exitCode);
   };
 
@@ -416,7 +416,7 @@ setInterval(() => {
         console.log(`[LoginPending] Cleaned ${cleaned} expired tokens`);
       }
     }
-  } catch (_) { /* ignore if table doesn't exist yet */ }
+  } catch (err) { console.debug('[CLEANUP] Rate limit cleanup skipped:', err.message); }
 }, AUTH_RATE_LIMIT_CLEANUP_INTERVAL_MS);
 
 // Legacy rate limit constants (for verification codes)
@@ -3212,7 +3212,7 @@ function generateRatingPage(requestId, request, existingFeedback, settings) {
     const googleBtn = document.getElementById('googleBtn');
     // Track Google redirect click (lifecycle: → public_redirected)
     googleBtn.addEventListener('click', function() {
-      try { navigator.sendBeacon('/r/${requestId}/redirected'); } catch(e) {}
+      try { navigator.sendBeacon('/r/${requestId}/redirected'); } catch(e) { void e; }
     });
     
     stars.forEach(star => {
@@ -3484,7 +3484,7 @@ function handleHealth(res) {
     const db = require('./lib/db');
     db.get("SELECT 1 AS ok");
     dbOk = true;
-  } catch (_) { /* db down */ }
+  } catch (err) { console.debug('[HEALTH] DB check failed:', err.message); }
 
   // 2) Worker heartbeats
   let workers = [];
@@ -3493,7 +3493,7 @@ function handleHealth(res) {
     workers = heartbeatRepo.getAll();
     const unhealthy = heartbeatRepo.getUnhealthy();
     if (unhealthy.length > 0) workersHealthy = false;
-  } catch (_) { /* heartbeat table may not exist yet */ }
+  } catch (err) { console.debug('[HEALTH] Heartbeat check skipped:', err.message); }
 
   // 3) Circuit breakers
   const circuits = circuitBreaker.getStatus();
@@ -4740,8 +4740,8 @@ function handleAdminHealth(req, res) {
       ).length;
     }
     // If dir doesn't exist: degraded but not error
-  } catch (_) {
-    // Backup check failure is non-fatal
+  } catch (err) {
+    console.debug('[HEALTH] Backup check failed:', err.message);
   }
 
   // --- Process info ---
@@ -4766,8 +4766,8 @@ function handleAdminHealth(req, res) {
         mrrSnapshotsInfo.fresh = (latest.date === todayUTC);
       }
     }
-  } catch (_) {
-    // Non-fatal
+  } catch (err) {
+    console.debug('[HEALTH] MRR snapshot check failed:', err.message);
   }
 
   // --- Global status resolution ---
@@ -5669,7 +5669,7 @@ async function handleCreateOrg(req, res) {
   console.log('[REPUTY][INTERNAL] Org created:', newOrg.id, newOrg.name);
   
   // Audit log: org created by admin
-  try { writeAudit({ orgId: newOrg.id, actorUserId: auth.user?.id || null, action: 'admin.org_created', targetType: 'org', targetId: newOrg.id, meta: { name: newOrg.name, vertical: newOrg.vertical }, req }); } catch (_) { /* non-fatal */ }
+  writeAudit({ orgId: newOrg.id, actorUserId: auth.user?.id || null, action: 'admin.org_created', targetType: 'org', targetId: newOrg.id, meta: { name: newOrg.name, vertical: newOrg.vertical }, req });
   
   return sendJson(res, 201, { org: sanitizeOrg(newOrg) });
 }
@@ -6973,7 +6973,7 @@ async function handleLogin(req, res) {
       reason: 'user_not_found'
     });
     // Audit log: login failed (unknown email)
-    try { writeAudit({ action: 'auth.login_failed', meta: { email, reason: 'user_not_found' }, req }); } catch (_) { /* non-fatal */ }
+    writeAudit({ action: 'auth.login_failed', meta: { email, reason: 'user_not_found' }, req });
     return sendJson(res, 401, { error: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' });
   }
   
@@ -6991,7 +6991,7 @@ async function handleLogin(req, res) {
       reason: 'wrong_password'
     });
     // Audit log: login failed
-    try { writeAudit({ orgId: user.orgId, actorUserId: user.id, action: 'auth.login_failed', targetType: 'user', targetId: user.id, meta: { email, reason: 'wrong_password' }, req }); } catch (_) { /* non-fatal */ }
+    writeAudit({ orgId: user.orgId, actorUserId: user.id, action: 'auth.login_failed', targetType: 'user', targetId: user.id, meta: { email, reason: 'wrong_password' }, req });
     return sendJson(res, 401, { error: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' });
   }
   
@@ -7078,7 +7078,7 @@ async function handleLogin(req, res) {
   });
   
   // Audit log: login success
-  try { writeAudit({ orgId: loginOrgId, actorUserId: user.id, action: 'auth.login', targetType: 'user', targetId: user.id, meta: { email }, req }); } catch (_) { /* non-fatal */ }
+  writeAudit({ orgId: loginOrgId, actorUserId: user.id, action: 'auth.login', targetType: 'user', targetId: user.id, meta: { email }, req });
   
   return sendJson(res, 200, {
     ok: true,
@@ -7314,7 +7314,7 @@ async function handleAuthSelectOrg(req, res) {
   const user = repos.user.getById(pending.userId);
 
   // Audit
-  try { writeAudit({ orgId, actorUserId: pending.userId, action: 'auth.select_org', targetType: 'org', targetId: orgId, meta: { membershipRole: membership.role }, req }); } catch (_) { /* non-fatal */ }
+  writeAudit({ orgId, actorUserId: pending.userId, action: 'auth.select_org', targetType: 'org', targetId: orgId, meta: { membershipRole: membership.role }, req });
 
   return sendJson(res, 200, {
     ok: true,
@@ -7393,18 +7393,15 @@ async function handleAuthAcceptInvite(req, res) {
     session = repos.session.createSession(user.id, membership.orgId);
   });
 
-  // Audit (non-fatal, outside transaction)
-  try {
-    writeAudit({
-      orgId: membership.orgId,
-      actorUserId: user.id,
-      action: 'auth.accept_invite',
-      targetType: 'membership',
-      targetId: membership.id,
-      meta: { role: membership.role },
-      req
-    });
-  } catch (_) { /* non-fatal */ }
+  writeAudit({
+    orgId: membership.orgId,
+    actorUserId: user.id,
+    action: 'auth.accept_invite',
+    targetType: 'membership',
+    targetId: membership.id,
+    meta: { role: membership.role },
+    req
+  });
 
   return sendJson(res, 200, {
     ok: true,
@@ -7450,10 +7447,10 @@ async function handleClientSwitchOrg(req, res) {
     const newSession = repos.session.createSession(auth.user.id, targetOrgId);
 
     // Delete old session (best effort)
-    try { repos.session.deleteSession(auth.session.token); } catch (_) { /* best effort */ }
+    try { repos.session.deleteSession(auth.session.token); } catch (err) { console.debug('[SESSION] Delete old session failed:', err.message); }
 
     // Audit
-    try { writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.switch', targetType: 'org', targetId: targetOrgId, meta: { fromOrgId: auth.org?.id, toOrgId: targetOrgId }, req }); } catch (_) { /* non-fatal */ }
+    writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.switch', targetType: 'org', targetId: targetOrgId, meta: { fromOrgId: auth.org?.id, toOrgId: targetOrgId }, req });
 
     return sendJson(res, 200, {
       ok: true,
@@ -7521,7 +7518,7 @@ async function handleClientCreateOrg(req, res) {
     });
 
     // Audit
-    try { writeAudit({ orgId: newOrg.id, actorUserId: auth.user.id, action: 'org.create', targetType: 'org', targetId: newOrg.id, meta: { parentOrgId: auth.org.id, name, vertical }, req }); } catch (_) { /* non-fatal */ }
+    writeAudit({ orgId: newOrg.id, actorUserId: auth.user.id, action: 'org.create', targetType: 'org', targetId: newOrg.id, meta: { parentOrgId: auth.org.id, name, vertical }, req });
 
     return sendJson(res, 201, {
       ok: true,
@@ -7591,7 +7588,7 @@ async function handleClientDeleteOrg(req, res, targetOrgId) {
     }
 
     // Audit
-    try { writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.archive', targetType: 'org', targetId: targetOrgId, meta: { previousStatus: targetOrg.status }, req }); } catch (_) { /* non-fatal */ }
+    writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.archive', targetType: 'org', targetId: targetOrgId, meta: { previousStatus: targetOrg.status }, req });
 
     return sendJson(res, 200, { ok: true, message: 'Établissement archivé avec succès' });
   } catch (err) {
@@ -7786,7 +7783,7 @@ async function handleClientTeamInvite(req, res) {
     try {
       const dbModule = storage.getDb();
       dbModule.prepare('UPDATE users SET must_change_password = 1 WHERE id = $id').run({ id: targetUser.id });
-    } catch (_) { /* ignore if column doesn't exist yet */ }
+    } catch (err) { console.debug('[TEAM] must_change_password column not ready:', err.message); }
 
     tempPasswordGenerated = true;
     // NOTE: tempPassword stays in DB (hashed) but is NEVER sent in email (PR-8e security)
@@ -7803,7 +7800,7 @@ async function handleClientTeamInvite(req, res) {
       const dbModule = storage.getDb();
       dbModule.prepare('UPDATE memberships SET invite_token = $inviteToken WHERE id = $id')
         .run({ inviteToken, id: newMembership.id });
-    } catch (_) { /* non-fatal */ }
+    } catch (err) { console.debug('[TEAM] invite_token update failed:', err.message); }
   } else {
     inviteToken = repos.membership.generateInviteToken();
     newMembership = repos.membership.create({
@@ -7872,7 +7869,7 @@ async function handleClientTeamInvite(req, res) {
   }
 
   // Audit (NO tempPassword in meta!)
-  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.invite', targetType: 'user', targetId: targetUser.id, meta: { email, role, isNewUser: tempPasswordGenerated }, req }); } catch (_) { /* non-fatal */ }
+  writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.invite', targetType: 'user', targetId: targetUser.id, meta: { email, role, isNewUser: tempPasswordGenerated }, req });
 
   return sendJson(res, 201, {
     ok: true,
@@ -7940,7 +7937,7 @@ async function handleClientTeamUpdateRole(req, res, membershipId) {
   }
 
   // Audit
-  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.update', targetType: 'membership', targetId: membershipId, meta: { previousRole: targetMembership.role, newRole: newRole || targetMembership.role, permissionsUpdated: !!newPermissions }, req }); } catch (_) { /* non-fatal */ }
+  writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.update', targetType: 'membership', targetId: membershipId, meta: { previousRole: targetMembership.role, newRole: newRole || targetMembership.role, permissionsUpdated: !!newPermissions }, req });
 
   return sendJson(res, 200, {
     ok: true,
@@ -7998,7 +7995,7 @@ function handleClientTeamRevoke(req, res, membershipId) {
   // TODO: also revoke active sessions for this user on this org
 
   // Audit
-  try { writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.revoke', targetType: 'membership', targetId: membershipId, meta: { revokedUserId: targetMembership.userId, revokedRole: targetMembership.role }, req }); } catch (_) { /* non-fatal */ }
+  writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.revoke', targetType: 'membership', targetId: membershipId, meta: { revokedUserId: targetMembership.userId, revokedRole: targetMembership.role }, req });
 
   return sendJson(res, 200, { ok: true });
 }
@@ -10933,7 +10930,7 @@ async function handleClientSyncCompetitors(req, res) {
     // Clear previous sync data for this period (manual sync always forces refresh)
     try {
       competitorRepo.clearSync(org.id, profileName, periodKey);
-    } catch (_) { /* ignore */ }
+    } catch (err) { console.debug('[SYNC] clearSync failed:', err.message); }
 
     // ── Determine search strategy ──
     const hasSpecificType = profile.includedTypes.some((t) => SPECIFIC_GOOGLE_TYPES.includes(t));
@@ -11216,7 +11213,7 @@ async function handleClientAddCompetitor(req, res) {
     if (placeDetails) {
       try {
         competitorRepo.cachePlaceDetails(placeDetails);
-      } catch (_) { /* ignore cache errors */ }
+      } catch (err) { console.debug('[SYNC] cachePlaceDetails failed:', err.message); }
     }
 
     const distanceKm = Math.round((distanceM / 1000) * 10) / 10;
@@ -12562,7 +12559,7 @@ async function handleAssignPlan(req, res, orgId) {
     });
     
     // Audit log: plan assigned by admin
-    try { writeAudit({ orgId, actorUserId: auth.user?.id || null, action: 'billing.plan_assigned', targetType: 'org', targetId: orgId, meta: { planCode, priceCents: plan.priceCents }, req }); } catch (_) { /* non-fatal */ }
+    writeAudit({ orgId, actorUserId: auth.user?.id || null, action: 'billing.plan_assigned', targetType: 'org', targetId: orgId, meta: { planCode, priceCents: plan.priceCents }, req });
     
     return sendJson(res, 200, {
       ok: true,
@@ -13713,7 +13710,7 @@ const server = http.createServer(async (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'Erreur interne du serveur' }));
       }
-    } catch (_) { /* response already sent or broken */ }
+    } catch (err) { console.debug('[HTTP] Error response failed (already sent?):', err.message); }
   }
 });
 

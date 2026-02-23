@@ -130,7 +130,7 @@ async function main() {
         try {
           db.run('DELETE FROM competitor_sync_log WHERE org_id = ? AND profile = ? AND run_period_key = ?', [org.id, profileName, periodKey]);
           db.run('DELETE FROM competitor_snapshots WHERE org_id = ? AND profile = ? AND run_period_key = ?', [org.id, profileName, periodKey]);
-        } catch (_) { /* ignore if tables don't exist yet */ }
+        } catch (err) { console.debug('[SYNC] Table cleanup skipped:', err.message); }
       }
 
       console.log(`[SYNC-COMPETITORS] 🔍 Org "${org.name}" (${org.id}) — lat=${org.lat}, lng=${org.lng}, profile=${profileName}`);
@@ -361,7 +361,7 @@ async function main() {
       let profileName = 'unknown';
       try {
         profileName = placesProfiles.getSearchProfile(org.vertical, org.specialty).profileName;
-      } catch (_) { /* ignore */ }
+      } catch (err) { console.debug('[SYNC] Profile resolve failed:', err.message); }
 
       if (!isDryRun) {
         competitorRepo.logSync({

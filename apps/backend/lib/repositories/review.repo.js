@@ -340,8 +340,8 @@ function getStats(orgId, period = DEFAULT_PERIOD) {
         if (!key) continue;
         tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
       }
-    } catch (_) {
-      // ignore invalid JSON
+    } catch (err) {
+      console.debug('[REVIEW] Tag parse skipped:', err.message);
     }
   }
 

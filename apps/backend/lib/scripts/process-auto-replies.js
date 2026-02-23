@@ -279,7 +279,7 @@ processAutoReplies()
       console.error(`⚠️ Heartbeat write failed: ${e.message}`);
     }
 
-    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (_) { /* best-effort */ }
+    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (err) { console.debug('[LOCK] release failed:', err.message); }
 
     console.log(`\n✅ Done. (${durationMs}ms)`);
     await sentry.flush();
@@ -296,9 +296,9 @@ processAutoReplies()
         error: err.message,
         durationMs,
       });
-    } catch (_) { /* ignore */ }
+    } catch (hbErr) { console.debug('[HEARTBEAT] write failed:', hbErr.message); }
 
-    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (_) { /* best-effort */ }
+    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (lockErr) { console.debug('[LOCK] release failed:', lockErr.message); }
 
     console.error('\n❌ Fatal error:', err.message);
     await sentry.flush();

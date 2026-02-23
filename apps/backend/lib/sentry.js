@@ -137,8 +137,8 @@ function setTag(key, value) {
 
   try {
     Sentry.getCurrentScope().setTag(key, value);
-  } catch (_) {
-    // no-op
+  } catch (err) {
+    console.debug('[SENTRY] setTag failed:', err.message);
   }
 }
 
@@ -154,8 +154,8 @@ function setTags(tags) {
     for (const [key, value] of Object.entries(tags)) {
       scope.setTag(key, value);
     }
-  } catch (_) {
-    // no-op
+  } catch (err) {
+    console.debug('[SENTRY] setTags failed:', err.message);
   }
 }
 

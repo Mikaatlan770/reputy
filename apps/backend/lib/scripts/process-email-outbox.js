@@ -322,7 +322,7 @@ processOutbox()
     }
 
     // Release cron lock
-    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (_) { /* best-effort */ }
+    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (err) { console.debug('[LOCK] release failed:', err.message); }
 
     console.log(`\n✅ Done. (${durationMs}ms)`);
     await sentry.flush();
@@ -339,10 +339,10 @@ processOutbox()
         error: err.message,
         durationMs,
       });
-    } catch (_) { /* ignore */ }
+    } catch (hbErr) { console.debug('[HEARTBEAT] write failed:', hbErr.message); }
 
     // Release cron lock
-    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (_) { /* best-effort */ }
+    try { cronLocks.release(WORKER_NAME, lockOwner); } catch (lockErr) { console.debug('[LOCK] release failed:', lockErr.message); }
 
     console.error('\n❌ Fatal error:', err.message);
     await sentry.flush();

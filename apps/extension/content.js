@@ -1373,8 +1373,8 @@ async function init() {
         lastHoverTs = Date.now();
         console.log('[REPUTY][HOVER] phone:', lastHoverPhone);
       }
-    } catch (_) {
-      // ignore
+    } catch (err) {
+      console.debug('[REPUTY] hover handler error:', err.message);
     }
   });
   hoverObserver.observe(document.body, { childList: true, subtree: true });

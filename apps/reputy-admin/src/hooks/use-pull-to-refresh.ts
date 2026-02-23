@@ -39,7 +39,7 @@ export function usePullToRefresh(
 
     const onTouchMove = (e: TouchEvent) => {
       if (!pullingRef.current) return
-      if (startYRef.current == null) return
+      if (startYRef.current === null || startYRef.current === undefined) return
       if (window.scrollY > 0) return
 
       const dy = e.touches[0].clientY - startYRef.current
@@ -47,7 +47,7 @@ export function usePullToRefresh(
 
       if (dy >= thresholdPx && !triggeredRef.current) {
         triggeredRef.current = true
-        Promise.resolve(onRefresh()).catch(() => {})
+        Promise.resolve(onRefresh()).catch((err) => { console.debug('[PTR] refresh failed:', err) })
       }
     }
 
