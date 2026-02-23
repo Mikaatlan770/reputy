@@ -81,7 +81,7 @@ export function isShortUrl(url: string): boolean {
  * Extrait les URLs d'un message
  */
 export function extractUrls(message: string): string[] {
-  const urlRegex = /(https?:\/\/[^\s]+|[a-z0-9-]+\.[a-z]{2,}\/[^\s]*)/gi
+  const urlRegex = /(https?:\/\/\S{1,2000}|[a-z0-9-]{1,63}\.[a-z]{2,10}\/\S{0,2000})/gi
   return message.match(urlRegex) || []
 }
 

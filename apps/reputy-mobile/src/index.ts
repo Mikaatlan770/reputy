@@ -1,7 +1,7 @@
 /**
  * Point d'entrée natif Capacitor
  *
- * Phase A : shell charge l'URL distante (admin.reputyapp.fr)
+ * Phase A : shell charge l'URL distante (admin.reputyapp.com)
  * Phase B : deep links (@capacitor/app listener)
  * Phase C : push notifications (@capacitor/push-notifications) + bridge registration
  */
@@ -9,16 +9,14 @@
 import { App } from '@capacitor/app'
 
 /**
- * Normalise un deeplink vers admin.reputyapp.fr.
- * V1 : seuls les liens vers admin.reputyapp.fr sont acceptés.
- * reputyapp.fr (login/signup) → return null → s'ouvre dans Safari/Chrome.
+ * Normalise un deeplink vers admin.reputyapp.com.
+ * V1 : seuls les liens vers admin.reputyapp.com sont acceptés.
+ * reputyapp.com (login/signup) → return null → s'ouvre dans Safari/Chrome.
  */
 function toAdminUrl(rawUrl: string): string | null {
   try {
     const u = new URL(rawUrl)
-    // V1: deeplink uniquement vers admin.reputyapp.fr
-    // reputyapp.fr (login/signup) → return null → s'ouvre dans le navigateur externe
-    if (u.hostname !== 'admin.reputyapp.fr') return null
+    if (u.hostname !== 'admin.reputyapp.com') return null
     return u.href
   } catch {
     return null

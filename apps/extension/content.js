@@ -174,7 +174,7 @@ function escapeHtml(str) {
  */
 function parseFullName(displayName = '') {
   const cleaned = displayName
-    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\([^)]{0,200}\)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (!cleaned) return { firstName: '', lastName: '', full: '' };
@@ -185,7 +185,7 @@ function parseFullName(displayName = '') {
   // enlever civilité au début
   const tokens = [];
   for (const t of tokensRaw) {
-    const norm = t.toLowerCase().replace(/\.+$/, '');
+    const norm = t.toLowerCase().replace(/\.+$/g, '');
     if (tokens.length === 0 && civility.has(norm)) continue;
     tokens.push(t);
   }
@@ -515,7 +515,7 @@ function extractEmailFromInfosAdministratives() {
   const after = line.split(":").slice(1).join(":").trim();
   if (!after) return ""; // ligne existe mais vide
 
-  const m = after.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const m = after.match(/[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,10}/i);
   return m ? m[0] : "";
 }
 
@@ -594,7 +594,7 @@ function extractPatientInfo(rootEl) {
     }
   }
   if (!info.email && scope.innerText) {
-    const m = scope.innerText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    const m = scope.innerText.match(/[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,10}/);
     if (m) info.email = m[0];
   }
 
@@ -650,8 +650,8 @@ function waitForContactInfo(timeoutMs = 2000) {
 
   const extract = () => {
     const txt = document.body?.innerText || '';
-    const phone = (txt.match(/(?:\+33|0)[1-9](?:[\s.-]?\d{2}){4}/) || [])[0];
-    const email = (txt.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/) || [])[0];
+    const phone = (txt.match(/(?:\+33|0)[1-9](?:[\s.\-]?\d{2}){4}/) || [])[0];
+    const email = (txt.match(/[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,10}/) || [])[0];
     return {
       phone: phone ? phone.replace(/[^\d+]/g, '') : '',
       email: email || ''
@@ -688,7 +688,7 @@ function waitForContactInfo(timeoutMs = 2000) {
 
 function waitForEmail(timeoutMs = 2500) {
   const start = Date.now();
-  const emailRe = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+  const emailRe = /[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,10}/;
 
   const extract = () => {
     const txt = document.body?.innerText || '';

@@ -102,10 +102,10 @@ function prepareAiInput(text) {
   let cleaned = text;
 
   // 1. Remove URLs
-  cleaned = cleaned.replace(/https?:\/\/[^\s]+/gi, '[lien]');
+  cleaned = cleaned.replace(/https?:\/\/\S{1,2000}/gi, '[lien]');
 
   // 2. Remove email addresses
-  cleaned = cleaned.replace(/[\w.-]+@[\w.-]+\.\w+/gi, '[email]');
+  cleaned = cleaned.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi, '[email]');
 
   // 3. Collapse whitespace / newlines
   cleaned = cleaned.replace(/\s+/g, ' ').trim();

@@ -33,6 +33,7 @@ import {
   ToggleRight,
   MapPin,
 } from 'lucide-react'
+import { IS_IOS_CAPACITOR } from '@/lib/constants'
 import { WebsiteWidgetManager } from '@/components/embed'
 import { AddressAutocomplete } from '@/components/address-autocomplete'
 import { useConfigureCompetitors } from '@/lib/competitors/use-competitors'
@@ -1041,9 +1042,16 @@ export default function SettingsPage() {
               <p className="text-sm text-muted-foreground">Chargement des quotas...</p>
             )}
 
-            <Button variant="outline" className="w-full" asChild>
-              <a href="/billing">Gérer l&apos;abonnement</a>
-            </Button>
+            {IS_IOS_CAPACITOR ? (
+              <p className="text-sm text-center text-muted-foreground">
+                Gérez votre abonnement sur{' '}
+                <span className="font-medium text-foreground">admin.reputyapp.com</span>
+              </p>
+            ) : (
+              <Button variant="outline" className="w-full" asChild>
+                <a href="/billing">Gérer l&apos;abonnement</a>
+              </Button>
+            )}
           </CardContent>
         </Card>
 

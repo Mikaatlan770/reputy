@@ -33,8 +33,6 @@
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
@@ -45,10 +43,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<!-- DEV ONLY: Allow HTTP for local dev server. Remove for production! -->
+	<!--
+	  ATS: HTTPS obligatoire en prod.
+	  NSAllowsLocalNetworking = true autorise uniquement les connexions HTTP
+	  vers localhost / 192.168.x.x (dev local). Aucun HTTP distant n'est permis.
+	-->
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsArbitraryLoads</key>
+		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 </dict>

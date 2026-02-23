@@ -44,9 +44,10 @@ const SMTP_PASS = process.env.SMTP_PASS || '';
  * @returns {{ name: string|undefined, email: string }}
  */
 function parseFromAddress(from) {
-  const match = from.match(/^(.+?)\s*<(.+?)>$/);
-  if (match) {
-    return { name: match[1].trim(), email: match[2].trim() };
+  const ltIdx = from.lastIndexOf('<');
+  const gtIdx = from.lastIndexOf('>');
+  if (ltIdx > 0 && gtIdx > ltIdx) {
+    return { name: from.slice(0, ltIdx).trim(), email: from.slice(ltIdx + 1, gtIdx).trim() };
   }
   return { email: from.trim() };
 }

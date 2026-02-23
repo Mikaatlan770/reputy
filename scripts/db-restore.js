@@ -61,7 +61,8 @@ function isServerRunning() {
 
   // Fallback: check if backend port is in use
   try {
-    const port = process.env.REPUTY_BACKEND_PORT || process.env.PORT || '8787';
+    const port = String(process.env.REPUTY_BACKEND_PORT || process.env.PORT || '8787');
+    if (!/^\d{2,5}$/.test(port)) return false;
     execSync(`lsof -i :${port} -sTCP:LISTEN 2>/dev/null`, { encoding: 'utf-8' });
     return true;
   } catch {

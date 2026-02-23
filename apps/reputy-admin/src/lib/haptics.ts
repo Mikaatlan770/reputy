@@ -16,11 +16,17 @@ function isBrowser(): boolean {
   return typeof window !== 'undefined'
 }
 
+const ALLOWED_MODULES = new Set(['@capacitor/haptics'])
+
 /**
  * Import dynamique invisible à webpack/Next.js.
  * Le module n'est chargé QUE au runtime, dans le shell natif Capacitor.
+ * Whitelist stricte pour éviter l'injection de code arbitraire.
  */
 async function dynamicImport(specifier: string): Promise<any> {
+  if (!ALLOWED_MODULES.has(specifier)) {
+    throw new Error(`Module "${specifier}" not in allowlist`)
+  }
   // eslint-disable-next-line no-new-func
   const importer = new Function('s', 'return import(s)')
   return importer(specifier)

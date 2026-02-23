@@ -13,6 +13,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth, useIsClient } from '@/lib/auth'
 import { hapticImpact } from '@/lib/haptics'
+import { IS_IOS_CAPACITOR } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import type { MembershipPermissions } from '@/types'
 import {
@@ -109,6 +110,7 @@ export function MobileBottomNav() {
     if (item.clientOnly && !isClient) return false
     if (!currentPermissions) return true
     if (item.requiredPermission && currentPermissions[item.requiredPermission] === false) return false
+    if (IS_IOS_CAPACITOR && item.href === '/billing') return false
     return true
   })
 

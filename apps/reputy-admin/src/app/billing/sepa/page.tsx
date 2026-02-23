@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { IS_IOS_CAPACITOR } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +43,27 @@ const COUNTRIES = [
   { code: 'LU', name: 'Luxembourg' },
   { code: 'DE', name: 'Allemagne' },
 ];
+
+function SepaBlockediOS() {
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-2xl mx-auto">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center text-center space-y-4 py-8">
+              <CreditCard className="w-12 h-12 text-muted-foreground" />
+              <h2 className="text-lg font-semibold">Prélèvement SEPA</h2>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                La configuration du prélèvement SEPA est disponible depuis votre navigateur sur{' '}
+                <span className="font-medium text-foreground">admin.reputyapp.com</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
 export default function SepaMandatePage() {
   const [formData, setFormData] = useState<MandateFormData>({
@@ -99,6 +121,8 @@ export default function SepaMandatePage() {
       setIsSubmitting(false);
     }
   };
+
+  if (IS_IOS_CAPACITOR) return <SepaBlockediOS />;
 
   if (isSuccess && mandateRef) {
     const activationDate = calculateActivationDate(new Date());

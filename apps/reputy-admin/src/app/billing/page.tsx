@@ -39,6 +39,7 @@ import {
   Eye,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { IS_IOS_CAPACITOR } from '@/lib/constants'
 
 // ============================================================
 // Types
@@ -638,7 +639,8 @@ export default function BillingPage() {
                 </div>
                 <p className="text-muted-foreground mt-1">{currentPlan?.description || 'Votre abonnement Reputy'}</p>
                 
-                {/* Prix effectif (avec remise si applicable) */}
+                {/* Prix effectif — masqué sur iOS (Guideline 3.1.1) */}
+                {!IS_IOS_CAPACITOR && (
                 <div className="mt-3">
                   {billing.hasDiscount && billing.priceCatalogCents && billing.priceEffectiveCents ? (
                     <div className="flex items-baseline gap-2">
@@ -666,6 +668,7 @@ export default function BillingPage() {
                     </p>
                   )}
                 </div>
+                )}
                 
                 {/* Info coupon */}
                 {billing.couponInfo && (
@@ -695,18 +698,27 @@ export default function BillingPage() {
             </div>
 
             <div className="mt-6 flex gap-3">
-              <Button onClick={() => setChangePlanOpen(true)}>
-                Changer de plan
-              </Button>
-              {billing.hasPaymentMethod && (
-                <Button variant="outline" onClick={handlePortal} disabled={portalLoading}>
-                  {portalLoading ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <ExternalLink className="h-4 w-4 mr-2" />
+              {IS_IOS_CAPACITOR ? (
+                <p className="text-sm text-muted-foreground">
+                  Gérez votre abonnement sur{' '}
+                  <span className="font-medium text-foreground">admin.reputyapp.com</span>
+                </p>
+              ) : (
+                <>
+                  <Button onClick={() => setChangePlanOpen(true)}>
+                    Changer de plan
+                  </Button>
+                  {billing.hasPaymentMethod && (
+                    <Button variant="outline" onClick={handlePortal} disabled={portalLoading}>
+                      {portalLoading ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                      )}
+                      Portail Stripe
+                    </Button>
                   )}
-                  Portail Stripe
-                </Button>
+                </>
               )}
             </div>
           </CardContent>
@@ -825,7 +837,8 @@ export default function BillingPage() {
         </Card>
       </div>
 
-      {/* Section Acheter des packs avec Panier */}
+      {/* Section Acheter des packs avec Panier — masqué sur iOS (Guideline 3.1.1) */}
+      {!IS_IOS_CAPACITOR && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -936,6 +949,7 @@ export default function BillingPage() {
           </p>
         </CardContent>
       </Card>
+      )}
 
       {/* Historique des factures */}
       <Card>
@@ -1099,8 +1113,8 @@ export default function BillingPage() {
         </CardContent>
       </Card>
 
-      {/* Dialog Changer de plan */}
-      <Dialog open={changePlanOpen} onOpenChange={setChangePlanOpen}>
+      {/* Dialog Changer de plan — masqué sur iOS (Guideline 3.1.1) */}
+      {!IS_IOS_CAPACITOR && <Dialog open={changePlanOpen} onOpenChange={setChangePlanOpen}>
         <DialogContent className="w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Changer de plan</DialogTitle>
@@ -1171,7 +1185,7 @@ export default function BillingPage() {
             </p>
           </div>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </div>
   )
 }

@@ -169,9 +169,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!url) return DEFAULT_URL;
     url = url.trim();
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'http://' + url;
+      url = 'https://' + url;
     }
-    return url.replace(/\/+$/, '');
+    while (url.endsWith('/')) url = url.slice(0, -1);
+    return url;
   }
 
   function loadSettings() {

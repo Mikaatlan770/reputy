@@ -9,6 +9,7 @@ import { ReviewsChart } from '@/components/dashboard/reviews-chart'
 import { PendingReviews } from '@/components/dashboard/pending-reviews'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { toBillingUIFromClient, displayPrice } from '@/lib/internal/billing-ui'
+import { IS_IOS_CAPACITOR } from '@/lib/constants'
 import { StarDistribution } from '@/components/dashboard/star-distribution'
 import { GoogleMyPlace } from '@/components/dashboard/google-my-place'
 import { useGoogleMyPlace } from '@/lib/google/use-google-my-place'
@@ -96,9 +97,8 @@ function CreditsSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-foreground">Mes crédits</h2>
-        {b && (
+        {b && !IS_IOS_CAPACITOR && (
           <div className="flex items-center gap-2">
-            {/* Badge discount : label si dispo, sinon -% si percent, sinon rien */}
             {b.hasDiscount && b.discountLabel && (
               <Badge className="bg-green-500/20 text-green-600">
                 {b.discountLabel}
@@ -143,14 +143,16 @@ function CreditsSection() {
               Achetez des packs ou passez à Argent pour des crédits SMS, Email et IA inclus.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <Button variant="outline" size="sm" asChild>
-              <a href="/billing">Acheter un pack</a>
-            </Button>
-            <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white" asChild>
-              <a href="/billing">Comparer les plans</a>
-            </Button>
-          </div>
+          {!IS_IOS_CAPACITOR && (
+            <div className="flex gap-2 shrink-0">
+              <Button variant="outline" size="sm" asChild>
+                <a href="/billing">Acheter un pack</a>
+              </Button>
+              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white" asChild>
+                <a href="/billing">Comparer les plans</a>
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

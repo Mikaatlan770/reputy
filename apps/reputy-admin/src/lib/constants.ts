@@ -58,3 +58,13 @@ export const LOGOUT_REDIRECT_URL = REPUTY_WEB_URL
 export const IS_CAPACITOR: boolean =
   typeof window !== 'undefined' &&
   !!(window as any).Capacitor?.isNativePlatform?.()
+
+/**
+ * Détecte iOS Capacitor spécifiquement.
+ * Utilisé pour la compliance App Store (Guideline 3.1.1) :
+ * masquer les CTA d'achat/upgrade dans l'app iOS.
+ */
+export const IS_IOS_CAPACITOR: boolean =
+  typeof window !== 'undefined' &&
+  !!(window as any).Capacitor?.isNativePlatform?.() &&
+  (window as any).Capacitor?.getPlatform?.() === 'ios'

@@ -279,7 +279,7 @@ const JWT_SECRET = process.env.JWT_SECRET || DEV_FALLBACKS.JWT_SECRET;
 const SESSION_EXPIRY_DAYS = 7;
 const VERIFICATION_CODE_EXPIRY_MINUTES = 15;
 const BCRYPT_ROUNDS = 10;
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001,http://localhost:3002,http://127.0.0.1:3001')
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || (IS_PRODUCTION ? '' : 'http://localhost:3000,http://localhost:3001,http://localhost:3002,http://127.0.0.1:3001'))
   .split(',')
   .map(o => o.trim())
   .filter(Boolean);
@@ -2152,7 +2152,9 @@ function generateSessionToken() {
  * Generate a 6-digit verification code
  */
 function generateVerificationCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  const buf = randomBytes(4);
+  const num = buf.readUInt32BE(0) % 900000 + 100000;
+  return num.toString();
 }
 
 /**
@@ -6541,7 +6543,7 @@ async function handleSignup(req, res) {
     return sendJson(res, 400, { error: 'Le mot de passe doit faire au moins 8 caractères' });
   }
   
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
   if (!emailRegex.test(email)) {
     return sendJson(res, 400, { error: 'Email invalide' });
   }
