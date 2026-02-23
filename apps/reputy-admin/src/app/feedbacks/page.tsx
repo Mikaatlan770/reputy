@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { cn, getInitials, formatDateTime } from '@/lib/utils'
 import { WebsiteWidgetManager } from '@/components/embed'
+import { useGoogleMyPlace } from '@/lib/google/use-google-my-place'
 
 interface PatientInfo {
   name?: string
@@ -67,6 +68,7 @@ function getRatingLabel(rating: number): string {
 export default function FeedbacksPage() {
   const { getClientToken } = useAuth()
   const clientOrg = useClientOrg()
+  const { data: googleData } = useGoogleMyPlace()
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -109,15 +111,30 @@ export default function FeedbacksPage() {
   }, [fetchFeedbacks])
 
   // Stats computed from real data
+  const feedbackAvg = feedbacks.length > 0
+    ? feedbacks.reduce((sum, f) => sum + f.rating, 0) / feedbacks.length
+    : 0
+
+  // Weighted average: Google live rating + internal feedbacks (blocked by routing)
+  const googleRating = googleData?.configured ? (googleData.rating ?? null) : null
+  const googleCount = googleData?.configured ? (googleData.totalReviews ?? 0) : 0
+  let combinedAvg: string
+  if (googleRating != null && googleCount > 0 && feedbacks.length > 0) {
+    const weighted = (googleRating * googleCount + feedbackAvg * feedbacks.length) / (googleCount + feedbacks.length)
+    combinedAvg = weighted.toFixed(1)
+  } else if (googleRating != null && googleCount > 0) {
+    combinedAvg = googleRating.toFixed(1)
+  } else {
+    combinedAvg = feedbackAvg > 0 ? feedbackAvg.toFixed(1) : '0'
+  }
+
   const stats = {
     total: feedbacks.length,
     positive: feedbacks.filter((f) => f.rating >= 4).length,
     neutral: feedbacks.filter((f) => f.rating === 3).length,
     negative: feedbacks.filter((f) => f.rating <= 2).length,
-    avgRating:
-      feedbacks.length > 0
-        ? (feedbacks.reduce((sum, f) => sum + f.rating, 0) / feedbacks.length).toFixed(1)
-        : '0',
+    avgRating: combinedAvg,
+    feedbackOnlyAvg: feedbackAvg > 0 ? feedbackAvg.toFixed(1) : '—',
     withComment: feedbacks.filter((f) => f.comment).length,
   }
 
@@ -177,11 +194,18 @@ export default function FeedbacksPage() {
                 <Star className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Note moyenne</p>
+                <p className="text-xs text-muted-foreground">Satisfaction globale</p>
                 {loading ? (
                   <Skeleton className="h-8 w-14 mt-1" />
                 ) : (
-                <p className="text-2xl font-bold">{stats.avgRating}/5</p>
+                  <>
+                    <p className="text-2xl font-bold">{stats.avgRating}/5</p>
+                    {googleRating != null && feedbacks.length > 0 && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Google {googleRating.toFixed(1)} + feedbacks {stats.feedbackOnlyAvg}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>

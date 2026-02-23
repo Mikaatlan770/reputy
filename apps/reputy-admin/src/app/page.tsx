@@ -11,6 +11,7 @@ import { QuickActions } from '@/components/dashboard/quick-actions'
 import { toBillingUIFromClient, displayPrice } from '@/lib/internal/billing-ui'
 import { StarDistribution } from '@/components/dashboard/star-distribution'
 import { GoogleMyPlace } from '@/components/dashboard/google-my-place'
+import { useGoogleMyPlace } from '@/lib/google/use-google-my-place'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -315,7 +316,11 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<StatsPeriod>('30d')
   const { stats, loading: statsLoading, error: statsError } = useReviewStats(period)
   const { data: lifecycleData, loading: lifecycleLoading } = useLifecycleStats(period)
+  const { data: googleData, loading: googleLoading } = useGoogleMyPlace()
   const kpi = statsToKpiData(stats)
+
+  const googleRating = googleData?.configured ? (googleData.rating ?? null) : null
+  const googleTotalReviews = googleData?.configured ? (googleData.totalReviews ?? null) : null
 
   // Calculate trend objects from deltas
   const ratingTrend = kpi.avgRatingDelta !== null 
@@ -436,18 +441,18 @@ export default function DashboardPage() {
       {/* Google Reviews KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard
-          title="Note moyenne"
-          value={kpi.averageRating.toFixed(1)}
-          subtitle={`sur ${periodLabel}`}
+          title="Note Google"
+          value={googleLoading ? '…' : (googleRating != null ? googleRating.toFixed(1) : kpi.averageRating.toFixed(1))}
+          subtitle={googleRating != null ? 'note publique Google' : `sur ${periodLabel}`}
           icon={Star}
-          trend={ratingTrend}
+          trend={googleRating != null ? undefined : ratingTrend}
           iconColor="text-amber-500"
           iconBg="bg-amber-50"
         />
         <KpiCard
-          title="Total avis"
-          value={kpi.totalReviews}
-          subtitle="tous temps"
+          title="Total avis Google"
+          value={googleLoading ? '…' : (googleTotalReviews ?? kpi.totalReviews)}
+          subtitle="avis publics"
           icon={MessageSquare}
           iconColor="text-blue-500"
           iconBg="bg-blue-50"

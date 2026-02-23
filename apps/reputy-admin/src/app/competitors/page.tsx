@@ -16,6 +16,7 @@ import {
 import { competitors as manualCompetitors } from '@/lib/mock-data'
 import { useAppStore } from '@/lib/store'
 import { useReviewStats, useReviewAnalytics } from '@/lib/reviews/use-reviews'
+import { useGoogleMyPlace } from '@/lib/google/use-google-my-place'
 import { useCompetitors, useConfigureCompetitors, useSyncCompetitors, usePlacesAutocomplete, useAddCompetitor, type CompetitorEntry } from '@/lib/competitors/use-competitors'
 import type { AutoCompetitor, EstablishmentType, HealthSpecialty, Competitor } from '@/types'
 import { CompetitorDetailDrawer, getCompetitorTypeLabel } from '@/components/competitor-detail-drawer'
@@ -321,11 +322,16 @@ export default function CompetitorsPage() {
   // ===== Vraies stats depuis le backend =====
   const { stats, loading: statsLoading, error: statsError } = useReviewStats('30d')
   const { series: analyticsSeries, loading: analyticsLoading } = useReviewAnalytics('90d', 'month')
+  const { data: googleData, loading: googleLoading } = useGoogleMyPlace()
 
-  // Données établissement actif (réel depuis /client/reviews/stats)
-const currentEstablishmentData = {
-    rating: stats?.avgRatingAllTime ?? 0,
-    reviewsCount: stats?.totalAllTime ?? 0,
+  // Données établissement actif: Google live rating si disponible, sinon fallback reviews sync
+  const currentEstablishmentData = {
+    rating: googleData?.configured && googleData.rating != null
+      ? googleData.rating
+      : (stats?.avgRatingAllTime ?? 0),
+    reviewsCount: googleData?.configured && googleData.totalReviews != null
+      ? googleData.totalReviews
+      : (stats?.totalAllTime ?? 0),
     reviewsLast30d: stats?.totalPeriod ?? 0,
     responseRate: stats?.responseRatePeriod ?? 0,
     reviewsDeltaPct: stats?.reviewsDeltaPct ?? null,

@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { authedFetch } from '@/lib/auth/authed-fetch'
-import { BACKEND_URL } from '@/lib/constants'
+import { useGoogleMyPlace } from '@/lib/google/use-google-my-place'
+import type { GoogleReview } from '@/lib/google/use-google-my-place'
 import {
   Star,
   MapPin,
@@ -18,29 +18,6 @@ import {
   User,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-interface GoogleReview {
-  author: string
-  rating: number
-  text: string
-  publishTime: string
-  relativeTime: string
-}
-
-interface GooglePlaceData {
-  ok: boolean
-  configured: boolean
-  message?: string
-  placeId?: string
-  name?: string
-  address?: string
-  phone?: string
-  website?: string
-  rating?: number
-  totalReviews?: number
-  reviews?: GoogleReview[]
-  cachedAt?: string
-}
 
 function StarRating({ rating, size = 'sm' }: { rating: number; size?: 'sm' | 'lg' }) {
   const stars = []
@@ -108,34 +85,14 @@ function ReviewCard({ review }: { review: GoogleReview }) {
 }
 
 export function GoogleMyPlace() {
-  const [data, setData] = useState<GooglePlaceData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data, loading, error, refetch } = useGoogleMyPlace()
   const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  async function fetchData(isRefresh = false) {
-    if (isRefresh) setRefreshing(true)
-    else setLoading(true)
-    setError(null)
-
-    try {
-      const res = await authedFetch(`${BACKEND_URL}/client/google/my-place`)
-      if (!res.ok) {
-        throw new Error(`Erreur ${res.status}`)
-      }
-      const json = await res.json()
-      setData(json)
-    } catch (err: any) {
-      setError(err.message || 'Erreur de chargement')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
+  async function handleRefresh() {
+    setRefreshing(true)
+    await refetch()
+    setRefreshing(false)
   }
-
-  useEffect(() => {
-    fetchData()
-  }, [])
 
   if (loading) {
     return (
@@ -162,7 +119,7 @@ export function GoogleMyPlace() {
               <p className="text-sm text-muted-foreground mt-1">{error}</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" className="mt-3" onClick={() => fetchData()}>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
             Réessayer
           </Button>
@@ -216,7 +173,7 @@ export function GoogleMyPlace() {
             size="icon"
             className="h-8 w-8"
             disabled={refreshing}
-            onClick={() => fetchData(true)}
+            onClick={handleRefresh}
           >
             <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
           </Button>
