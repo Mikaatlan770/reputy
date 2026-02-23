@@ -112,7 +112,7 @@ async function sendSms({ to, body, tag = 'review_request' }) {
 
   const payload = {
     type: 'transactional',
-    unicodeEnabled: true,
+    unicodeEnabled: false,
     sender: BREVO_SMS_SENDER,
     recipient,
     content: body,

@@ -1,0 +1,59 @@
+# CodeRabbit Configuration — Reputy SaaS (Healthcare)
+# https://docs.coderabbit.ai/configuration
+
+language: fr
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+
+  path_instructions:
+    - path: "apps/backend/**"
+      instructions: |
+        Backend Node.js pour un SaaS santé (données patients).
+        Focus : sécurité (injection SQL, bypass auth, exposition de secrets),
+        intégration SMS/Email (Brevo), validation des données entrantes,
+        gestion des crédits et abonnements Stripe.
+        La base de données est SQLite (better-sqlite3).
+
+    - path: "apps/backend/lib/sms/**"
+      instructions: |
+        Module SMS critique. Vérifier :
+        - Encodage GSM-7 (pas d'Unicode/UCS-2)
+        - Longueur des messages (max 160 chars = 1 segment)
+        - Validation des numéros de téléphone
+        - Gestion des crédits et anti-spam
+
+    - path: "apps/backend/lib/repositories/**"
+      instructions: |
+        Repositories SQLite. Vérifier :
+        - Requêtes SQL paramétrées (pas de concaténation de strings)
+        - Validation des inputs avant insertion
+        - Pas d'exposition de données sensibles (PII patients)
+
+    - path: "apps/reputy-admin/**"
+      instructions: |
+        Dashboard admin Next.js (App Router).
+        Focus : prévention XSS, vérification auth sur chaque route,
+        pas de données sensibles côté client, validation des formulaires.
+
+    - path: "**/.env*"
+      instructions: "CRITIQUE : Ne jamais approuver de commits contenant des secrets, clés API ou tokens. Signaler immédiatement."
+
+    - path: "apps/backend/server.js"
+      instructions: |
+        Fichier serveur principal (très volumineux).
+        Vérifier : middleware auth, rate limiting, validation des inputs,
+        CORS, gestion des erreurs, pas de secrets hardcodés.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+chat:
+  auto_reply: true
