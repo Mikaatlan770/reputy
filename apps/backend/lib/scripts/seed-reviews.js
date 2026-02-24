@@ -112,8 +112,14 @@ function generateRandomReview(orgId, index) {
     status,
     replyText,
     replyStatus,
-    tags: rating >= 4 ? ['satisfied', 'recommend'] : rating <= 2 ? ['complaint'] : []
+    tags: getReviewTags(rating),
   };
+}
+
+function getReviewTags(rating) {
+  if (rating >= 4) return ['satisfied', 'recommend'];
+  if (rating <= 2) return ['complaint'];
+  return [];
 }
 
 /**

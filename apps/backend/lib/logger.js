@@ -224,7 +224,9 @@ function logHttpRequest(req, statusCode, durationMs, extra = {}) {
     meta.ip = getClientIp(req);
   }
   
-  const level = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info';
+  let level = 'info';
+  if (statusCode >= 500) level = 'error';
+  else if (statusCode >= 400) level = 'warn';
   structuredLog(level, 'HTTP_REQUEST', `${req?.method} ${req?.url} ${statusCode}`, meta);
 }
 

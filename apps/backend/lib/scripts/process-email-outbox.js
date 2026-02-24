@@ -85,9 +85,9 @@ function updateRequestLifecycle(entry, newStatus) {
   if (!entry.requestDbId) return;
 
   const now = db.nowISO();
-  const tsCol = newStatus === 'sent' ? 'sent_at'
-              : newStatus === 'failed' ? 'failed_at'
-              : null;
+  let tsCol = null;
+  if (newStatus === 'sent') tsCol = 'sent_at';
+  else if (newStatus === 'failed') tsCol = 'failed_at';
   if (!tsCol) return;
 
   try {

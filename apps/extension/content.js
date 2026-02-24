@@ -390,7 +390,8 @@ function _trySeparateCivility(lines) {
   const looksLikeLast = lineAfterCiv && lineAfterCiv === lineAfterCiv.toUpperCase() && lineAfterCiv.replace(/[^A-ZÀ-ÖØ-Ý]/g, "").length >= 2;
   const looksLikeFirst = nextLine && nextLine.length >= 2 && nextLine.length <= 40 && !/\d/.test(nextLine);
   if (!looksLikeLast || _isPlaceholderText(lineAfterCiv) || _isPlaceholderText(nextLine)) return 'skip';
-  return { lastName: lineAfterCiv, firstName: looksLikeFirst ? nextLine : "", full: `${lineAfterCiv} ${looksLikeFirst ? nextLine : ""}`.trim() };
+  const firstName = looksLikeFirst ? nextLine : "";
+  return { lastName: lineAfterCiv, firstName, full: `${lineAfterCiv} ${firstName}`.trim() };
 }
 
 function _tryUppercasePair(pool) {
@@ -682,7 +683,7 @@ function _buildChannelSelectorHtml(calendarOnly, patientInfo) {
   const emailDisabled = !patientInfo.email;
   return `<div class="reputy-channel-selector">
         ${smsBtn}
-        <button class="reputy-channel-btn${emailDisabled ? ' disabled' : ''}" data-channel="email"${emailDisabled ? ' title="Email introuvable"' : ''}>
+        <button class="reputy-channel-btn${emailDisabled ? ' disabled' : ''}" data-channel="email" ${emailDisabled ? 'title="Email introuvable"' : ''}>
           ${ICONS.email}
           <span>Email</span>
         </button>

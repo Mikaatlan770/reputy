@@ -49,7 +49,8 @@ console.log(`Batch limit: ${BATCH_LIMIT}`);
 console.log(`Provider:    ${smsProvider.SMS_PROVIDER}`);
 console.log(`Dry-run:     ${DRY_RUN || smsProvider.SMS_DRY_RUN}`);
 console.log(`Sender:      ${smsProvider.BREVO_SMS_SENDER}`);
-console.log(`API Key:     ${smsProvider.SMS_DRY_RUN ? 'n/a (dry-run)' : (process.env.BREVO_API_KEY ? '\u2705 configured' : '\u274C missing')}`);
+const apiKeyStatus = smsProvider.SMS_DRY_RUN ? 'n/a (dry-run)' : process.env.BREVO_API_KEY ? '\u2705 configured' : '\u274C missing';
+console.log(`API Key:     ${apiKeyStatus}`);
 console.log(`Now:         ${new Date().toISOString()}`);
 console.log();
 

@@ -3084,9 +3084,9 @@ function handleHealth(res) {
 
   // Overall status
   const ok = dbOk; // DB is critical; workers/circuits are warnings
-  const status = !dbOk ? 'critical'
-    : (!workersHealthy || !circuitsOk) ? 'degraded'
-    : 'healthy';
+  let status = 'healthy';
+  if (!dbOk) status = 'critical';
+  else if (!workersHealthy || !circuitsOk) status = 'degraded';
 
   sendJson(res, ok ? 200 : 503, {
     ok,
@@ -7029,7 +7029,8 @@ function createOrRefreshMembership(repos, reactivated, targetUser, auth, role, p
 
 function sendInviteEmail(data, email, acceptLink, orgName, inviterName, name, isNewUser) {
   const subject = `Vous êtes invité à rejoindre ${orgName} sur Reputy`;
-  const greeting = isNewUser ? `Bonjour${name ? ` ${name}` : ''},` : 'Bonjour,';
+  const namePrefix = isNewUser && name ? ` ${name}` : '';
+  const greeting = isNewUser ? `Bonjour${namePrefix},` : 'Bonjour,';
   const actionLine = isNewUser
     ? `Pour accepter l'invitation et créer votre mot de passe :`
     : `Pour accepter l'invitation :`;

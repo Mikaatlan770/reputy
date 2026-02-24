@@ -296,11 +296,14 @@ function alertIfNeeded(issues) {
 function computeExitStatus(issues) {
   const hasCritical = issues.some(i => i.severity === 'critical');
   const hasErrors = issues.some(i => i.severity === 'error');
-  const exitCode = hasCritical ? 2 : hasErrors ? 1 : 0;
-  const status = hasCritical ? 'critical'
-    : hasErrors ? 'degraded'
-    : issues.length > 0 ? 'warning'
-    : 'healthy';
+  let exitCode = 0;
+  if (hasCritical) exitCode = 2;
+  else if (hasErrors) exitCode = 1;
+
+  let status = 'healthy';
+  if (hasCritical) status = 'critical';
+  else if (hasErrors) status = 'degraded';
+  else if (issues.length > 0) status = 'warning';
   return { hasCritical, hasErrors, exitCode, status };
 }
 
