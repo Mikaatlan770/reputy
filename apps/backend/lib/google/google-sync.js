@@ -290,7 +290,7 @@ function updateSyncStatus(orgId, syncStatus, lastSyncAt = null) {
       id: orgId,
     });
   } catch (err) {
-    // Ignore JSON parse errors
+    console.debug('[SYNC] updateSyncStatus: JSON parse/write failed:', err.message);
   }
 }
 

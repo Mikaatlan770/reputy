@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
   
   const type = (searchParams.get('type') || 'health') as EstablishmentType
   const specialty = searchParams.get('specialty') as HealthSpecialty | null
-  const radius = parseInt(searchParams.get('radius') || '2') as 1 | 2 | 5
+  const radius = Number.parseInt(searchParams.get('radius') || '2') as 1 | 2 | 5
   
   // Simuler un délai réseau
   await new Promise(resolve => setTimeout(resolve, 800))

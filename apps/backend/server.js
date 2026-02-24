@@ -3067,7 +3067,7 @@ function handleHealth(res) {
     const db = require('./lib/db');
     db.get("SELECT 1 AS ok");
     dbOk = true;
-  } catch (err) { console.debug('[HEALTH] DB check failed:', err.message); }
+  } catch (err) { console.warn('[HEALTH] DB check failed:', err.message); }
 
   // 2) Worker heartbeats
   let workers = [];
@@ -3076,7 +3076,7 @@ function handleHealth(res) {
     workers = heartbeatRepo.getAll();
     const unhealthy = heartbeatRepo.getUnhealthy();
     if (unhealthy.length > 0) workersHealthy = false;
-  } catch (err) { console.debug('[HEALTH] Heartbeat check skipped:', err.message); }
+  } catch (err) { console.warn('[HEALTH] Heartbeat check skipped:', err.message); }
 
   // 3) Circuit breakers
   const circuits = circuitBreaker.getStatus();
@@ -4160,7 +4160,7 @@ function _healthCheckBackups() {
       const now = Date.now();
       info.count_24h = files.filter(f => now - f.mtime.getTime() < 86400000).length;
     }
-  } catch (err) { console.debug('[HEALTH] Backup check failed:', err.message); }
+  } catch (err) { console.warn('[HEALTH] Backup check failed:', err.message); }
   return info;
 }
 
@@ -4175,7 +4175,7 @@ function _healthCheckMrr() {
         info.fresh = (latest.date === new Date().toISOString().slice(0, 10));
       }
     }
-  } catch (err) { console.debug('[HEALTH] MRR snapshot check failed:', err.message); }
+  } catch (err) { console.warn('[HEALTH] MRR snapshot check failed:', err.message); }
   return info;
 }
 
@@ -6709,7 +6709,7 @@ async function handleClientSwitchOrg(req, res) {
     const newSession = repos.session.createSession(auth.user.id, targetOrgId);
 
     // Delete old session (best effort)
-    try { repos.session.deleteSession(auth.session.token); } catch (err) { console.debug('[SESSION] Delete old session failed:', err.message); }
+    try { repos.session.deleteSession(auth.session.token); } catch (err) { console.warn('[SESSION] Delete old session failed:', err.message); }
 
     // Audit
     writeAudit({ orgId: targetOrgId, actorUserId: auth.user.id, action: 'org.switch', targetType: 'org', targetId: targetOrgId, meta: { fromOrgId: auth.org?.id, toOrgId: targetOrgId }, req });
@@ -7006,7 +7006,7 @@ async function createInvitedUser(repos, auth, email, role, name) {
   try {
     const dbModule = storage.getDb();
     dbModule.prepare('UPDATE users SET must_change_password = 1 WHERE id = $id').run({ id: user.id });
-  } catch (err) { console.debug('[TEAM] must_change_password column not ready:', err.message); }
+  } catch (err) { console.warn('[TEAM] must_change_password column not ready:', err.message); }
   return user;
 }
 
@@ -7017,7 +7017,7 @@ function createOrRefreshMembership(repos, reactivated, targetUser, auth, role, p
       const dbModule = storage.getDb();
       dbModule.prepare('UPDATE memberships SET invite_token = $inviteToken WHERE id = $id')
         .run({ inviteToken, id: reactivated.id });
-    } catch (err) { console.debug('[TEAM] invite_token update failed:', err.message); }
+    } catch (err) { console.warn('[TEAM] invite_token update failed:', err.message); }
     return { membership: reactivated, inviteToken };
   }
   const membership = repos.membership.create({
@@ -9836,7 +9836,7 @@ async function runCompetitorSync(org) {
   const periodKey = competitorRepo.getISOWeekKey();
 
   try { competitorRepo.clearSync(org.id, profileName, periodKey); }
-  catch (err) { console.debug('[SYNC] clearSync failed:', err.message); }
+  catch (err) { console.warn('[SYNC] clearSync failed:', err.message); }
 
   const hasSpecificType = profile.includedTypes.some((t) => SYNC_SPECIFIC_TYPES.includes(t));
   const { places: rawPlaces, method } = (!hasSpecificType && profile.textQuery)
@@ -10315,7 +10315,7 @@ async function handleClientAddCompetitor(req, res) {
     if (placeDetails) {
       try {
         competitorRepo.cachePlaceDetails(placeDetails);
-      } catch (err) { console.debug('[SYNC] cachePlaceDetails failed:', err.message); }
+      } catch (err) { console.warn('[SYNC] cachePlaceDetails failed:', err.message); }
     }
 
     const distanceKm = Math.round((distanceM / 1000) * 10) / 10;

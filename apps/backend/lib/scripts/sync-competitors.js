@@ -200,7 +200,7 @@ async function syncOneOrg(org, periodKey, isDryRun, isForce) {
     try {
       db.run('DELETE FROM competitor_sync_log WHERE org_id = ? AND profile = ? AND run_period_key = ?', [org.id, profileName, periodKey]);
       db.run('DELETE FROM competitor_snapshots WHERE org_id = ? AND profile = ? AND run_period_key = ?', [org.id, profileName, periodKey]);
-    } catch (err) { console.debug('[SYNC] Table cleanup skipped:', err.message); }
+    } catch (err) { console.warn('[SYNC] Table cleanup skipped:', err.message); }
   }
 
   console.log(`[SYNC-COMPETITORS] 🔍 Org "${org.name}" (${org.id}) — profile=${profileName}`);
@@ -230,7 +230,7 @@ function resolveProfileName(org) {
   try {
     return placesProfiles.getSearchProfile(org.vertical, org.specialty).profileName;
   } catch (e) {
-    console.debug('[SYNC] Profile resolve failed:', e.message);
+    console.warn('[SYNC] Profile resolve failed:', e.message);
     return 'unknown';
   }
 }

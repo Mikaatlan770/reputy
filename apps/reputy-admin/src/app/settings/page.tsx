@@ -1211,7 +1211,7 @@ function ReviewRoutingCard({
                   min="1"
                   max="5"
                   value={reviewRouting.threshold}
-                  onChange={(e) => onRoutingChange({ ...reviewRouting, threshold: parseInt(e.target.value) })}
+                  onChange={(e) => onRoutingChange({ ...reviewRouting, threshold: Number.parseInt(e.target.value) })}
                   disabled={loadingRouting}
                   className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                 />

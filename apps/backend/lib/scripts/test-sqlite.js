@@ -223,7 +223,7 @@ test('CASCADE delete works (user → sessions)', () => {
   const testUser = repos.user.create({
     orgId: org.id,
     email: 'test-cascade-' + Date.now() + '@test.com',
-    passwordHash: '$2b$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012',
+    passwordHash: '$2b$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012', // NOSONAR - fake bcrypt hash for tests only
     name: 'Test Cascade'
   });
   

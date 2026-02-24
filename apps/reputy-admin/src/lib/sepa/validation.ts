@@ -31,7 +31,7 @@ export function validateIBAN(iban: string): boolean {
   
   let remainder = 0;
   for (const digit of numericString) {
-    remainder = (remainder * 10 + parseInt(digit)) % 97;
+    remainder = (remainder * 10 + Number.parseInt(digit)) % 97;
   }
   
   return remainder === 1;

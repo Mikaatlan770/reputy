@@ -255,7 +255,7 @@ export function WebsiteWidgetManager({
                         <Select
                           value={config.autoRules.minRating.toString()}
                           onValueChange={(v) => saveConfig({ 
-                            autoRules: { ...config.autoRules, minRating: parseInt(v) } 
+                            autoRules: { ...config.autoRules, minRating: Number.parseInt(v) } 
                           } as any)}
                         >
                           <SelectTrigger className="mt-1">
@@ -290,7 +290,7 @@ export function WebsiteWidgetManager({
                         <Select
                           value={config.autoRules.maxItems.toString()}
                           onValueChange={(v) => saveConfig({ 
-                            autoRules: { ...config.autoRules, maxItems: parseInt(v) } 
+                            autoRules: { ...config.autoRules, maxItems: Number.parseInt(v) } 
                           } as any)}
                         >
                           <SelectTrigger className="mt-1">

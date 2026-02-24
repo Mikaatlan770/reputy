@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   const window = VALID_WINDOWS.includes(rawWindow) ? rawWindow : '7d'
 
   // Normalize limit (cap to MAX_LIMIT, fallback 50)
-  const rawLimit = parseInt(searchParams.get('limit') || '50', 10)
+  const rawLimit = Number.parseInt(searchParams.get('limit') || '50', 10)
   const limit = Math.min(Math.max(rawLimit || 50, 1), MAX_LIMIT)
 
   try {

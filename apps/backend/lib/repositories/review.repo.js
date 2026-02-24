@@ -213,7 +213,7 @@ function _buildTagBreakdown(tagRows, totalPeriod) {
         if (key) tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
       }
     } catch (err) {
-      console.debug('[REVIEW] Tag parse skipped:', err.message);
+      console.warn('[REVIEW] Tag parse skipped:', err.message);
     }
   }
   return [...tagCounts.entries()]
