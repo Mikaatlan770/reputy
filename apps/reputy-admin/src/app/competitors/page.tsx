@@ -1665,6 +1665,7 @@ function SyncAndToggleButtons({
   syncing: boolean
   competitorsLoading: boolean
   isLoading: boolean
+  hasRealData: boolean
   showAuto: boolean
   onSync: () => void
   onRefresh: () => void

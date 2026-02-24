@@ -230,7 +230,7 @@ export function GoogleMyPlace() {
             </div>
             <div className="divide-y divide-border">
               {reviews.map((review) => (
-                <ReviewCard key={review.authorUrl ?? review.time} review={review} />
+                <ReviewCard key={review.author ?? review.publishTime} review={review} />
               ))}
             </div>
           </div>

@@ -363,7 +363,7 @@ export function CompetitorDetailDrawer({
                   </h3>
                   <div className="space-y-3">
                     {d.reviews.map((review) => (
-                      <ReviewItem key={review.time ?? review.authorUrl} review={review} />
+                      <ReviewItem key={review.publishTime ?? review.author} review={review} />
                     ))}
                   </div>
                 </div>
