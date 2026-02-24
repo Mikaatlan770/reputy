@@ -23,6 +23,21 @@ const nextConfig = {
           { key: 'Strict-Transport-Security', value: 'max-age=15552000; includeSubDomains' },
         ],
       },
+      // Associated Domains — AASA doit être servi sans redirect, sans auth, Content-Type JSON
+      {
+        source: '/.well-known/apple-app-site-association',
+        headers: [
+          { key: 'Content-Type', value: 'application/json' },
+          { key: 'Cache-Control', value: 'public, max-age=3600' },
+        ],
+      },
+      {
+        source: '/.well-known/assetlinks.json',
+        headers: [
+          { key: 'Content-Type', value: 'application/json' },
+          { key: 'Cache-Control', value: 'public, max-age=3600' },
+        ],
+      },
     ];
   },
 }
