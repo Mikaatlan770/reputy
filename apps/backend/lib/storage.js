@@ -126,7 +126,7 @@ function buildDataFromSqlite() {
   }));
   
   // Users
-  data.users = repos.user.getByOrgId ? [] : []; // Need to fetch all users
+  data.users = [];
   const allOrgs = repos.org.getAll();
   for (const org of allOrgs) {
     const orgUsers = db.all(

@@ -50,14 +50,8 @@ function parseSnsEnvelope(rawBody) {
 // ============================================================
 
 /**
- * Validate SNS message authenticity
- * - Checks TopicArn against allowlist
- * - Validates SigningCertURL domain
- * - Verifies RSA signature using AWS certificate
- *
- * @param {object} snsMessage - Parsed SNS envelope
- * @param {object} headers - Request headers
- * @returns {Promise<{ valid: boolean, error?: string }>}
+ * @param {string} topicArn
+ * @returns {{ valid: boolean, error: string } | null}
  */
 function validateTopicArn(topicArn) {
   if (SES_SNS_TOPIC_ARN) {
@@ -85,6 +79,14 @@ function validateCertUrl(certUrl) {
   return null;
 }
 
+/**
+ * Validate SNS message authenticity:
+ * TopicArn allowlist, SigningCertURL domain, RSA signature via AWS cert.
+ *
+ * @param {object} snsMessage - Parsed SNS envelope
+ * @param {object} headers - Request headers
+ * @returns {Promise<{ valid: boolean, error?: string }>}
+ */
 async function validateSnsMessage(snsMessage, headers) {
   const messageType = headers['x-amz-sns-message-type'];
   if (!messageType) return { valid: false, error: 'missing_sns_message_type_header' };
@@ -214,7 +216,7 @@ async function confirmSubscription(subscribeURL) {
 /**
  * Normalize SES event JSON into a structured format
  * @param {string|object} messageJson - The Message field from SNS (SES event)
- * @returns {{ type: string, messageId: string, recipients: Array<{email, status?, diagnosticCode?, feedbackType?}>, timestamp: string, raw: object }}
+ * @returns {{ type: string, messageId: string | null, recipients: Array<{email, status?, diagnosticCode?, feedbackType?}>, timestamp: string, raw: object }}
  */
 function normalizeSesEvent(messageJson) {
   const msg = typeof messageJson === 'string' ? JSON.parse(messageJson) : messageJson;

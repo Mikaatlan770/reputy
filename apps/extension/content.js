@@ -1233,9 +1233,9 @@ function injectReputyButtons() {
         // Note: pas de failsafe ici, l'overlay doit rester avec le modal
       } catch (err) {
         console.error('[REPUTY] Click handler error:', err);
-        cleanupOverlayAndBlockers?.();
-        closeModal?.();
-        showToast?.(
+        cleanupOverlayAndBlockers();
+        closeModal();
+        showToast(
           'error',
           'Erreur',
           'Impossible d’ouvrir Reputy. Rechargez la page si besoin.'

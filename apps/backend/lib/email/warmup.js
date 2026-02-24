@@ -197,7 +197,7 @@ function forceWarm(orgId) {
 /**
  * Détermine les limites warm-up pour un jour donné.
  * @param {number} day - Nombre de jours écoulés depuis startedAt
- * @returns {{ daily: number, hourly: number }}
+ * @returns {{ daily: number, hourly: number } | null}
  */
 function getLimitsForDay(day) {
   for (const tier of WARMUP_TIERS) {

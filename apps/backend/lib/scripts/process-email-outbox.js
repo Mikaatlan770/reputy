@@ -317,7 +317,7 @@ async function processOutbox() {
   const counters = { sent: 0, failed: 0, skipped: 0 };
   for (const entry of pending) {
     const result = await processEntry(entry);
-    if (counters[result] !== undefined) counters[result]++;
+    if (result in counters) counters[result]++;
   }
 
   console.log('\n' + '='.repeat(60));

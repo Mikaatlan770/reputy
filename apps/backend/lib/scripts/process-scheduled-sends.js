@@ -85,7 +85,7 @@ async function checkCreditsPreFlight() {
     console.warn(`\u26A0\uFE0F Could not check credits: ${credits.error}`);
     return true;
   }
-  if (credits.credits === null) return true;
+  if (credits.credits == null) return true;
 
   console.log(`\uD83D\uDCCA Brevo SMS credits: ${credits.credits}`);
   return credits.credits > 0
