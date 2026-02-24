@@ -1006,7 +1006,7 @@ function CreateShortlinkDialog({
           <>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Nom (optionnel)</label>
+                <p className="text-sm font-medium">Nom (optionnel)</p>
                 <Input
                   value={newLabel}
                   onChange={(e) => onNewLabelChange(e.target.value)}
@@ -1015,7 +1015,7 @@ function CreateShortlinkDialog({
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">URL de destination *</label>
+                <p className="text-sm font-medium">URL de destination *</p>
                 <Input
                   type="url"
                   value={newTargetUrl}

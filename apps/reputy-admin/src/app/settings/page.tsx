@@ -480,7 +480,7 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium">Nom du cabinet</label>
+                <p className="text-sm font-medium">Nom du cabinet</p>
                 <Input
                   value={cabinetName}
                   onChange={(e) => setCabinetName(e.target.value)}
@@ -493,7 +493,7 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium">Lien Google Review</label>
+                <p className="text-sm font-medium">Lien Google Review</p>
                 <Input
                   value={googleReviewUrl}
                   onChange={(e) => setGoogleReviewUrl(e.target.value)}
@@ -587,7 +587,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Nom</label>
+              <p className="text-sm font-medium">Nom</p>
               <Input
                 value={establishmentName}
                 onChange={(e) => setEstablishmentName(e.target.value)}
@@ -596,7 +596,7 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Adresse</label>
+              <p className="text-sm font-medium">Adresse</p>
               <AddressAutocomplete
                 value={establishmentAddress}
                 onSelect={(place: PlaceGeometry) => {
@@ -827,14 +827,14 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Couleur principale</label>
+              <p className="text-sm font-medium">Couleur principale</p>
               <div className="flex gap-2 mt-1">
                 <Input type="color" className="w-16 h-10 p-1" defaultValue="#3B82F6" />
                 <Input value="#3B82F6" className="flex-1" />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium">Slogan</label>
+              <p className="text-sm font-medium">Slogan</p>
               <Input
                 placeholder="Votre avis compte pour nous !"
                 className="mt-1"
@@ -1199,7 +1199,7 @@ function ReviewRoutingCard({
           <>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Seuil minimum</label>
+                <p className="text-sm font-medium">Seuil minimum</p>
                 <span className="text-sm font-bold text-blue-600">
                   {reviewRouting.threshold}+ étoiles
                 </span>
@@ -1223,7 +1223,7 @@ function ReviewRoutingCard({
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Plateforme cible</label>
+              <p className="text-sm font-medium">Plateforme cible</p>
               <div className="flex gap-3">
                 {(['DOCTOLIB', 'GOOGLE'] as const).map((target) => (
                   <button

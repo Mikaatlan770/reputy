@@ -1129,9 +1129,9 @@ export default function CompetitorsPage() {
             <div className="flex flex-wrap items-end gap-4">
               {/* Type d'établissement */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm text-muted-foreground font-medium">
+                <p className="text-sm text-muted-foreground font-medium">
                   Type d&apos;établissement
-                </label>
+                </p>
                 <select
                   value={establishmentType}
                   onChange={(e) => {
@@ -1154,9 +1154,9 @@ export default function CompetitorsPage() {
 
               {/* Rayon géographique */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm text-muted-foreground font-medium">
+                <p className="text-sm text-muted-foreground font-medium">
                   Rayon
-                </label>
+                </p>
                 <div className="flex gap-1">
                   {([1, 2, 5] as const).map((r) => (
                     <button
@@ -1364,9 +1364,9 @@ function SpecialtySelector({
   return (
     <div className="space-y-2.5 rounded-lg border border-input/50 bg-muted/30 p-3">
       <div className="flex items-center gap-2">
-        <label className="text-sm text-muted-foreground font-medium">
+        <p className="text-sm text-muted-foreground font-medium">
           Spécialité
-        </label>
+        </p>
         {savingSpecialty && (
           <span className="text-xs text-blue-500 animate-pulse">Sauvegarde...</span>
         )}
@@ -1468,8 +1468,8 @@ function ComparativeTableCard({
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="flex items-center gap-4">
+            {[0, 1, 2, 3, 4].map((k) => (
+              <div key={k} className="flex items-center gap-4">
                 <Skeleton className="h-10 w-10 rounded-lg" />
                 <div className="flex-1">
                   <Skeleton className="h-4 w-48 mb-2" />

@@ -229,8 +229,8 @@ export default function ReviewsPage() {
       {/* Loading State */}
       {loading && (
         <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <Card key={i}>
+          {[0, 1, 2].map((k) => (
+            <Card key={k}>
               <CardContent className="p-5">
                 <div className="flex items-start gap-4">
                   <Skeleton className="h-11 w-11 rounded-full" />

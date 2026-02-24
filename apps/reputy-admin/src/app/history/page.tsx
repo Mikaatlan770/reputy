@@ -208,8 +208,8 @@ export default function HistoryPage() {
       {/* Stats */}
       {loading && !stats ? (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          {[...Array(5)].map((_, i) => (
-            <Card key={i}>
+          {[0, 1, 2, 3, 4].map((k) => (
+            <Card key={k}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <Skeleton className="h-9 w-9 rounded-lg" />
@@ -362,8 +362,8 @@ export default function HistoryPage() {
         <CardContent>
           {loading ? (
             <div className="space-y-3">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="flex items-start gap-4 p-4 rounded-xl border">
+              {[0, 1, 2, 3].map((k) => (
+                <div key={k} className="flex items-start gap-4 p-4 rounded-xl border">
                   <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
                   <div className="flex-1 space-y-2">
                     <Skeleton className="h-5 w-40" />

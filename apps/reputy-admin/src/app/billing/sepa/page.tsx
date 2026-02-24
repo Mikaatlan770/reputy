@@ -244,9 +244,9 @@ export default function SepaMandatePage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <p className="block text-sm font-medium text-gray-700 mb-1">
                     Nom de la société / Professionnel *
-                  </label>
+                  </p>
                   <Input
                     value={formData.companyName}
                     onChange={(e) => handleChange('companyName', e.target.value)}
@@ -259,9 +259,9 @@ export default function SepaMandatePage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <p className="block text-sm font-medium text-gray-700 mb-1">
                     Adresse *
-                  </label>
+                  </p>
                   <Input
                     value={formData.address}
                     onChange={(e) => handleChange('address', e.target.value)}
@@ -275,9 +275,9 @@ export default function SepaMandatePage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <p className="block text-sm font-medium text-gray-700 mb-1">
                       Code postal *
-                    </label>
+                    </p>
                     <Input
                       value={formData.postalCode}
                       onChange={(e) => handleChange('postalCode', e.target.value)}
@@ -286,9 +286,9 @@ export default function SepaMandatePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <p className="block text-sm font-medium text-gray-700 mb-1">
                       Ville *
-                    </label>
+                    </p>
                     <Input
                       value={formData.city}
                       onChange={(e) => handleChange('city', e.target.value)}
@@ -299,9 +299,9 @@ export default function SepaMandatePage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <p className="block text-sm font-medium text-gray-700 mb-1">
                     Pays *
-                  </label>
+                  </p>
                   <select
                     value={formData.country}
                     onChange={(e) => handleChange('country', e.target.value)}
@@ -324,9 +324,9 @@ export default function SepaMandatePage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <p className="block text-sm font-medium text-gray-700 mb-1">
                     IBAN *
-                  </label>
+                  </p>
                   <Input
                     value={formData.iban}
                     onChange={(e) => handleIbanChange(e.target.value)}
@@ -339,9 +339,9 @@ export default function SepaMandatePage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <p className="block text-sm font-medium text-gray-700 mb-1">
                     BIC (optionnel)
-                  </label>
+                  </p>
                   <Input
                     value={formData.bic}
                     onChange={(e) => handleChange('bic', e.target.value.toUpperCase())}

@@ -587,7 +587,7 @@ export default function TeamPage() {
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email *</label>
+              <p className="text-sm font-medium">Email *</p>
               <Input
                 type="email"
                 placeholder="nom@exemple.com"
@@ -598,7 +598,7 @@ export default function TeamPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Rôle *</label>
+              <p className="text-sm font-medium">Rôle *</p>
               <Select value={inviteRole} onValueChange={(v) => {
                 const role = v as 'admin' | 'agent'
                 setInviteRole(role)
@@ -631,7 +631,7 @@ export default function TeamPage() {
 
             {/* Permissions granulaires */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Accès autorisés</label>
+              <p className="text-sm font-medium">Accès autorisés</p>
               <div className="border rounded-lg divide-y">
                 {(Object.keys(PERMISSION_LABELS) as Array<keyof MembershipPermissions>).map((key) => (
                   <label
@@ -689,7 +689,7 @@ export default function TeamPage() {
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nouveau rôle</label>
+              <p className="text-sm font-medium">Nouveau rôle</p>
               <Select value={editRole} onValueChange={(v) => setEditRole(v as 'admin' | 'agent')} disabled={editing}>
                 <SelectTrigger>
                   <SelectValue />

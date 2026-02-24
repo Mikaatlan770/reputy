@@ -125,7 +125,7 @@ export default function FeaturesPage() {
             <div className="space-y-24">
               {mainFeatures.map((feature, i) => (
                 <div 
-                  key={i} 
+                  key={feature.title} 
                   className={`grid md:grid-cols-2 gap-12 items-center ${i % 2 === 1 ? 'md:flex-row-reverse' : ''}`}
                 >
                   <div className={i % 2 === 1 ? 'md:order-2' : ''}>
@@ -139,8 +139,8 @@ export default function FeaturesPage() {
                       {feature.description}
                     </p>
                     <ul className="space-y-3">
-                      {feature.benefits.map((benefit, j) => (
-                        <li key={j} className="flex items-center gap-3">
+                      {feature.benefits.map((benefit) => (
+                        <li key={benefit} className="flex items-center gap-3">
                           <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
                           <span className="text-gray-700">{benefit}</span>
                         </li>
@@ -186,9 +186,9 @@ export default function FeaturesPage() {
             </div>
             
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {integrations.map((integration, i) => (
+              {integrations.map((integration) => (
                 <div 
-                  key={i} 
+                  key={integration.name} 
                   className="p-6 rounded-2xl bg-white border border-gray-100 text-center"
                 >
                   <div className="w-12 h-12 rounded-xl bg-gray-100 mx-auto mb-4 flex items-center justify-center">

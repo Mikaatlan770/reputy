@@ -224,9 +224,9 @@ export function SmsPreview({
         {/* Erreurs */}
         {validation.errors.length > 0 && (
           <div className="space-y-2">
-            {validation.errors.map((error, index) => (
+            {validation.errors.map((error) => (
               <div
-                key={index}
+                key={error.message}
                 className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm"
               >
                 <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
@@ -244,9 +244,9 @@ export function SmsPreview({
         {/* Avertissements */}
         {validation.warnings.length > 0 && (
           <div className="space-y-2">
-            {validation.warnings.map((warning, index) => (
+            {validation.warnings.map((warning) => (
               <div
-                key={index}
+                key={warning}
                 className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm"
               >
                 <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />

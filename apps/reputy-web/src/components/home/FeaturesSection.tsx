@@ -35,11 +35,11 @@ export function FeaturesSection() {
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {FEATURES.map((feature, i) => {
+          {FEATURES.map((feature) => {
             const Icon = iconMap[feature.icon as keyof typeof iconMap]
             return (
               <div
-                key={i}
+                key={feature.title}
                 className="p-6 rounded-2xl border border-gray-100 hover:border-primary-200 hover:shadow-lg hover:shadow-primary-100/50 transition-all group"
               >
                 <div className="w-12 h-12 rounded-xl bg-primary-100 text-primary-700 flex items-center justify-center mb-4 group-hover:bg-primary-900 group-hover:text-white transition-colors">

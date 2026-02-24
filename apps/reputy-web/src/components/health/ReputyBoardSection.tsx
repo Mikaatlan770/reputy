@@ -48,8 +48,8 @@ export function ReputyBoardSection() {
             </p>
 
             <div className="grid sm:grid-cols-2 gap-4">
-              {benefits.map((benefit, i) => (
-                <div key={i} className="flex items-start gap-3">
+              {benefits.map((benefit) => (
+                <div key={benefit.title} className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0">
                     <benefit.icon className="h-5 w-5" />
                   </div>

@@ -454,7 +454,7 @@ function CreateInstallationDialog({
           <>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Nom de l'installation</label>
+                <p className="text-sm font-medium">Nom de l'installation</p>
                 <input
                   type="text"
                   value={newLabel}

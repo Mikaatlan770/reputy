@@ -95,8 +95,8 @@ export function DoctolibSection() {
             </p>
 
             <div className="grid sm:grid-cols-2 gap-4 mb-8">
-              {features.map((feature, i) => (
-                <div key={i} className="flex items-start gap-3">
+              {features.map((feature) => (
+                <div key={feature.title} className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
                     <feature.icon className="h-5 w-5" />
                   </div>

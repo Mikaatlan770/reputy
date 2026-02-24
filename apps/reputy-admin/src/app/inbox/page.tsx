@@ -248,8 +248,8 @@ export default function InboxPage() {
           {/* Loading skeleton */}
           {reviewsLoading && pendingReviews.length === 0 ? (
           <div className="space-y-3">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg">
+              {[0, 1, 2, 3].map((k) => (
+                <div key={k} className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg">
                   <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
                   <div className="flex-1 space-y-2">
                     <Skeleton className="h-4 w-32" />

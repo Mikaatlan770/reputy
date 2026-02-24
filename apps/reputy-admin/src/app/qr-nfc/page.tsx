@@ -523,7 +523,7 @@ function CreateShortlinkDialog({
           <>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Nom (optionnel)</label>
+                <p className="text-sm font-medium">Nom (optionnel)</p>
                 <input
                   type="text"
                   value={newLabel}
@@ -533,7 +533,7 @@ function CreateShortlinkDialog({
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">URL de destination *</label>
+                <p className="text-sm font-medium">URL de destination *</p>
                 <input
                   type="url"
                   value={newTargetUrl}

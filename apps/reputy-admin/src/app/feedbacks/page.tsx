@@ -270,8 +270,8 @@ export default function FeedbacksPage() {
       {/* Loading State */}
       {loading && !error && (
         <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <Card key={i}>
+          {[0, 1, 2].map((k) => (
+            <Card key={k}>
               <CardContent className="p-5">
                 <div className="flex items-start gap-4">
                   <Skeleton className="h-11 w-11 rounded-full flex-shrink-0" />
@@ -281,8 +281,8 @@ export default function FeedbacksPage() {
                     <Skeleton className="h-12 w-full" />
                   </div>
                   <div className="flex gap-0.5">
-                    {[...Array(5)].map((_, j) => (
-                      <Skeleton key={j} className="h-5 w-5" />
+                    {[0, 1, 2, 3, 4].map((k) => (
+                      <Skeleton key={k} className="h-5 w-5" />
                     ))}
                   </div>
                 </div>

@@ -29,11 +29,11 @@ const mockReviews = [
 function StarRating({ rating }: { rating: number }) {
   return (
     <div className="flex gap-0.5">
-      {[...Array(5)].map((_, i) => (
+      {[0, 1, 2, 3, 4].map((k) => (
         <Star
-          key={i}
+          key={k}
           className={`h-3.5 w-3.5 ${
-            i < rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200'
+            k < rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200'
           }`}
         />
       ))}
@@ -83,9 +83,9 @@ export function WidgetPreview() {
 
       {/* Reviews */}
       <div className="space-y-3">
-        {mockReviews.map((review, i) => (
+        {mockReviews.map((review) => (
           <div
-            key={i}
+            key={review.avatar}
             className="p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
           >
             <div className="flex items-start gap-2.5">

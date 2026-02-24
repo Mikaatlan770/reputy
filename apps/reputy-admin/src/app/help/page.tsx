@@ -103,7 +103,7 @@ function FaqSectionCard({ section, searchQuery }: {
       <CardContent>
         {filteredItems.map((item, index) => (
           <FaqAccordion
-            key={index}
+            key={item.question}
             item={item}
             isOpen={openItems.has(index)}
             onToggle={() => toggleItem(index)}
@@ -264,7 +264,7 @@ export default function HelpPage() {
               ) : (
                 <form onSubmit={handleContactSubmit} className="space-y-4">
                   <div>
-                    <label className="text-sm font-medium">Sujet</label>
+                    <p className="text-sm font-medium">Sujet</p>
                     <Input
                       value={contactForm.subject}
                       onChange={(e) => setContactForm(prev => ({ ...prev, subject: e.target.value }))}
@@ -274,7 +274,7 @@ export default function HelpPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Message</label>
+                    <p className="text-sm font-medium">Message</p>
                     <textarea
                       value={contactForm.message}
                       onChange={(e) => setContactForm(prev => ({ ...prev, message: e.target.value }))}

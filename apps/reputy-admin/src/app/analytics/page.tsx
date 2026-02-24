@@ -406,8 +406,8 @@ function OverviewTab({ stats, chartData }: { stats: ReviewStatsAdvanced | null; 
                       nameKey="stars"
                       label={({ stars, percentage }) => `${stars}★ (${percentage}%)`}
                     >
-                      {starDistData.map((_, index) => (
-                        <Cell key={index} fill={STAR_COLORS[index % STAR_COLORS.length]} />
+                      {starDistData.map((item, index) => (
+                        <Cell key={item.stars ?? index} fill={STAR_COLORS[index % STAR_COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip formatter={(value: number) => [`${value} avis`]} />
@@ -486,8 +486,8 @@ function ThemesSentimentTab({ stats }: { stats: ReviewStatsAdvanced | null }) {
                       nameKey="sentiment"
                       label={({ sentiment, percentage }) => `${SENTIMENT_LABELS[sentiment] || sentiment} (${percentage}%)`}
                     >
-                      {sentimentData.map((item, index) => (
-                        <Cell key={index} fill={SENTIMENT_COLORS[item.sentiment] || '#94A3B8'} />
+                      {sentimentData.map((item) => (
+                        <Cell key={item.sentiment} fill={SENTIMENT_COLORS[item.sentiment] || '#94A3B8'} />
                       ))}
                     </Pie>
                     <Tooltip formatter={(value: number) => [`${value} avis`]} />
@@ -625,8 +625,8 @@ function ChannelsTab({ stats }: { stats: ReviewStatsAdvanced | null }) {
                     <YAxis tick={{ fontSize: 12 }} />
                     <Tooltip formatter={(value: number) => [`${value} avis`]} />
                     <Bar dataKey="count" radius={[4, 4, 0, 0]} name="Avis">
-                      {providerData.map((p, index) => (
-                        <Cell key={index} fill={PROVIDER_COLORS[p.provider] || '#94A3B8'} />
+                      {providerData.map((p) => (
+                        <Cell key={p.provider} fill={PROVIDER_COLORS[p.provider] || '#94A3B8'} />
                       ))}
                     </Bar>
                   </BarChart>

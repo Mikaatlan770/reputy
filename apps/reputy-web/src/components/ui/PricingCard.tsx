@@ -88,14 +88,14 @@ export function PricingCard({ plan, className }: PricingCardProps) {
       </div>
 
       <ul className="space-y-3 mb-8">
-        {plan.included.map((feature, j) => (
-          <li key={j} className="flex items-start gap-3">
+        {plan.included.map((feature) => (
+          <li key={feature} className="flex items-start gap-3">
             <CheckCircle className={cn('h-5 w-5 flex-shrink-0 mt-0.5', popularOr(isPopular, 'text-green-400', 'text-green-500'))} />
             <span className={popularOr(isPopular, 'text-white/90', 'text-gray-700')}>{feature}</span>
           </li>
         ))}
-        {plan.excluded.map((feature, j) => (
-          <li key={`ex-${j}`} className="flex items-start gap-3">
+        {plan.excluded.map((feature) => (
+          <li key={`ex-${feature}`} className="flex items-start gap-3">
             <X className={cn('h-5 w-5 flex-shrink-0 mt-0.5', popularOr(isPopular, 'text-white/40', 'text-gray-300'))} />
             <span className={cn('line-through', popularOr(isPopular, 'text-white/40', 'text-gray-400'))}>{feature}</span>
           </li>

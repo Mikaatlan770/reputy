@@ -76,11 +76,11 @@ export function QrNfcSection() {
                 <div className="aspect-square bg-gray-100 rounded-xl mb-6 flex items-center justify-center">
                   <div className="grid grid-cols-5 grid-rows-5 gap-1 w-32 h-32">
                     {/* Simplified QR code pattern */}
-                    {Array.from({ length: 25 }).map((_, i) => (
+                    {Array.from({ length: 25 }, (_, i) => i).map((k) => (
                       <div
-                        key={i}
+                        key={k}
                         className={`rounded-sm ${
-                          [0, 1, 2, 4, 5, 6, 10, 12, 14, 18, 20, 22, 23, 24].includes(i)
+                          [0, 1, 2, 4, 5, 6, 10, 12, 14, 18, 20, 22, 23, 24].includes(k)
                             ? 'bg-gray-800'
                             : 'bg-white'
                         }`}

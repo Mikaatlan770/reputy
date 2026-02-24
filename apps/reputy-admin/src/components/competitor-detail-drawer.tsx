@@ -139,8 +139,8 @@ function OpeningHours({ hours }: { hours: Record<string, unknown> | null }) {
 
   return (
     <div className="space-y-1">
-      {descriptions.map((desc, i) => (
-        <p key={i} className="text-sm text-muted-foreground">{desc}</p>
+      {descriptions.map((desc) => (
+        <p key={desc} className="text-sm text-muted-foreground">{desc}</p>
       ))}
     </div>
   )
@@ -362,8 +362,8 @@ export function CompetitorDetailDrawer({
                     Derniers avis Google ({d.reviews.length})
                   </h3>
                   <div className="space-y-3">
-                    {d.reviews.map((review, i) => (
-                      <ReviewItem key={i} review={review} />
+                    {d.reviews.map((review) => (
+                      <ReviewItem key={review.time ?? review.authorUrl} review={review} />
                     ))}
                   </div>
                 </div>

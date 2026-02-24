@@ -976,16 +976,16 @@ function ImportCSVDialog({
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/50">
-                    {preview.headers.map((h, i) => (
-                      <th key={i} className="px-2 py-1 text-left font-medium">{h}</th>
+                    {preview.headers.map((h) => (
+                      <th key={h} className="px-2 py-1 text-left font-medium">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.rows.map((row, i) => (
-                    <tr key={i} className="border-t">
+                  {preview.rows.map((row) => (
+                    <tr key={row[0]} className="border-t">
                       {row.map((cell, j) => (
-                        <td key={j} className="px-2 py-1 truncate max-w-[150px]">{cell}</td>
+                        <td key={`${j}:${cell}`} className="px-2 py-1 truncate max-w-[150px]">{cell}</td>
                       ))}
                     </tr>
                   ))}
@@ -1086,20 +1086,20 @@ function AddContactDialog({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-sm font-medium">Prénom</label>
+            <p className="text-sm font-medium">Prénom</p>
             <Input value={firstName} onChange={e => setFirstName(e.target.value)} className="mt-1" />
           </div>
           <div>
-            <label className="text-sm font-medium">Nom</label>
+            <p className="text-sm font-medium">Nom</p>
             <Input value={lastName} onChange={e => setLastName(e.target.value)} className="mt-1" />
           </div>
         </div>
         <div>
-          <label className="text-sm font-medium">Email</label>
+          <p className="text-sm font-medium">Email</p>
           <Input type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1" placeholder="jean@email.com" />
         </div>
         <div>
-          <label className="text-sm font-medium">Téléphone</label>
+          <p className="text-sm font-medium">Téléphone</p>
           <Input value={phone} onChange={e => setPhone(e.target.value)} className="mt-1" placeholder="0612345678" />
         </div>
 
@@ -1165,7 +1165,7 @@ function CampaignInfoStep({
   return (
     <div className="space-y-4">
       <div>
-        <label className="text-sm font-medium">Nom de la campagne</label>
+        <p className="text-sm font-medium">Nom de la campagne</p>
         <Input
           placeholder="Ex: Campagne avis Février 2026"
           value={name}
@@ -1175,7 +1175,7 @@ function CampaignInfoStep({
       </div>
 
       <div>
-        <label className="text-sm font-medium">Type de campagne</label>
+        <p className="text-sm font-medium">Type de campagne</p>
         <Select value={campaignType} onValueChange={(v: 'review' | 'marketing') => setCampaignType(v)}>
           <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -1186,7 +1186,7 @@ function CampaignInfoStep({
       </div>
 
       <div>
-        <label className="text-sm font-medium">Canal d&apos;envoi</label>
+        <p className="text-sm font-medium">Canal d&apos;envoi</p>
         <div className="flex gap-3 mt-2">
           <button
             onClick={() => setChannel('email')}
@@ -1339,7 +1339,7 @@ function MessageStep({
     <div className="space-y-4">
       {channel === 'email' && (
         <div>
-          <label className="text-sm font-medium">Objet de l&apos;email</label>
+          <p className="text-sm font-medium">Objet de l&apos;email</p>
           <Input
             placeholder="Votre avis nous intéresse !"
             value={subject}
@@ -1351,7 +1351,7 @@ function MessageStep({
 
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-sm font-medium">Message</label>
+          <p className="text-sm font-medium">Message</p>
           <span className="text-xs text-muted-foreground">
             Variables : {'{prenom}'}, {'{nom}'}, {'{lien_avis}'}
           </span>
@@ -1374,7 +1374,7 @@ function MessageStep({
       </div>
 
       <div>
-        <label className="text-sm font-medium mb-1 block">Aperçu</label>
+        <p className="text-sm font-medium mb-1 block">Aperçu</p>
         <div className={`p-4 rounded-lg border ${channel === 'sms' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
           {channel === 'email' && subject && (
             <p className="text-sm font-semibold mb-2">{subject}</p>
@@ -1385,7 +1385,7 @@ function MessageStep({
 
       {campaignType === 'review' && (
         <div>
-          <label className="text-sm font-medium">Seuil anti-spam (sollicitations max sans réponse)</label>
+          <p className="text-sm font-medium">Seuil anti-spam (sollicitations max sans réponse)</p>
           <Select value={String(spamThreshold)} onValueChange={v => setSpamThreshold(Number(v))}>
             <SelectTrigger className="w-32 mt-1"><SelectValue /></SelectTrigger>
             <SelectContent>

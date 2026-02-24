@@ -15,9 +15,9 @@ export function HealthFAQ() {
         </div>
 
         <div className="space-y-4">
-          {HEALTH_FAQ.map((faq, i) => (
+          {HEALTH_FAQ.map((faq) => (
             <details
-              key={i}
+              key={faq.question}
               className="group p-6 rounded-2xl bg-gray-50 border border-gray-100 hover:border-sky-200 transition-colors"
             >
               <summary className="flex items-center justify-between cursor-pointer list-none font-semibold text-gray-900">

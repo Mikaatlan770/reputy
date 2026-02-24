@@ -229,8 +229,8 @@ export function GoogleMyPlace() {
               <Badge variant="outline" className="text-[10px]">{reviews.length} plus récents</Badge>
             </div>
             <div className="divide-y divide-border">
-              {reviews.map((review, i) => (
-                <ReviewCard key={i} review={review} />
+              {reviews.map((review) => (
+                <ReviewCard key={review.authorUrl ?? review.time} review={review} />
               ))}
             </div>
           </div>

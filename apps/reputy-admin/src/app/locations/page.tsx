@@ -362,7 +362,7 @@ export default function LocationsPage() {
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Nom de l&apos;établissement *</label>
+              <p className="text-sm font-medium">Nom de l&apos;établissement *</p>
               <Input
                 placeholder="Ex: Cabinet Dr. Martin"
                 value={createName}
@@ -372,7 +372,7 @@ export default function LocationsPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Secteur d&apos;activité</label>
+              <p className="text-sm font-medium">Secteur d&apos;activité</p>
               <Select value={createVertical} onValueChange={setCreateVertical} disabled={creating}>
                 <SelectTrigger>
                   <SelectValue />

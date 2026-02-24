@@ -25,8 +25,8 @@ export function HealthDashboardSkeleton() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <KpiCardSkeleton key={i} />
+        {[0, 1, 2, 3, 4].map((k) => (
+          <KpiCardSkeleton key={k} />
         ))}
       </div>
 
@@ -36,8 +36,8 @@ export function HealthDashboardSkeleton() {
           <Skeleton className="h-5 w-40 bg-slate-700" />
         </CardHeader>
         <CardContent>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full bg-slate-700 mb-2" />
+          {[0, 1, 2, 3, 4].map((k) => (
+            <Skeleton key={k} className="h-10 w-full bg-slate-700 mb-2" />
           ))}
         </CardContent>
       </Card>
@@ -54,8 +54,8 @@ export function AlertsTableSkeleton() {
       </div>
       <Card className="bg-slate-800/50 border-slate-700">
         <CardContent className="p-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full bg-slate-700 mb-2" />
+          {[0, 1, 2, 3, 4, 5].map((k) => (
+            <Skeleton key={k} className="h-12 w-full bg-slate-700 mb-2" />
           ))}
         </CardContent>
       </Card>
@@ -68,8 +68,8 @@ export function OrgDetailSkeleton() {
     <div className="space-y-6">
       <Skeleton className="h-8 w-72 bg-slate-700" />
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <KpiCardSkeleton key={i} />
+        {[0, 1, 2, 3, 4].map((k) => (
+          <KpiCardSkeleton key={k} />
         ))}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -178,8 +178,8 @@ export function AiReplyAssistant({
                 'Choisissez le ton : professionnel, chaleureux, empathique...',
                 'Mode Santé intégré (respect RGPD & déontologie)',
                 'Gardez toujours le contrôle avant publication',
-              ].map((feature, i) => (
-                <div key={i} className="flex items-center gap-3">
+              ].map((feature) => (
+                <div key={feature} className="flex items-center gap-3">
                   <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
                   <span className="text-sm">{feature}</span>
                 </div>
@@ -257,9 +257,9 @@ export function AiReplyAssistant({
 
             {/* Sélection du ton */}
             <div>
-              <label className="text-sm font-medium mb-2 block">
+              <p className="text-sm font-medium mb-2 block">
                 Ton de la réponse
-              </label>
+              </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(Object.keys(toneLabels) as AiTone[]).map((tone) => (
                   <button

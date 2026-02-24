@@ -1455,7 +1455,7 @@ function CommercialTabContent({ org, editMode, editBasePriceCents, setEditBasePr
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-slate-500">Plan actuel</label>
+              <p className="text-sm text-slate-500">Plan actuel</p>
               <div className="flex items-center gap-2 mt-1">
                 <Badge className={getPlanBadgeClass(org.plan.code)}>
                   {org.plan.code}
@@ -1464,7 +1464,7 @@ function CommercialTabContent({ org, editMode, editBasePriceCents, setEditBasePr
               </div>
             </div>
             <div>
-              <label className="text-sm text-slate-500">Prix catalogue</label>
+              <p className="text-sm text-slate-500">Prix catalogue</p>
               <p className="text-white mt-1">
                 {formatPriceHT(getCatalogPrice(org.plan.code))}/mois
               </p>
@@ -1535,11 +1535,11 @@ function CommercialTabContent({ org, editMode, editBasePriceCents, setEditBasePr
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-slate-500">Code plan</label>
+              <p className="text-sm text-slate-500">Code plan</p>
               <p className="text-white">{org.plan.code}</p>
             </div>
             <div>
-              <label className="text-sm text-slate-500">Prix de base</label>
+              <p className="text-sm text-slate-500">Prix de base</p>
               {editMode ? (
                 <Input
                   type="number"
@@ -1552,7 +1552,7 @@ function CommercialTabContent({ org, editMode, editBasePriceCents, setEditBasePr
               )}
             </div>
             <div>
-              <label className="text-sm text-slate-500">Cycle</label>
+              <p className="text-sm text-slate-500">Cycle</p>
               {editMode ? (
                 <Select value={editBillingCycle} onValueChange={(v: 'monthly' | 'yearly') => setEditBillingCycle(v)}>
                   <SelectTrigger className="bg-slate-700 border-slate-600 mt-1">
@@ -1602,7 +1602,7 @@ function PlanQuotaDetails({ selectedPlan, setSelectedPlan }: {
   return (
     <div className="space-y-4">
       <div>
-        <label className="text-sm text-slate-400">Nouveau plan</label>
+        <p className="text-sm text-slate-400">Nouveau plan</p>
         <Select value={selectedPlan} onValueChange={(v: typeof selectedPlan) => setSelectedPlan(v)}>
           <SelectTrigger className="bg-slate-700 border-slate-600 mt-1">
             <SelectValue />
@@ -1734,7 +1734,7 @@ function CouponCard({ org, effectiveBillingData, removeCouponLoading, onRemoveCo
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm text-slate-400">Coupon</label>
+                  <p className="text-sm text-slate-400">Coupon</p>
                   <Select value={selectedCoupon} onValueChange={(v: typeof selectedCoupon) => setSelectedCoupon(v)}>
                     <SelectTrigger className="bg-slate-700 border-slate-600 mt-1">
                       <SelectValue />
@@ -1801,7 +1801,7 @@ function NegotiatedConditionsCard({ org, editMode, editNegotiatedEnabled, setEdi
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
-          <label className="text-sm text-slate-400">Activer les conditions négociées</label>
+          <p className="text-sm text-slate-400">Activer les conditions négociées</p>
           {editMode ? (
             <Switch checked={editNegotiatedEnabled} onCheckedChange={setEditNegotiatedEnabled} />
           ) : (
@@ -1814,7 +1814,7 @@ function NegotiatedConditionsCard({ org, editMode, editNegotiatedEnabled, setEdi
         {showNegotiated && (
           <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-700">
             <div>
-              <label className="text-sm text-slate-500">Prix custom (€)</label>
+              <p className="text-sm text-slate-500">Prix custom (€)</p>
               {editMode ? (
                 <Input
                   type="number"
@@ -1827,7 +1827,7 @@ function NegotiatedConditionsCard({ org, editMode, editNegotiatedEnabled, setEdi
               )}
             </div>
             <div>
-              <label className="text-sm text-slate-500">Remise (%)</label>
+              <p className="text-sm text-slate-500">Remise (%)</p>
               {editMode ? (
                 <Input
                   type="number"
@@ -1840,7 +1840,7 @@ function NegotiatedConditionsCard({ org, editMode, editNegotiatedEnabled, setEdi
               )}
             </div>
             <div>
-              <label className="text-sm text-slate-500">Référence contrat</label>
+              <p className="text-sm text-slate-500">Référence contrat</p>
               {editMode ? (
                 <Input
                   value={editContractRef}
@@ -1853,7 +1853,7 @@ function NegotiatedConditionsCard({ org, editMode, editNegotiatedEnabled, setEdi
               )}
             </div>
             <div className="col-span-2">
-              <label className="text-sm text-slate-500">Notes internes</label>
+              <p className="text-sm text-slate-500">Notes internes</p>
               {editMode ? (
                 <Input
                   value={editNotes}
@@ -2018,7 +2018,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
           </DialogHeader>
           <form onSubmit={handleAddCredits} className="space-y-4">
             <div>
-              <label className="text-sm text-slate-400">Type de crédit</label>
+              <p className="text-sm text-slate-400">Type de crédit</p>
               <Select value={creditsSource} onValueChange={(v: 'gift' | 'pack') => setCreditsSource(v)}>
                 <SelectTrigger className="bg-slate-700 border-slate-600">
                   <SelectValue />
@@ -2031,7 +2031,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
             </div>
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="text-sm text-slate-400">SMS</label>
+                <p className="text-sm text-slate-400">SMS</p>
                 <Input
                   type="number"
                   value={creditsSms}
@@ -2041,7 +2041,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-400">Emails</label>
+                <p className="text-sm text-slate-400">Emails</p>
                 <Input
                   type="number"
                   value={creditsEmail}
@@ -2051,7 +2051,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
                 />
               </div>
               <div>
-                <label className="text-sm text-slate-400">IA</label>
+                <p className="text-sm text-slate-400">IA</p>
                 <Input
                   type="number"
                   value={creditsAi}
@@ -2062,7 +2062,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
               </div>
             </div>
             <div>
-              <label className="text-sm text-slate-400">Label (optionnel)</label>
+              <p className="text-sm text-slate-400">Label (optionnel)</p>
               <Input
                 value={creditsReason}
                 onChange={(e) => setCreditsReason(e.target.value)}

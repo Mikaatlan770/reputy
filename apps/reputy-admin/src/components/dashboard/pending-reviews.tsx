@@ -26,8 +26,8 @@ export function PendingReviews() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {[...Array(3)].map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full" />
+            {[0, 1, 2].map((k) => (
+              <Skeleton key={k} className="h-20 w-full" />
             ))}
           </div>
         </CardContent>

@@ -1182,8 +1182,8 @@ function ChangePlanDialog({ open, onOpenChange, normalizedPlan, checkoutLoading,
                 )}
               </p>
               <ul className="mt-4 space-y-2">
-                {plan.features.slice(0, 6).map((feature, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
+                {plan.features.slice(0, 6).map((feature) => (
+                  <li key={feature} className="flex items-start gap-2 text-sm">
                     <Check className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
                     <span>{feature}</span>
                   </li>

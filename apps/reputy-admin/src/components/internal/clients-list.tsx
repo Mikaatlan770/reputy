@@ -238,7 +238,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
             </DialogHeader>
             <form onSubmit={handleCreate} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Nom du client</label>
+                <p className="text-sm font-medium">Nom du client</p>
                 <Input
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
@@ -249,7 +249,7 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Secteur</label>
+                <p className="text-sm font-medium">Secteur</p>
                 <Select value={createVertical} onValueChange={(v: 'health' | 'food' | 'business') => setCreateVertical(v)}>
                   <SelectTrigger className="bg-slate-700 border-slate-600">
                     <SelectValue />

@@ -15,15 +15,15 @@ export function TestimonialsSection() {
         </div>
 
         <div className="grid md:grid-cols-3 gap-8">
-          {TESTIMONIALS.map((testimonial, i) => (
+          {TESTIMONIALS.map((testimonial) => (
             <div
-              key={i}
+              key={testimonial.author}
               className="p-6 rounded-2xl bg-gray-50 border border-gray-100"
             >
               <div className="flex gap-1 mb-4">
-                {[...Array(testimonial.rating)].map((_, j) => (
+                {Array.from({ length: testimonial.rating }, (_, j) => j).map((k) => (
                   <Star
-                    key={j}
+                    key={k}
                     className="h-5 w-5 text-amber-400 fill-amber-400"
                   />
                 ))}

@@ -341,8 +341,8 @@ export default function DashboardPage() {
           <p className="text-muted-foreground mt-1">Chargement des données...</p>
         </div>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <Skeleton key={i} className="h-32 w-full rounded-lg" />
+          {[0, 1, 2, 3, 4, 5].map((k) => (
+            <Skeleton key={k} className="h-32 w-full rounded-lg" />
           ))}
         </div>
       </div>

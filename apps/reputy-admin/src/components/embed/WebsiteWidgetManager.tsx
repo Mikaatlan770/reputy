@@ -196,7 +196,7 @@ export function WebsiteWidgetManager({
             <TabsContent value="widget" className="flex-1 overflow-y-auto space-y-4 mt-4">
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium">Mode de sélection</label>
+                  <p className="text-sm font-medium">Mode de sélection</p>
                   <div className="grid grid-cols-2 gap-3 mt-2">
                     <Card
                       className={cn(
@@ -251,7 +251,7 @@ export function WebsiteWidgetManager({
                     <h4 className="font-medium">Règles automatiques</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-sm text-muted-foreground">Note minimum</label>
+                        <p className="text-sm text-muted-foreground">Note minimum</p>
                         <Select
                           value={config.autoRules.minRating.toString()}
                           onValueChange={(v) => saveConfig({ 
@@ -269,7 +269,7 @@ export function WebsiteWidgetManager({
                         </Select>
                       </div>
                       <div>
-                        <label className="text-sm text-muted-foreground">Tri</label>
+                        <p className="text-sm text-muted-foreground">Tri</p>
                         <Select
                           value={config.autoRules.sort}
                           onValueChange={(v) => saveConfig({ 
@@ -286,7 +286,7 @@ export function WebsiteWidgetManager({
                         </Select>
                       </div>
                       <div>
-                        <label className="text-sm text-muted-foreground">Nombre max d'avis</label>
+                        <p className="text-sm text-muted-foreground">Nombre max d'avis</p>
                         <Select
                           value={config.autoRules.maxItems.toString()}
                           onValueChange={(v) => saveConfig({ 

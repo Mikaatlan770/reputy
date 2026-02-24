@@ -65,9 +65,9 @@ export function AddonCard({ addon, className }: AddonCardProps) {
       {/* Features si présentes */}
       {addon.features && addon.features.length > 0 && (
         <ul className="text-sm space-y-1 mb-3">
-          {addon.features.map((f, i) => (
+          {addon.features.map((f) => (
             <li
-              key={i}
+              key={f}
               className={isComingSoon ? 'text-gray-400' : 'text-gray-600'}
             >
               • {f}

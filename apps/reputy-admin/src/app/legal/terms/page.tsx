@@ -71,8 +71,8 @@ export default function TermsPage() {
               Ce résumé est fourni à titre informatif. Seul le texte complet ci-dessous fait foi.
             </p>
             <div className="grid gap-3">
-              {KEY_POINTS.map((point, i) => (
-                <div key={i} className="flex items-start gap-3">
+              {KEY_POINTS.map((point) => (
+                <div key={point.title} className="flex items-start gap-3">
                   <CheckCircle2 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="font-medium text-blue-900">{point.title}</p>
@@ -106,7 +106,7 @@ export default function TermsPage() {
                 <CardContent className="pt-0 pb-6 px-6">
                   <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-line">
                     {section.content.split('**').map((part, i) => 
-                      i % 2 === 1 ? <strong key={i}>{part}</strong> : part
+                      i % 2 === 1 ? <strong key={`b-${i}`}>{part}</strong> : part
                     )}
                   </div>
                 </CardContent>

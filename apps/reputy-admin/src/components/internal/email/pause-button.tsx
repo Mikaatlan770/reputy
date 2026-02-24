@@ -87,9 +87,9 @@ export function PauseButton({ orgId, orgName, isPaused, currentReason, variant =
 
         {!isPaused && (
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">
+            <p className="text-sm font-medium text-slate-300">
               Raison (recommandé)
-            </label>
+            </p>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}

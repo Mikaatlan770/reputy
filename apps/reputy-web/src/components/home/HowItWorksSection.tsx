@@ -15,7 +15,7 @@ export function HowItWorksSection() {
 
         <div className="grid md:grid-cols-3 gap-8">
           {STEPS.map((item, i) => (
-            <div key={i} className="relative">
+            <div key={item.title} className="relative">
               <div className="text-6xl font-bold text-primary-100 mb-4">
                 {item.step}
               </div>
