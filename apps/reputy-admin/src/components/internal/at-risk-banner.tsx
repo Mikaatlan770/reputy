@@ -122,8 +122,8 @@ export function AtRiskBanner({ atRiskOrgs }: AtRiskBannerProps) {
                   </div>
                 </div>
               </Link>
-              </Link>)}
-          )}
+            )
+          })}
           </div>
         </CardContent>
       )}
