@@ -268,11 +268,10 @@ function RateCell({ value, orangeThreshold, redThreshold }: {
   redThreshold: number
 }) {
   const formatted = `${(value * 100).toFixed(3)}%`
-  const color = value >= redThreshold
-    ? 'text-red-400 font-semibold'
-    : value >= orangeThreshold
-      ? 'text-amber-400'
-      : 'text-green-400'
+  let color: string
+  if (value >= redThreshold) color = 'text-red-400 font-semibold'
+  else if (value >= orangeThreshold) color = 'text-amber-400'
+  else color = 'text-green-400'
   return <span className={color}>{formatted}</span>
 }
 

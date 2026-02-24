@@ -461,49 +461,53 @@ export function ClientsList({ initialOrgs, error }: ClientsListProps) {
 
                       {/* Price with discount & prorata */}
                       <div className="hidden md:block text-right min-w-[110px]">
-                        {b?.hasDiscount ? (
-                          <>
-                            <div className="flex items-center justify-end gap-1">
-                              <span className="text-slate-500 line-through text-xs">
-                                {formatPrice(catalogPrice)}
-                              </span>
-                              <span className="font-bold text-red-400">
+                        {(() => {
+                          if (b?.hasDiscount) return (
+                            <>
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-slate-500 line-through text-xs">
+                                  {formatPrice(catalogPrice)}
+                                </span>
+                                <span className="font-bold text-red-400">
+                                  {formatPrice(periodPrice)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-end gap-1 flex-wrap">
+                                {b.discountLabel && (
+                                  <Badge className="bg-red-500/20 text-red-400 text-[10px] px-1.5 font-medium">
+                                    {b.discountLabel}
+                                  </Badge>
+                                )}
+                                {b.isProrata && (
+                                  <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1">
+                                    {Math.round(b.ratio * 100)}%
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-600">/mois</p>
+                            </>
+                          )
+                          if (b?.isProrata) return (
+                            <>
+                              <p className="font-medium text-white">
                                 {formatPrice(periodPrice)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-end gap-1 flex-wrap">
-                              {b.discountLabel && (
-                                <Badge className="bg-red-500/20 text-red-400 text-[10px] px-1.5 font-medium">
-                                  {b.discountLabel}
-                                </Badge>
-                              )}
-                              {b.isProrata && (
+                              </p>
+                              <div className="flex items-center justify-end gap-1">
                                 <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1">
-                                  {Math.round(b.ratio * 100)}%
+                                  prorata {Math.round(b.ratio * 100)}%
                                 </Badge>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-slate-600">/mois</p>
-                          </>
-                        ) : b?.isProrata ? (
-                          <>
-                            <p className="font-medium text-white">
-                              {formatPrice(periodPrice)}
-                            </p>
-                            <div className="flex items-center justify-end gap-1">
-                              <Badge className="bg-purple-500/20 text-purple-400 text-[10px] px-1">
-                                prorata {Math.round(b.ratio * 100)}%
-                              </Badge>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <p className="font-medium text-white">
-                              {formatPrice(periodPrice)}
-                            </p>
-                            <p className="text-xs text-slate-600">/mois</p>
-                          </>
-                        )}
+                              </div>
+                            </>
+                          )
+                          return (
+                            <>
+                              <p className="font-medium text-white">
+                                {formatPrice(periodPrice)}
+                              </p>
+                              <p className="text-xs text-slate-600">/mois</p>
+                            </>
+                          )
+                        })()}
                       </div>
 
                       <ChevronRight className="h-5 w-5 text-slate-600" />

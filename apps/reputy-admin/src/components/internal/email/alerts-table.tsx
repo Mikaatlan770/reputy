@@ -148,15 +148,12 @@ function AlertRow({ alert }: { alert: EmailAlert }) {
     <tr className={`${style.bg} border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors`}>
       <td className="py-3 px-4">
         <span className={`w-2.5 h-2.5 rounded-full block ${
-          alert.severity === 'red' ? 'bg-red-500 animate-pulse' :
-          alert.severity === 'orange' ? 'bg-amber-500' : 'bg-blue-500'
+          { red: 'bg-red-500 animate-pulse', orange: 'bg-amber-500' }[alert.severity] ?? 'bg-blue-500'
         }`} />
       </td>
       <td className="py-3 px-4">
         <Badge className={`${
-          alert.severity === 'red' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-          alert.severity === 'orange' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
-          'bg-blue-500/20 text-blue-400 border-blue-500/30'
+          { red: 'bg-red-500/20 text-red-400 border-red-500/30', orange: 'bg-amber-500/20 text-amber-400 border-amber-500/30' }[alert.severity] ?? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
         } text-xs`}>
           {style.label}
         </Badge>

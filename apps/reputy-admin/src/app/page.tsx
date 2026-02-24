@@ -493,11 +493,15 @@ function GoogleReviewsKpis({
   reviewsTrend: { value: number; isPositive: boolean } | undefined
   responseTrend: { value: number; isPositive: boolean } | undefined
 }) {
+  let googleRatingValue: string
+  if (googleLoading) googleRatingValue = '…'
+  else if (googleRating != null) googleRatingValue = googleRating.toFixed(1)
+  else googleRatingValue = kpi.averageRating.toFixed(1)
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
       <KpiCard
         title="Note Google"
-        value={googleLoading ? '…' : (googleRating != null ? googleRating.toFixed(1) : kpi.averageRating.toFixed(1))}
+        value={googleRatingValue}
         subtitle={googleRating != null ? 'note publique Google' : `sur ${periodLabel}`}
         icon={Star}
         trend={googleRating != null ? undefined : ratingTrend}

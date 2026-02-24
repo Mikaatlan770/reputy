@@ -995,9 +995,8 @@ function GoogleBusinessCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {googleLoading ? (
-          <GoogleLoadingState />
-        ) : googleStatus?.google?.connected ? (
+        {googleLoading && <GoogleLoadingState />}
+        {!googleLoading && googleStatus?.google?.connected && (
           <GoogleConnectedState
             googleStatus={googleStatus}
             googleSyncing={googleSyncing}
@@ -1005,7 +1004,8 @@ function GoogleBusinessCard({
             onSync={onSync}
             onDisconnect={onDisconnect}
           />
-        ) : (
+        )}
+        {!googleLoading && !googleStatus?.google?.connected && (
           <GoogleDisconnectedState
             googleStatus={googleStatus}
             googleConnecting={googleConnecting}

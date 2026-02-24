@@ -159,14 +159,24 @@ export function OrgEmailDetail({ stats, pauseState }: OrgEmailDetailProps) {
           label="Bounce rate"
           value={formatRate(s.bounceRate)}
           icon={<AlertTriangle className="h-4 w-4" />}
-          color={(s.bounceRate || 0) >= 0.05 ? 'text-red-400' : (s.bounceRate || 0) >= 0.02 ? 'text-amber-400' : 'text-green-400'}
+          color={(() => {
+            const r = s.bounceRate || 0
+            if (r >= 0.05) return 'text-red-400'
+            if (r >= 0.02) return 'text-amber-400'
+            return 'text-green-400'
+          })()}
           alert={(s.bounceRate || 0) >= 0.05}
         />
         <StatCard
           label="Complaint rate"
           value={formatRate(s.complaintRate)}
           icon={<ShieldAlert className="h-4 w-4" />}
-          color={(s.complaintRate || 0) >= 0.001 ? 'text-red-400' : (s.complaintRate || 0) >= 0.0005 ? 'text-amber-400' : 'text-green-400'}
+          color={(() => {
+            const r = s.complaintRate || 0
+            if (r >= 0.001) return 'text-red-400'
+            if (r >= 0.0005) return 'text-amber-400'
+            return 'text-green-400'
+          })()}
           alert={(s.complaintRate || 0) >= 0.001}
         />
         <WarmupCard warmup={warmup} />

@@ -191,11 +191,12 @@ export default function InboxPage() {
                   <Skeleton className="h-8 w-16 mt-1" />
                 ) : (
                 <p className="text-2xl font-bold">
-                    {avgResponseTime != null
-                      ? avgResponseTime < 24
+                    {(() => {
+                      if (avgResponseTime == null) return '—'
+                      return avgResponseTime < 24
                         ? `${Math.round(avgResponseTime)}h`
                         : `${Math.round(avgResponseTime / 24)}j`
-                      : '—'}
+                    })()}
                 </p>
                 )}
               </div>

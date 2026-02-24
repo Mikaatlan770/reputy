@@ -180,10 +180,9 @@ export function TopRiskTable({ orgs, window: currentWindow, ok, error }: TopRisk
 
 function RateCell({ value, orangeAt, redAt }: { value: number; orangeAt: number; redAt: number }) {
   const formatted = `${(value * 100).toFixed(3)}%`
-  const color = value >= redAt
-    ? 'text-red-400 font-semibold'
-    : value >= orangeAt
-      ? 'text-amber-400'
-      : 'text-green-400'
+  let color: string
+  if (value >= redAt) color = 'text-red-400 font-semibold'
+  else if (value >= orangeAt) color = 'text-amber-400'
+  else color = 'text-green-400'
   return <span className={color}>{formatted}</span>
 }

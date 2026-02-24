@@ -1071,7 +1071,7 @@ function InvoiceHistory({ invoices, invoicesLoading, invoicesError, loadInvoices
                         variant={invoice.status === 'paid' ? 'success' : 'secondary'}
                         className="text-[10px] px-1.5"
                       >
-                        {invoice.status === 'paid' ? 'Payée' : invoice.status === 'open' ? 'En attente' : invoice.status}
+                        {{ paid: 'Payée', open: 'En attente' }[invoice.status] ?? invoice.status}
                       </Badge>
                     </div>
                     <div className="flex gap-1">
@@ -1195,15 +1195,12 @@ function ChangePlanDialog({ open, onOpenChange, normalizedPlan, checkoutLoading,
                 disabled={plan.id === normalizedPlan || checkoutLoading || plan.id === 'bronze'}
                 onClick={() => handleCheckout(plan.id)}
               >
-                {checkoutLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : plan.id === normalizedPlan ? (
-                  'Plan actuel'
-                ) : plan.id === 'bronze' ? (
-                  'Plan gratuit'
-                ) : (
-                  'Sélectionner'
-                )}
+                {(() => {
+                  if (checkoutLoading) return <Loader2 className="h-4 w-4 animate-spin" />
+                  if (plan.id === normalizedPlan) return 'Plan actuel'
+                  if (plan.id === 'bronze') return 'Plan gratuit'
+                  return 'Sélectionner'
+                })()}
               </Button>
             </div>
           ))}

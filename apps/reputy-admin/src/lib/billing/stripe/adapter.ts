@@ -55,14 +55,15 @@ export function toStripeAdapterEvent(event: Stripe.Event): StripeAdapterEvent {
   const isInvoice = type.startsWith('invoice.')
   const isPaymentIntent = type.startsWith('payment_intent.')
 
-  const subscriptionId =
-    typeof obj.subscription === 'string'
-      ? obj.subscription
-      : (obj.subscription && typeof obj.subscription.id === 'string' ? obj.subscription.id : undefined)
+  let subscriptionId: string | undefined
+  if (typeof obj.subscription === 'string') subscriptionId = obj.subscription
+  else if (obj.subscription && typeof (obj.subscription as { id?: unknown }).id === 'string') subscriptionId = (obj.subscription as { id: string }).id
+  else subscriptionId = undefined
 
-  const paymentIntentId = isPaymentIntent && typeof obj.id === 'string'
-    ? obj.id
-    : (typeof obj.payment_intent === 'string' ? obj.payment_intent : undefined)
+  let paymentIntentId: string | undefined
+  if (isPaymentIntent && typeof obj.id === 'string') paymentIntentId = obj.id
+  else if (typeof obj.payment_intent === 'string') paymentIntentId = obj.payment_intent
+  else paymentIntentId = undefined
 
   const mode = obj.mode === 'subscription' || obj.mode === 'payment' ? obj.mode : undefined
 

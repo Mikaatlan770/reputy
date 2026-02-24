@@ -774,13 +774,10 @@ function ContactsTab() {
                     </Badge>
                   </div>
                   <div className="col-span-1">
-                    {contact.hasLeftReview ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    ) : contact.reviewSolicitationsNoReply > 0 ? (
-                      <span className="text-xs text-muted-foreground">{contact.reviewSolicitationsNoReply}x</span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
+                    {contact.hasLeftReview
+                      ? <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      : <span className="text-xs text-muted-foreground">{contact.reviewSolicitationsNoReply > 0 ? `${contact.reviewSolicitationsNoReply}x` : '—'}</span>
+                    }
                   </div>
                   <div className="col-span-1 flex justify-end">
                     <Button variant="ghost" size="sm" onClick={() => handleDelete(contact.id)}>

@@ -124,8 +124,9 @@ function getGroupBy(period: StatsPeriod): 'day' | 'week' | 'month' {
 
 function buildTrendInsight(reviewsDelta: number | null | undefined) {
   const isPositive = reviewsDelta != null && reviewsDelta >= 0
+  const deltaSign = reviewsDelta != null && reviewsDelta > 0 ? '+' : ''
   const deltaLabel = reviewsDelta != null
-    ? `${reviewsDelta > 0 ? '+' : ''}${reviewsDelta}% d'avis vs la période précédente`
+    ? `${deltaSign}${reviewsDelta}% d'avis vs la période précédente`
     : 'Pas assez de données pour comparer'
   return {
     icon: isPositive ? TrendingUp : TrendingDown,

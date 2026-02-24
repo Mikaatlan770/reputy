@@ -333,6 +333,12 @@ export default function FeedbacksPage() {
   )
 }
 
+function getFeedbackAvatarClass(rating: number): string {
+  if (rating >= 4) return 'bg-green-100 text-green-700'
+  if (rating <= 2) return 'bg-red-100 text-red-700'
+  return 'bg-amber-100 text-amber-700'
+}
+
 function FeedbackCard({ feedback }: { feedback: Feedback }) {
   return (
     <Card
@@ -346,14 +352,7 @@ function FeedbackCard({ feedback }: { feedback: Feedback }) {
         <div className="flex items-start gap-4">
           <Avatar className="h-11 w-11">
             <AvatarFallback
-              className={cn(
-                'text-sm font-medium',
-                feedback.rating >= 4
-                  ? 'bg-green-100 text-green-700'
-                  : feedback.rating <= 2
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-amber-100 text-amber-700'
-              )}
+              className={cn('text-sm font-medium', getFeedbackAvatarClass(feedback.rating))}
             >
               {getInitials(getPatientName(feedback.patient))}
             </AvatarFallback>

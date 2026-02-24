@@ -61,7 +61,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           lat: clientOrg?.lat ?? undefined,
           lng: clientOrg?.lng ?? undefined,
           specialty: (clientOrg?.specialty as Location['specialty']) ?? undefined,
-          establishmentType: (clientOrg?.vertical === 'health' ? 'health' : clientOrg?.vertical === 'food' ? 'restaurant' : 'commerce') as Location['establishmentType'],
+          establishmentType: ({ health: 'health', food: 'restaurant' }[clientOrg?.vertical ?? ''] ?? 'commerce') as Location['establishmentType'],
         } : {}),
         healthMode: m.orgVertical === 'health',
         createdAt: m.acceptedAt || '',

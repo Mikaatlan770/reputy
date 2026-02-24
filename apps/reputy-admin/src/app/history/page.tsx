@@ -497,7 +497,8 @@ export default function HistoryPage() {
                               </p>
                             )}
                           </>
-                        ) : request.status === 'pending' ? (
+                        ) : null}
+                        {!request.feedback && request.status === 'pending' && (
                           <a
                             href={request.feedbackUrl}
                             target="_blank"
@@ -507,7 +508,8 @@ export default function HistoryPage() {
                             Voir le lien
                             <ExternalLink className="h-3 w-3" />
                           </a>
-                        ) : (
+                        )}
+                        {!request.feedback && request.status !== 'pending' && (
                           <span className="text-xs text-muted-foreground">Pas de réponse</span>
                         )}
                       </div>

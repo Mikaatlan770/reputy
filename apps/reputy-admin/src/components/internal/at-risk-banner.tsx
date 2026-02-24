@@ -74,8 +74,11 @@ export function AtRiskBanner({ atRiskOrgs }: AtRiskBannerProps) {
       {expanded && (
         <CardContent className="pt-0">
           <div className="space-y-2">
-            {atRiskOrgs.map((org) => (
-              <Link key={org.id} href={`/internal/clients/${org.id}`}>
+            {atRiskOrgs.map((org) => {
+              const loginColorClass = org.daysSinceLastLogin !== null && org.daysSinceLastLogin > 14
+                ? 'text-red-400'
+                : org.daysSinceLastLogin !== null && org.daysSinceLastLogin > 7 ? 'text-amber-400' : ''
+              return (<Link key={org.id} href={`/internal/clients/${org.id}`}>
                 <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-slate-700 hover:border-amber-500/40 transition-colors cursor-pointer">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -100,13 +103,7 @@ export function AtRiskBanner({ atRiskOrgs }: AtRiskBannerProps) {
                     {/* Last login */}
                     <div className="flex items-center gap-1" title="Dernier login">
                       <LogIn className="h-3 w-3" />
-                      <span className={cn(
-                        org.daysSinceLastLogin !== null && org.daysSinceLastLogin > 14
-                          ? 'text-red-400'
-                          : org.daysSinceLastLogin !== null && org.daysSinceLastLogin > 7
-                          ? 'text-amber-400'
-                          : ''
-                      )}>
+                      <span className={cn(loginColorClass)}>
                         {formatDaysAgo(org.daysSinceLastLogin)}
                       </span>
                     </div>
@@ -125,7 +122,8 @@ export function AtRiskBanner({ atRiskOrgs }: AtRiskBannerProps) {
                   </div>
                 </div>
               </Link>
-            ))}
+              </Link>)}
+          )}
           </div>
         </CardContent>
       )}

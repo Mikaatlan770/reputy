@@ -252,9 +252,7 @@ function DashboardContent() {
               >
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${
-                    alert.severity === 'critical' ? 'bg-red-600' :
-                    alert.severity === 'high' ? 'bg-orange-500' :
-                    alert.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
+                    { critical: 'bg-red-600', high: 'bg-orange-500', medium: 'bg-yellow-500' }[alert.severity as string] ?? 'bg-gray-400'
                   }`} />
                   <div>
                     <p className="text-sm font-medium">{alert.message}</p>
@@ -299,9 +297,7 @@ function DashboardContent() {
                   <td className="py-3">{payment.clientName}</td>
                   <td className="py-3">
                     <Badge variant="outline">
-                      {payment.type === 'subscription' ? 'Abo' : 
-                       payment.type === 'pack_sms' ? 'SMS' :
-                       payment.type === 'pack_email' ? 'Email' : 'IA'}
+                      {{ subscription: 'Abo', pack_sms: 'SMS', pack_email: 'Email' }[payment.type as string] ?? 'IA'}
                     </Badge>
                   </td>
                   <td className="py-3 font-medium">{payment.amount}€</td>
@@ -458,9 +454,7 @@ function PaymentsContent() {
                   <td className="p-4 font-mono text-xs">{payment.id}</td>
                   <td className="p-4">{payment.clientName}</td>
                   <td className="p-4">
-                    {payment.type === 'subscription' ? 'Abonnement' :
-                     payment.type === 'pack_sms' ? 'Pack SMS' :
-                     payment.type === 'pack_email' ? 'Pack Email' : 'Pack IA'}
+                    {{ subscription: 'Abonnement', pack_sms: 'Pack SMS', pack_email: 'Pack Email' }[payment.type as string] ?? 'Pack IA'}
                   </td>
                   <td className="p-4 font-medium">{payment.amount}€</td>
                   <td className="p-4 uppercase">{payment.method}</td>
@@ -511,16 +505,14 @@ export default function AdminPage() {
                     <div 
                       key={alert.id}
                       className={`flex items-center justify-between p-4 rounded-lg border ${
-                        alert.resolved ? 'bg-gray-50 border-gray-200' : 
-                        alert.severity === 'critical' ? 'bg-red-50 border-red-200' :
-                        alert.severity === 'high' ? 'bg-orange-50 border-orange-200' :
-                        'bg-yellow-50 border-yellow-200'
+                        alert.resolved
+                          ? 'bg-gray-50 border-gray-200'
+                          : ({ critical: 'bg-red-50 border-red-200', high: 'bg-orange-50 border-orange-200' }[alert.severity as string] ?? 'bg-yellow-50 border-yellow-200')
                       }`}
                     >
                       <div className="flex items-start gap-3">
                         <AlertTriangle className={`w-5 h-5 mt-0.5 ${
-                          alert.severity === 'critical' ? 'text-red-600' :
-                          alert.severity === 'high' ? 'text-orange-500' : 'text-yellow-500'
+                          { critical: 'text-red-600', high: 'text-orange-500' }[alert.severity as string] ?? 'text-yellow-500'
                         }`} />
                         <div>
                           <p className="font-medium">{alert.message}</p>

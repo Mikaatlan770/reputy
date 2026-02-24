@@ -300,7 +300,7 @@ function generateDemoCompetitors(
       rating,
       reviewsCount,
       reviewsLast30d,
-      trend: reviewsLast30d > 3 ? 'up' as const : reviewsLast30d > 0 ? 'stable' as const : 'down' as const,
+      trend: getReviewTrend(reviewsLast30d),
       isAuto: true as const,
       address: DEMO_ADDRESSES_PARIS[i % DEMO_ADDRESSES_PARIS.length],
     }
@@ -378,14 +378,27 @@ function computeInsight(params: {
   return getComparisonInsight(myRating, myReviews, activeAutoStats.avgRating, activeAutoStats.avgReviews, radius)
 }
 
+function getNumericTrend(value: number): 'up' | 'down' | 'stable' {
+  if (value > 0) return 'up'
+  if (value < 0) return 'down'
+  return 'stable'
+}
+
+function getReviewTrend(count: number): 'up' | 'stable' | 'down' {
+  if (count > 3) return 'up'
+  if (count > 0) return 'stable'
+  return 'down'
+}
+
 function TrendBadge({ value, isPercentage = false }: { value: number | null; isPercentage?: boolean }) {
   if (value === null) return <span className="text-muted-foreground text-sm">—</span>
-  const trend: 'up' | 'down' | 'stable' = value > 0 ? 'up' : value < 0 ? 'down' : 'stable'
+  const trend = getNumericTrend(value)
   const variantMap = { up: 'success', down: 'destructive', stable: 'secondary' } as const
   const Icon = { up: TrendingUp, down: TrendingDown, stable: Minus }[trend]
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
   const label = isPercentage
     ? `${value > 0 ? '+' : ''}${Math.round(value)}%`
-    : `${value > 0 ? '+' : value < 0 ? '-' : ''}${Math.abs(value)}`
+    : `${sign}${Math.abs(value)}`
   return (
     <Badge variant={variantMap[trend]} className="gap-1">
       <Icon className="h-3 w-3" />
@@ -400,7 +413,7 @@ function computeCompetitorReviewData(
   if (competitor.isReal && 'estimated30d' in competitor) {
     const val = competitor.estimated30d as number | null
     if (val === null) return { reviewsLast30d: null, trend: 'stable' }
-    return { reviewsLast30d: val, trend: val > 0 ? 'up' : val < 0 ? 'down' : 'stable' }
+    return { reviewsLast30d: val, trend: getNumericTrend(val) }
   }
   if ('trend' in competitor && 'reviewsLast30d' in competitor) {
     return { trend: competitor.trend as 'up' | 'stable' | 'down', reviewsLast30d: competitor.reviewsLast30d as number }
@@ -479,7 +492,10 @@ function CompetitorRow({
   const { reviewsLast30d } = computeCompetitorReviewData(competitor)
   const placeId = competitor.placeId as string | undefined
   const subtitle = getCompetitorSubtitle(competitor)
-  const sourceType = isReal ? 'real' : isAuto ? 'auto' : 'manual'
+  let sourceType: 'real' | 'auto' | 'manual'
+  if (isReal) sourceType = 'real'
+  else if (isAuto) sourceType = 'auto'
+  else sourceType = 'manual'
   const iconBgMap: Record<string, string> = {
     real: 'bg-green-50 group-hover:bg-green-100', auto: 'bg-slate-100', manual: 'bg-muted',
   }
