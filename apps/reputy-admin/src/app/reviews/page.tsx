@@ -63,7 +63,7 @@ export default function ReviewsPage() {
   const { data, loading, error, refetch } = useReviews(
     {
       status: filterStatus,
-      rating: filterRating !== 'all' ? parseInt(filterRating) : undefined,
+      rating: filterRating !== 'all' ? Number.parseInt(filterRating) : undefined,
       search: searchQuery || undefined,
     },
     {
@@ -81,11 +81,6 @@ export default function ReviewsPage() {
   const totalReviews = data?.total || 0
   const hasMore = data?.hasMore || false
   const totalPages = Math.ceil(totalReviews / PAGE_SIZE)
-
-  // Count pending reviews
-  const pendingCount = useMemo(() => {
-    return reviews.filter(r => r.status === 'pending').length
-  }, [reviews])
 
   // Handle filter changes - reset to first page
   const handleFilterChange = useCallback((type: 'rating' | 'status' | 'search', value: string) => {

@@ -96,7 +96,7 @@ export default function CollectPage() {
   // Other UI state
   const [smsValid, setSmsValid] = useState(true)
   const [widgetManagerOpen, setWidgetManagerOpen] = useState(false)
-  const [embedStats, setEmbedStats] = useState({ impressions: 0, clicks: 0 })
+  const embedStats = { impressions: 0, clicks: 0 }
   
   // SMS template customization
   const [smsMessage, setSmsMessage] = useState('')

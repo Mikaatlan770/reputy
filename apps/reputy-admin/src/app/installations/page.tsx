@@ -44,7 +44,7 @@ interface Installation {
 
 export default function InstallationsPage() {
   const router = useRouter()
-  const { mode, loading: authLoading, clientOrg } = useAuth()
+  const { loading: authLoading } = useAuth()
   const isClient = useIsClient()
   
   const [installations, setInstallations] = useState<Installation[]>([])

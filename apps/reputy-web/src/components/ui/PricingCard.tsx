@@ -49,7 +49,6 @@ interface PricingCardProps {
 
 export function PricingCard({ plan, className }: PricingCardProps) {
   const isPopular = plan.isPopular
-  const isTrial = plan.isTrial
   const colors = planColors[plan.id]
   const headingClass = getHeadingClass(plan)
 

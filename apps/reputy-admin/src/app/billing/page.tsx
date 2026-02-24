@@ -332,7 +332,7 @@ export default function BillingPage() {
   const [changePlanOpen, setChangePlanOpen] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [portalLoading, setPortalLoading] = useState(false)
-  const [packCheckoutLoading, setPackCheckoutLoading] = useState<string | null>(null)
+  const [, setPackCheckoutLoading] = useState<string | null>(null)
   const [cart, setCart] = useState<Record<string, number>>({})
   const [cartCheckoutLoading, setCartCheckoutLoading] = useState(false)
   const [invoices, setInvoices] = useState<StripeInvoice[]>([])
@@ -399,21 +399,6 @@ export default function BillingPage() {
       setError(err instanceof Error ? err.message : 'Erreur lors de l\'accès au portail')
     } finally {
       setPortalLoading(false)
-    }
-  }
-
-  // Handle pack checkout
-  const handlePackCheckout = async (packId: string) => {
-    try {
-      setPackCheckoutLoading(packId)
-      const { url } = await createPackCheckoutSession(packId)
-      if (url) {
-        window.location.href = url
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur lors de l\'achat du pack')
-    } finally {
-      setPackCheckoutLoading(null)
     }
   }
 
@@ -524,7 +509,6 @@ export default function BillingPage() {
   const normalizedPlan = normalizePlanCode(billing.plan)
   const currentPlan = PLANS[normalizedPlan] || PLANS.bronze
   const isActive = billing.accessState === 'active' || billing.accessState === 'trial'
-  const isPastDue = billing.accessState === 'past_due'
   const isReadOnly = billing.isRestricted
 
   return (

@@ -34,7 +34,7 @@ const CHROME_EXTENSION_URL = 'https://chrome.google.com/webstore/detail/reputy/E
  */
 export default function InstallationPage() {
   const router = useRouter()
-  const { mode, loading, clientOrg, clientUser, getClientToken } = useAuth()
+  const { loading, clientOrg, getClientToken } = useAuth()
   const isClient = useIsClient()
   const [copied, setCopied] = useState(false)
   const [copiedToken, setCopiedToken] = useState(false)
@@ -170,9 +170,6 @@ export default function InstallationPage() {
   }
 
   const credits = clientOrg.creditsComputed
-  const periodEnd = credits?.periodStart 
-    ? new Date(credits.periodStart).toLocaleDateString('fr-FR') 
-    : 'N/A'
 
   return (
     <div className="space-y-6">

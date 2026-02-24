@@ -119,7 +119,6 @@ function CampaignsTab() {
 
   const totalSent = campaigns.reduce((s, c) => s + (c.totalSent || 0), 0)
   const totalReviews = campaigns.reduce((s, c) => s + (c.totalReviews || 0), 0)
-  const totalClicks = campaigns.reduce((s, c) => s + (c.totalClicks || 0), 0)
   const activeCount = campaigns.filter(c => c.status === 'active' || c.status === 'sending').length
   const avgConversion = totalSent > 0 ? (totalReviews / totalSent) * 100 : 0
 

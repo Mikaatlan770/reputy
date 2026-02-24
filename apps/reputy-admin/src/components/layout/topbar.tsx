@@ -59,7 +59,7 @@ export function Topbar() {
     toggleSidebar 
   } = useAppStore()
   
-  const { mode, clientUser, clientOrg, logoutClient, memberships, currentMembershipRole, switchOrg } = useAuth()
+  const { clientUser, clientOrg, logoutClient, memberships, currentMembershipRole, switchOrg } = useAuth()
   const isClient = useIsClient()
 
   const handleLogout = async () => {

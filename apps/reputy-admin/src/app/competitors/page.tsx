@@ -841,7 +841,7 @@ export default function CompetitorsPage() {
   // ===== Vraies stats depuis le backend =====
   const { stats, loading: statsLoading, error: statsError } = useReviewStats('30d')
   const { series: analyticsSeries, loading: analyticsLoading } = useReviewAnalytics('90d', 'month')
-  const { data: googleData, loading: googleLoading } = useGoogleMyPlace()
+  const { data: googleData } = useGoogleMyPlace()
 
   const currentEstablishmentData = computeEstablishmentData(googleData, stats)
 
@@ -873,7 +873,7 @@ export default function CompetitorsPage() {
   const { configure: configureCompetitors, loading: savingSpecialty } = useConfigureCompetitors()
 
   // ===== Hook pour forcer un sync Google Places =====
-  const { sync: syncCompetitors, loading: syncing, result: syncResult, error: syncError } = useSyncCompetitors()
+  const { sync: syncCompetitors, loading: syncing, error: syncError } = useSyncCompetitors()
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const syncMessageTimeout = useRef<NodeJS.Timeout | null>(null)
   const [specialtySaved, setSpecialtySaved] = useState(false)

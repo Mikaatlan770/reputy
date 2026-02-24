@@ -121,7 +121,7 @@ export async function toggleManualReview(
   reviewId: string, 
   selected: boolean
 ): Promise<EmbedConfigPublic> {
-  const config = await getOrCreateEmbedConfig(locationId)
+  await getOrCreateEmbedConfig(locationId)
   const fullConfig = embedConfigs.get(locationId)!
   
   let selectedIds = [...fullConfig.manualSelectedReviewIds]

@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Header } from '@/components/Header'
 import { Footer } from '@/components/Footer'
 import { verifyEmail, resendCode, DASHBOARD_URL } from '@/lib/auth'
 import { Mail, ArrowRight, Loader2, RefreshCw, CheckCircle } from 'lucide-react'
 
 function VerifyForm() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const email = searchParams.get('email') || ''
   

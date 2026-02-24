@@ -11,7 +11,6 @@ interface Props {
 export default async function TopRiskPage({ searchParams }: Props) {
   const params = await searchParams
   const window = params.window || '7d'
-  const limit = params.limit || '50'
 
   // SSR fetch via /health?include=topRisk
   const data = await fetchEmailHealth(window, ['topRisk'])

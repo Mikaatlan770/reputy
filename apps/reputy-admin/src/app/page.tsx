@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useAppStore } from '@/lib/store'
 import { useAuth, useIsClient } from '@/lib/auth'
 import { useReviewStats, statsToKpiData, StatsPeriod, useLifecycleStats } from '@/lib/reviews'
 import { KpiCard } from '@/components/dashboard/kpi-card'
@@ -319,7 +318,6 @@ function CreditsSection() {
 }
 
 export default function DashboardPage() {
-  const { currentLocation } = useAppStore()
   const [period, setPeriod] = useState<StatsPeriod>('30d')
   const { stats, loading: statsLoading, error: statsError } = useReviewStats(period)
   const { data: lifecycleData, loading: lifecycleLoading } = useLifecycleStats(period)

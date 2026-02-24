@@ -1544,7 +1544,7 @@ function CommercialTabContent({ org, editMode, editBasePriceCents, setEditBasePr
                 <Input
                   type="number"
                   value={editBasePriceCents / 100}
-                  onChange={(e) => setEditBasePriceCents(Math.round(parseFloat(e.target.value) * 100))}
+                  onChange={(e) => setEditBasePriceCents(Math.round(Number.parseFloat(e.target.value) * 100))}
                   className="bg-slate-700 border-slate-600 mt-1"
                 />
               ) : (
@@ -1819,7 +1819,7 @@ function NegotiatedConditionsCard({ org, editMode, editNegotiatedEnabled, setEdi
                 <Input
                   type="number"
                   value={editCustomPriceCents / 100}
-                  onChange={(e) => setEditCustomPriceCents(Math.round(parseFloat(e.target.value) * 100))}
+                  onChange={(e) => setEditCustomPriceCents(Math.round(Number.parseFloat(e.target.value) * 100))}
                   className="bg-slate-700 border-slate-600 mt-1"
                 />
               ) : (
@@ -1832,7 +1832,7 @@ function NegotiatedConditionsCard({ org, editMode, editNegotiatedEnabled, setEdi
                 <Input
                   type="number"
                   value={editDiscountPercent}
-                  onChange={(e) => setEditDiscountPercent(parseInt(e.target.value) || 0)}
+                  onChange={(e) => setEditDiscountPercent(Number.parseInt(e.target.value) || 0)}
                   className="bg-slate-700 border-slate-600 mt-1"
                 />
               ) : (
@@ -2035,7 +2035,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
                 <Input
                   type="number"
                   value={creditsSms}
-                  onChange={(e) => setCreditsSms(parseInt(e.target.value) || 0)}
+                  onChange={(e) => setCreditsSms(Number.parseInt(e.target.value) || 0)}
                   min={0}
                   className="bg-slate-700 border-slate-600"
                 />
@@ -2045,7 +2045,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
                 <Input
                   type="number"
                   value={creditsEmail}
-                  onChange={(e) => setCreditsEmail(parseInt(e.target.value) || 0)}
+                  onChange={(e) => setCreditsEmail(Number.parseInt(e.target.value) || 0)}
                   min={0}
                   className="bg-slate-700 border-slate-600"
                 />
@@ -2055,7 +2055,7 @@ function QuotasCreditsTabContent({ org, editMode, editSmsIncluded, setEditSmsInc
                 <Input
                   type="number"
                   value={creditsAi}
-                  onChange={(e) => setCreditsAi(parseInt(e.target.value) || 0)}
+                  onChange={(e) => setCreditsAi(Number.parseInt(e.target.value) || 0)}
                   min={0}
                   className="bg-slate-700 border-slate-600"
                 />
@@ -2131,7 +2131,7 @@ function SubscriptionCreditsCard({ org, editMode, editSmsIncluded, setEditSmsInc
                   <Input
                     type="number"
                     value={editSmsIncluded}
-                    onChange={(e) => setEditSmsIncluded(parseInt(e.target.value) || 0)}
+                    onChange={(e) => setEditSmsIncluded(Number.parseInt(e.target.value) || 0)}
                     className="w-20 h-6 bg-slate-700 border-slate-600 text-right text-sm"
                   />
                 ) : (
@@ -2169,7 +2169,7 @@ function SubscriptionCreditsCard({ org, editMode, editSmsIncluded, setEditSmsInc
                   <Input
                     type="number"
                     value={editEmailIncluded}
-                    onChange={(e) => setEditEmailIncluded(parseInt(e.target.value) || 0)}
+                    onChange={(e) => setEditEmailIncluded(Number.parseInt(e.target.value) || 0)}
                     className="w-20 h-6 bg-slate-700 border-slate-600 text-right text-sm"
                   />
                 ) : (
@@ -2224,7 +2224,7 @@ function QuotasSummaryCards({ org, editMode, editSmsIncluded, setEditSmsIncluded
               <Input
                 type="number"
                 value={editSmsIncluded}
-                onChange={(e) => setEditSmsIncluded(parseInt(e.target.value) || 0)}
+                onChange={(e) => setEditSmsIncluded(Number.parseInt(e.target.value) || 0)}
                 className="w-24 bg-slate-700 border-slate-600"
               />
             ) : (
@@ -2280,7 +2280,7 @@ function QuotasSummaryCards({ org, editMode, editSmsIncluded, setEditSmsIncluded
               <Input
                 type="number"
                 value={editEmailIncluded}
-                onChange={(e) => setEditEmailIncluded(parseInt(e.target.value) || 0)}
+                onChange={(e) => setEditEmailIncluded(Number.parseInt(e.target.value) || 0)}
                 className="w-24 bg-slate-700 border-slate-600"
               />
             ) : (
@@ -2351,7 +2351,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
   // Quotas
   const [editSmsIncluded, setEditSmsIncluded] = useState(org.quotas.smsIncluded)
   const [editEmailIncluded, setEditEmailIncluded] = useState(org.quotas.emailIncluded)
-  const [editAiIncluded, setEditAiIncluded] = useState(org.quotas.aiIncluded || 0)
+  const editAiIncluded = org.quotas.aiIncluded || 0
   
 
   // Feedback states
@@ -2414,9 +2414,6 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
   }
 
   const catalogPrice = getCatalogPrice(org.plan.code)
-  const effectivePrice = org.negotiated?.enabled 
-    ? (org.negotiated.customPriceCents || catalogPrice)
-    : catalogPrice
 
   return (
     <div className="space-y-6">

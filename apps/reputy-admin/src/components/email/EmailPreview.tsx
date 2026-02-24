@@ -48,11 +48,6 @@ export function EmailPreview({
   const [emailContent, setEmailContent] = useState(DEFAULT_EMAIL_TEMPLATE)
   const [copied, setCopied] = useState(false)
 
-  // Remplacer les placeholders pour l'aperçu
-  const previewContent = emailContent
-    .replace(/{cabinet}/g, cabinetName)
-    .replace(/{bouton}/g, '[BOUTON]')
-
   // Copier le contenu
   const copyContent = async () => {
     const textToCopy = emailContent
