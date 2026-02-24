@@ -800,6 +800,25 @@ function AddCompetitorDialog({
   )
 }
 
+function toggleSetItem(prev: Set<string>, id: string): Set<string> {
+  const next = new Set(prev)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  return next
+}
+
+function sortCompetitors(
+  a: { id: string; isAuto: boolean; distanceKm?: number },
+  b: { id: string; isAuto: boolean; distanceKm?: number },
+  pinnedIds: Set<string>,
+): number {
+  const aPinned = pinnedIds.has(a.id) || !a.isAuto
+  const bPinned = pinnedIds.has(b.id) || !b.isAuto
+  if (aPinned && !bPinned) return -1
+  if (!aPinned && bPinned) return 1
+  return (a.distanceKm ?? 99) - (b.distanceKm ?? 99)
+}
+
 export default function CompetitorsPage() {
   const { currentLocation, setCurrentLocation } = useAppStore()
 
@@ -992,30 +1011,12 @@ export default function CompetitorsPage() {
     }
   }, [hasRealData, competitorsLoading, loadAutoCompetitors])
 
-  // Épingler un concurrent auto (devient "manuel")
   const togglePin = (id: string) => {
-    setPinnedAutoIds((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(id)) {
-        newSet.delete(id)
-      } else {
-        newSet.add(id)
-      }
-      return newSet
-    })
+    setPinnedAutoIds((prev) => toggleSetItem(prev, id))
   }
 
-  // Masquer un concurrent auto
   const toggleHide = (id: string) => {
-    setHiddenAutoIds((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(id)) {
-        newSet.delete(id)
-      } else {
-        newSet.add(id)
-      }
-      return newSet
-    })
+    setHiddenAutoIds((prev) => toggleSetItem(prev, id))
   }
 
   // Filtrer les concurrents auto visibles (mock fallback)
@@ -1041,14 +1042,7 @@ export default function CompetitorsPage() {
         ...(showAuto ? visibleAutoCompetitors.map((c) => ({ ...c, isReal: false as const })) : []),
       ]
 
-  allCompetitors.sort((a, b) => {
-    // Épinglés en premier
-    const aPinned = pinnedAutoIds.has(a.id) || !a.isAuto
-    const bPinned = pinnedAutoIds.has(b.id) || !b.isAuto
-    if (aPinned && !bPinned) return -1
-    if (!aPinned && bPinned) return 1
-    return (a.distanceKm ?? 99) - (b.distanceKm ?? 99)
-  })
+  allCompetitors.sort((a, b) => sortCompetitors(a, b, pinnedAutoIds))
 
   // Stats agrégées — utiliser données réelles si dispo, sinon mock
   const activeAutoStats = hasRealData
@@ -1180,58 +1174,26 @@ export default function CompetitorsPage() {
                 </div>
               </div>
 
-              {/* Bouton Mettre à jour / Sync Google */}
-              {isConfigured && placesApiConfigured ? (
-                <Button
-                  onClick={async () => {
-                    const result = await syncCompetitors()
-                    if (result) {
-                      setSyncMessage(`✅ ${result.placesStored} concurrent${result.placesStored > 1 ? 's' : ''} trouvé${result.placesStored > 1 ? 's' : ''} via Google Places`)
-                      if (syncMessageTimeout.current) clearTimeout(syncMessageTimeout.current)
-                      syncMessageTimeout.current = setTimeout(() => setSyncMessage(null), 5000)
-                      // Refresh the competitors list
-                      refetchCompetitors()
-                    }
-                  }}
-                  disabled={syncing || competitorsLoading}
-                  className="gap-2"
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`}
-                  />
-                  {syncing ? 'Sync en cours...' : 'Sync Google Places'}
-                </Button>
-              ) : (
-                <Button
-                  onClick={hasRealData ? refetchCompetitors : loadAutoCompetitors}
-                  disabled={isLoading || competitorsLoading}
-                  className="gap-2"
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${isLoading || competitorsLoading ? 'animate-spin' : ''}`}
-                  />
-                  Mettre à jour
-                </Button>
-              )}
-
-              {/* Toggle affichage auto */}
-              <Button
-                variant="outline"
-                onClick={() => setShowAuto(!showAuto)}
-                className="gap-2"
-              >
-                {showAuto ? (
-                  <>
-                    <EyeOff className="h-4 w-4" />
-                    Masquer auto
-                  </>
-                ) : (
-                  <>
-                    <Eye className="h-4 w-4" />
-                    Afficher auto
-                  </>
-                )}
-              </Button>
+              <SyncAndToggleButtons
+                isConfigured={isConfigured}
+                placesApiConfigured={placesApiConfigured}
+                syncing={syncing}
+                competitorsLoading={competitorsLoading}
+                isLoading={isLoading}
+                hasRealData={hasRealData}
+                showAuto={showAuto}
+                onSync={async () => {
+                  const result = await syncCompetitors()
+                  if (result) {
+                    setSyncMessage(`✅ ${result.placesStored} concurrent${result.placesStored > 1 ? 's' : ''} trouvé${result.placesStored > 1 ? 's' : ''} via Google Places`)
+                    if (syncMessageTimeout.current) clearTimeout(syncMessageTimeout.current)
+                    syncMessageTimeout.current = setTimeout(() => setSyncMessage(null), 5000)
+                    refetchCompetitors()
+                  }
+                }}
+                onRefresh={hasRealData ? refetchCompetitors : loadAutoCompetitors}
+                onToggleAuto={() => setShowAuto(!showAuto)}
+              />
             </div>
 
             {establishmentType === 'health' && (
@@ -1668,5 +1630,52 @@ function EvolutionChartContent({
         </LineChart>
       </ResponsiveContainer>
     </div>
+  )
+}
+
+function SyncAndToggleButtons({
+  isConfigured,
+  placesApiConfigured,
+  syncing,
+  competitorsLoading,
+  isLoading,
+  showAuto,
+  onSync,
+  onRefresh,
+  onToggleAuto,
+}: {
+  isConfigured: boolean
+  placesApiConfigured: boolean
+  syncing: boolean
+  competitorsLoading: boolean
+  isLoading: boolean
+  showAuto: boolean
+  onSync: () => void
+  onRefresh: () => void
+  onToggleAuto: () => void
+}) {
+  const syncButtonActive = isConfigured && placesApiConfigured
+
+  return (
+    <>
+      {syncButtonActive ? (
+        <Button onClick={onSync} disabled={syncing || competitorsLoading} className="gap-2">
+          <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Sync en cours...' : 'Sync Google Places'}
+        </Button>
+      ) : (
+        <Button onClick={onRefresh} disabled={isLoading || competitorsLoading} className="gap-2">
+          <RefreshCw className={`h-4 w-4 ${isLoading || competitorsLoading ? 'animate-spin' : ''}`} />
+          Mettre à jour
+        </Button>
+      )}
+      <Button variant="outline" onClick={onToggleAuto} className="gap-2">
+        {showAuto ? (
+          <><EyeOff className="h-4 w-4" />Masquer auto</>
+        ) : (
+          <><Eye className="h-4 w-4" />Afficher auto</>
+        )}
+      </Button>
+    </>
   )
 }

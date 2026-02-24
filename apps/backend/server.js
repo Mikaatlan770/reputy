@@ -12509,31 +12509,35 @@ function handleServerError(res, err, req, pathname) {
   } catch (innerErr) { console.debug('[HTTP] Error response failed (already sent?):', innerErr.message); }
 }
 
+async function handleIncomingRequest(req, res) {
+  const { method, url } = req;
+  applySecurityHeaders(res);
+  const corsResult = applyCors(req, res);
+  if (corsResult === 'blocked' || corsResult === 'preflight') return { done: true };
+
+  if (method === 'GET' && url === '/health') { handleHealth(res); return { done: true }; }
+  if (method === 'GET' && url.startsWith('/google/oauth/callback')) { handleOAuthCallbackPage(req, res, url); return { done: true }; }
+  if (url.startsWith('/api/') && routeApiLegacy(method, url, req, res)) return { done: true };
+  if (isAuthRoute(url) && routeAuth(method, url, req, res)) return { done: true };
+
+  const urlParts = url.split('?');
+  const pathname = urlParts[0];
+  const urlParams = new URLSearchParams(urlParts[1] || '');
+
+  if (pathname.startsWith('/client/') && await routeClient(method, pathname, req, res, urlParams)) return { done: true, pathname };
+  if (_routePublicAndWebhooks(method, pathname, req, res)) return { done: true, pathname };
+  if (routeInternalAdmin(method, pathname, req, res, urlParams)) return { done: true, pathname };
+  if (pathname.startsWith('/r/') && _routeShortlinkOrRating(method, pathname, req, res, urlParams)) return { done: true, pathname };
+
+  return { done: false, pathname };
+}
+
 const server = http.createServer(async (req, res) => {
-  let pathname;
   try {
-    const { method, url } = req;
-    applySecurityHeaders(res);
-    const corsResult = applyCors(req, res);
-    if (corsResult === 'blocked' || corsResult === 'preflight') return;
-
-    if (method === 'GET' && url === '/health') return handleHealth(res);
-    if (method === 'GET' && url.startsWith('/google/oauth/callback')) return handleOAuthCallbackPage(req, res, url);
-    if (url.startsWith('/api/') && routeApiLegacy(method, url, req, res)) return;
-    if (isAuthRoute(url) && routeAuth(method, url, req, res)) return;
-
-    const urlParts = url.split('?');
-    pathname = urlParts[0];
-    const urlParams = new URLSearchParams(urlParts[1] || '');
-
-    if (pathname.startsWith('/client/') && await routeClient(method, pathname, req, res, urlParams)) return;
-    if (_routePublicAndWebhooks(method, pathname, req, res)) return;
-    if (routeInternalAdmin(method, pathname, req, res, urlParams)) return;
-    if (pathname.startsWith('/r/') && _routeShortlinkOrRating(method, pathname, req, res, urlParams)) return;
-
-    sendJson(res, 404, { error: 'Not found' });
+    const result = await handleIncomingRequest(req, res);
+    if (!result.done) sendJson(res, 404, { error: 'Not found' });
   } catch (err) {
-    handleServerError(res, err, req, pathname);
+    handleServerError(res, err, req, req.url);
   }
 });
 
