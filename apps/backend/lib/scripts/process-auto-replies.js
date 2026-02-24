@@ -93,9 +93,102 @@ function parseReviewRow(row) {
   };
 }
 
+// ============ REVIEW PROCESSING HELPERS ============
+
+function processTemplateReply(review, templateText) {
+  if (DRY_RUN) {
+    console.log(`  🔄 [DRY-RUN] Would save template: "${templateText.substring(0, 60)}..."`);
+    return 'dry_template';
+  }
+
+  aiAutoReplyRepo.create({
+    orgId: review.orgId, reviewId: review.id, rating: review.rating,
+    model: 'template', status: 'success', responseText: templateText,
+    attempts: 1, inputTokensEst: 0, outputTokensEst: 0,
+  });
+
+  reviewRepo.updateReply(review.orgId, review.id, { replyText: templateText, replyStatus: 'draft' });
+  console.log(`  📝 Template (${review.rating}★ sans commentaire): "${templateText.substring(0, 50)}..."`);
+  return 'template';
+}
+
+function resolveTrackingId(review, estimatedTokens) {
+  const existingEntry = aiAutoReplyRepo.getByReviewId(review.id);
+  if (existingEntry && existingEntry.status === 'failed' && existingEntry.attempts < 2) {
+    aiAutoReplyRepo.incrementAttempts(existingEntry.id);
+    console.log(`  🔄 Retrying failed entry (attempt ${existingEntry.attempts + 1})`);
+    return existingEntry.id;
+  }
+
+  const modelName = process.env.OPENAI_AUTO_REPLY_MODEL || 'gpt-4.1-mini';
+  const newEntry = aiAutoReplyRepo.create({
+    orgId: review.orgId, reviewId: review.id, rating: review.rating,
+    model: modelName, status: 'pending', attempts: 1, inputTokensEst: estimatedTokens,
+  });
+  return newEntry.id;
+}
+
+async function processAiReply(review, orgName) {
+  const { cleaned, truncated, estimatedTokens } = prepareAiInput(review.comment);
+  console.log(`  📊 Input: ${cleaned.length} chars, ~${estimatedTokens} tokens${truncated ? ' (truncated)' : ''}`);
+
+  const trackingId = resolveTrackingId(review, estimatedTokens);
+
+  if (DRY_RUN) {
+    console.log(`  🔄 [DRY-RUN] Would call OpenAI for: "${cleaned.substring(0, 80)}..."`);
+    aiAutoReplyRepo.updateStatus(trackingId, 'skipped', { error: 'dry_run' });
+    return 'skipped';
+  }
+
+  try {
+    const result = await autoReply({ reviewText: cleaned, rating: review.rating, orgName });
+    aiAutoReplyRepo.updateStatus(trackingId, 'success', {
+      responseText: result.draft, model: result.model,
+      inputTokensEst: result.inputTokensEst, outputTokensEst: result.outputTokensEst,
+    });
+    reviewRepo.updateReply(review.orgId, review.id, { replyText: result.draft, replyStatus: 'draft' });
+    console.log(`  ✅ AI reply (${result.model}): "${result.draft.substring(0, 60)}..."`);
+    console.log(`     Tokens: in=${result.inputTokensEst}, out=${result.outputTokensEst}`);
+    return 'success';
+  } catch (aiErr) {
+    console.error(`  ❌ OpenAI error: ${aiErr.message}`);
+    aiAutoReplyRepo.updateStatus(trackingId, 'failed', { error: aiErr.message });
+    return 'failed';
+  }
+}
+
+function resolveOrgName(orgId, cache) {
+  if (!cache[orgId]) {
+    const org = orgRepo.getById(orgId);
+    cache[orgId] = org?.name || '';
+  }
+  return cache[orgId];
+}
+
+async function processSingleReview(review, orgNameCache) {
+  console.log(`Processing: review ${review.id} (${review.rating}★) — org: ${review.orgId}`);
+
+  const eligibility = shouldAutoReply(review);
+  if (!eligibility.eligible) {
+    console.log(`  ⏩ Skipped: ${eligibility.reason}`);
+    return 'skipped';
+  }
+
+  if (eligibility.useTemplate) {
+    const templateText = getNoCommentTemplate(review.rating);
+    if (!templateText) {
+      console.log(`  ⏩ No template available for ${review.rating}★ — skipping`);
+      return 'skipped';
+    }
+    return processTemplateReply(review, templateText);
+  }
+
+  const orgName = resolveOrgName(review.orgId, orgNameCache);
+  return processAiReply(review, orgName);
+}
+
 // ============ MAIN ============
 async function processAutoReplies() {
-  // 1) Get eligible reviews
   const rawRows = aiAutoReplyRepo.getEligibleReviews(BATCH_LIMIT);
   console.log(`Found ${rawRows.length} eligible review(s) for auto-reply\n`);
 
@@ -104,149 +197,23 @@ async function processAutoReplies() {
     return { processed: 0, success: 0, failed: 0, skipped: 0, templates: 0 };
   }
 
-  let success = 0;
-  let failed = 0;
-  let skipped = 0;
-  let templates = 0;
-
-  // Cache org names to avoid repeated lookups
+  let success = 0, failed = 0, skipped = 0, templates = 0;
   const orgNameCache = {};
+  const RESULT_ACTIONS = {
+    template: () => { templates++; success++; },
+    dry_template: () => { templates++; success++; },
+    success: () => { success++; },
+    failed: () => { failed++; },
+    skipped: () => { skipped++; },
+  };
 
   for (const rawRow of rawRows) {
-    const review = parseReviewRow(rawRow);
-
     try {
-      console.log(`Processing: review ${review.id} (${review.rating}★) — org: ${review.orgId}`);
-
-      // 2) Re-check eligibility (race condition guard)
-      const eligibility = shouldAutoReply(review);
-      if (!eligibility.eligible) {
-        console.log(`  ⏩ Skipped: ${eligibility.reason}`);
-        skipped++;
-        continue;
-      }
-
-      // 3) Get org name
-      if (!orgNameCache[review.orgId]) {
-        const org = orgRepo.getById(review.orgId);
-        orgNameCache[review.orgId] = org?.name || '';
-      }
-      const orgName = orgNameCache[review.orgId];
-
-      // ── 4A) No-comment template (zero AI cost) ──
-      if (eligibility.useTemplate) {
-        const templateText = getNoCommentTemplate(review.rating);
-        if (!templateText) {
-          console.log(`  ⏩ No template available for ${review.rating}★ — skipping`);
-          skipped++;
-          continue;
-        }
-
-        if (DRY_RUN) {
-          console.log(`  🔄 [DRY-RUN] Would save template: "${templateText.substring(0, 60)}..."`);
-          templates++;
-          success++;
-          continue;
-        }
-
-        // Save tracking entry
-        aiAutoReplyRepo.create({
-          orgId: review.orgId,
-          reviewId: review.id,
-          rating: review.rating,
-          model: 'template',
-          status: 'success',
-          responseText: templateText,
-          attempts: 1,
-          inputTokensEst: 0,
-          outputTokensEst: 0,
-        });
-
-        // Save as draft reply on review
-        reviewRepo.updateReply(review.orgId, review.id, {
-          replyText: templateText,
-          replyStatus: 'draft',
-        });
-
-        console.log(`  📝 Template (${review.rating}★ sans commentaire): "${templateText.substring(0, 50)}..."`);
-        templates++;
-        success++;
-        continue;
-      }
-
-      // ── 4B) AI call (review has comment) ──
-      const { cleaned, truncated, estimatedTokens } = prepareAiInput(review.comment);
-
-      console.log(`  📊 Input: ${cleaned.length} chars, ~${estimatedTokens} tokens${truncated ? ' (truncated)' : ''}`);
-
-      // Check for existing failed attempt (retry logic)
-      const existingEntry = aiAutoReplyRepo.getByReviewId(review.id);
-      let trackingId;
-
-      if (existingEntry && existingEntry.status === 'failed' && existingEntry.attempts < 2) {
-        // Retry existing failed entry
-        trackingId = existingEntry.id;
-        aiAutoReplyRepo.incrementAttempts(trackingId);
-        console.log(`  🔄 Retrying failed entry (attempt ${existingEntry.attempts + 1})`);
-      } else {
-        // Create new tracking entry with attempts=1
-        const modelName = process.env.OPENAI_AUTO_REPLY_MODEL || 'gpt-4.1-mini';
-        const newEntry = aiAutoReplyRepo.create({
-          orgId: review.orgId,
-          reviewId: review.id,
-          rating: review.rating,
-          model: modelName,
-          status: 'pending',
-          attempts: 1,
-          inputTokensEst: estimatedTokens,
-        });
-        trackingId = newEntry.id;
-      }
-
-      if (DRY_RUN) {
-        console.log(`  🔄 [DRY-RUN] Would call OpenAI for: "${cleaned.substring(0, 80)}..."`);
-        aiAutoReplyRepo.updateStatus(trackingId, 'skipped', { error: 'dry_run' });
-        skipped++;
-        continue;
-      }
-
-      // 5) Call OpenAI
-      try {
-        const result = await autoReply({
-          reviewText: cleaned,
-          rating: review.rating,
-          orgName,
-        });
-
-        // 6) Save success
-        aiAutoReplyRepo.updateStatus(trackingId, 'success', {
-          responseText: result.draft,
-          model: result.model,
-          inputTokensEst: result.inputTokensEst,
-          outputTokensEst: result.outputTokensEst,
-        });
-
-        // 7) Save as draft reply on review
-        reviewRepo.updateReply(review.orgId, review.id, {
-          replyText: result.draft,
-          replyStatus: 'draft',
-        });
-
-        console.log(`  ✅ AI reply (${result.model}): "${result.draft.substring(0, 60)}..."`);
-        console.log(`     Tokens: in=${result.inputTokensEst}, out=${result.outputTokensEst}`);
-        success++;
-
-      } catch (aiErr) {
-        console.error(`  ❌ OpenAI error: ${aiErr.message}`);
-        aiAutoReplyRepo.updateStatus(trackingId, 'failed', {
-          error: aiErr.message,
-        });
-        failed++;
-        // No retry loop — next cron run will pick up failed entries (if attempts < 2)
-      }
-
+      const review = parseReviewRow(rawRow);
+      const result = await processSingleReview(review, orgNameCache);
+      (RESULT_ACTIONS[result] || RESULT_ACTIONS.skipped)();
     } catch (err) {
-      console.error(`  ❌ Unexpected error for review ${review.id}: ${err.message}`);
+      console.error(`  ❌ Unexpected error: ${err.message}`);
       failed++;
     }
   }

@@ -75,21 +75,145 @@ if (!cronLocks.acquire(WORKER_NAME, LOCK_TTL_SECONDS, lockOwner)) {
 }
 console.log(`🔒 Lock acquired (owner: ${lockOwner}, TTL: ${LOCK_TTL_SECONDS}s)`);
 
+// ============ HELPERS ============
+
+async function checkCreditsPreFlight() {
+  if (DRY_RUN || smsProvider.SMS_DRY_RUN) return true;
+
+  const credits = await smsProvider.checkCredits();
+  if (!credits.ok) {
+    console.warn(`\u26A0\uFE0F Could not check credits: ${credits.error}`);
+    return true;
+  }
+  if (credits.credits === null) return true;
+
+  console.log(`\uD83D\uDCCA Brevo SMS credits: ${credits.credits}`);
+  return credits.credits > 0
+    ? true
+    : (console.error('\u274C No SMS credits remaining \u2014 aborting'), false);
+}
+
+function validateOrg(entry) {
+  const org = orgRepo.getById(entry.orgId);
+  if (!org) {
+    console.log(`  \u26A0\uFE0F Org not found: ${entry.orgId} \u2014 marking failed`);
+    scheduledSendRepo.updateStatus(entry.id, 'failed', { error: 'org_not_found' });
+    return { status: 'failed' };
+  }
+  if (org.status === 'suspended' || org.status === 'cancelled') {
+    console.log(`  \u26D4 Org ${org.status} \u2014 cancelling`);
+    scheduledSendRepo.updateStatus(entry.id, 'cancelled', { error: `org_${org.status}` });
+    return { status: 'skipped' };
+  }
+  return { status: 'ok', org };
+}
+
+function buildSmsContent(entry, org) {
+  const feedbackUrl = entry.payload?.feedbackUrl
+    || `${REVIEWS_BASE_URL}/r/${entry.payload?.requestId || entry.id}`;
+
+  const customTpl = org.options?.smsTemplate;
+  if (customTpl) {
+    return { body: customTpl.replace(/\{lien\}/g, feedbackUrl), tag: 'review_request' };
+  }
+  return smsTemplates.reviewRequest({
+    orgName: org.name,
+    patientFirstName: entry.payload?.patientFirstName || '',
+    feedbackUrl,
+  });
+}
+
+function recordSmsUsage(entry, result, smsContent) {
+  const smsQty = result.smsCount || 1;
+  usageRepo.addEntry({
+    orgId: entry.orgId,
+    type: 'sms',
+    qty: smsQty,
+    details: {
+      scheduledSendId: entry.id,
+      recipient: entry.recipient,
+      patientName: entry.payload?.patientName || '',
+      patientFirstName: entry.payload?.patientFirstName || '',
+      requestId: entry.payload?.requestId || '',
+      source: 'scheduled_send',
+      provider: result.provider,
+      messageId: result.messageId,
+      smsCount: result.smsCount,
+      segments: result.smsCount || 1,
+      bodyLength: smsContent.body.length,
+    },
+  });
+  return smsQty;
+}
+
+function debitOrgCredits(orgId, smsQty) {
+  try {
+    const freshOrg = orgRepo.getById(orgId);
+    if (!freshOrg) return;
+    const subCredits = freshOrg.subscriptionCredits || {};
+    orgRepo.update(orgId, {
+      subscriptionCredits: {
+        ...subCredits,
+        smsUsedThisPeriod: (subCredits.smsUsedThisPeriod || 0) + smsQty,
+      },
+    });
+  } catch (debitErr) {
+    console.warn(`  \u26A0\uFE0F Could not debit subscription credits: ${debitErr.message}`);
+  }
+}
+
+function updateRequestLifecycle(entry) {
+  if (!entry.requestDbId) return;
+  try {
+    db.run(`
+      UPDATE review_requests
+      SET status = 'sent', sent_at = $now, updated_at = $now
+      WHERE id = $id AND status IN ('created', 'queued')
+    `, { id: entry.requestDbId, now: db.nowISO() });
+  } catch (e) {
+    console.error(`  \u26A0\uFE0F Lifecycle update error: ${e.message}`);
+  }
+}
+
+async function processSingleEntry(entry) {
+  console.log(`Processing: ${entry.id} \u2192 ${entry.recipient} (org: ${entry.orgId})`);
+
+  const orgCheck = validateOrg(entry);
+  if (orgCheck.status !== 'ok') return orgCheck.status;
+
+  const { org } = orgCheck;
+  scheduledSendRepo.updateStatus(entry.id, 'sending');
+  scheduledSendRepo.incrementAttempts(entry.id);
+
+  const smsContent = buildSmsContent(entry, org);
+
+  if (DRY_RUN) {
+    console.log(`  \uD83D\uDD04 [DRY-RUN] Would send SMS to ${entry.recipient}`);
+    console.log(`     Body: ${smsContent.body.replace(/\n/g, ' | ')}`);
+    scheduledSendRepo.updateStatus(entry.id, 'sent');
+    return 'sent';
+  }
+
+  console.log(`  \uD83D\uDCF1 Sending SMS to ${entry.recipient}...`);
+  const result = await smsProvider.sendSms({
+    to: entry.recipient,
+    body: smsContent.body,
+    tag: smsContent.tag,
+  });
+
+  scheduledSendRepo.updateStatus(entry.id, 'sent');
+  const smsQty = recordSmsUsage(entry, result, smsContent);
+  debitOrgCredits(entry.orgId, smsQty);
+  updateRequestLifecycle(entry);
+
+  console.log(`  \u2705 Sent (${result.messageId}, ${result.smsCount} segment(s))`);
+  return 'sent';
+}
+
 // ============ MAIN ============
 async function processScheduledSends() {
-  // Pre-flight: check SMS credits (skip in dry-run)
-  if (!DRY_RUN && !smsProvider.SMS_DRY_RUN) {
-    const credits = await smsProvider.checkCredits();
-    if (credits.ok && credits.credits !== null) {
-      console.log(`\uD83D\uDCCA Brevo SMS credits: ${credits.credits}`);
-      if (credits.credits <= 0) {
-        console.error('\u274C No SMS credits remaining \u2014 aborting');
-        return { processed: 0, sent: 0, failed: 0, skipped: 0 };
-      }
-    } else if (!credits.ok) {
-      console.warn(`\u26A0\uFE0F Could not check credits: ${credits.error}`);
-    }
-  }
+  const creditsOk = await checkCreditsPreFlight();
+  if (!creditsOk) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
 
   const pending = scheduledSendRepo.getPending(BATCH_LIMIT);
   console.log(`Found ${pending.length} pending SMS send(s) ready to process\n`);
@@ -99,125 +223,16 @@ async function processScheduledSends() {
     return { processed: 0, sent: 0, failed: 0, skipped: 0 };
   }
 
-  let sent = 0;
-  let failed = 0;
-  let skipped = 0;
+  const counters = { sent: 0, failed: 0, skipped: 0 };
 
   for (const entry of pending) {
     try {
-      console.log(`Processing: ${entry.id} \u2192 ${entry.recipient} (org: ${entry.orgId})`);
-
-      // 1) Load org
-      const org = orgRepo.getById(entry.orgId);
-      if (!org) {
-        console.log(`  \u26A0\uFE0F Org not found: ${entry.orgId} \u2014 marking failed`);
-        scheduledSendRepo.updateStatus(entry.id, 'failed', { error: 'org_not_found' });
-        failed++;
-        continue;
-      }
-
-      // 2) Check org status
-      if (org.status === 'suspended' || org.status === 'cancelled') {
-        console.log(`  \u26D4 Org ${org.status} \u2014 cancelling`);
-        scheduledSendRepo.updateStatus(entry.id, 'cancelled', { error: `org_${org.status}` });
-        skipped++;
-        continue;
-      }
-
-      // 3) Mark sending + increment attempts BEFORE send
-      scheduledSendRepo.updateStatus(entry.id, 'sending');
-      scheduledSendRepo.incrementAttempts(entry.id);
-
-      // 4) Build SMS body from template (use custom template from org options if set)
-      const feedbackUrl = entry.payload?.feedbackUrl
-        || `${REVIEWS_BASE_URL}/r/${entry.payload?.requestId || entry.id}`;
-
-      const customSmsTemplate = org.options?.smsTemplate || null;
-      const smsContent = customSmsTemplate
-        ? { body: customSmsTemplate.replace(/\{lien\}/g, feedbackUrl), tag: 'review_request' }
-        : smsTemplates.reviewRequest({
-            orgName: org.name,
-            patientFirstName: entry.payload?.patientFirstName || '',
-            feedbackUrl,
-          });
-
-      // 5) Send SMS (or dry-run)
-      if (DRY_RUN) {
-        console.log(`  \uD83D\uDD04 [DRY-RUN] Would send SMS to ${entry.recipient}`);
-        console.log(`     Body: ${smsContent.body.replace(/\n/g, ' | ')}`);
-        scheduledSendRepo.updateStatus(entry.id, 'sent');
-        sent++;
-        continue;
-      }
-
-      console.log(`  \uD83D\uDCF1 Sending SMS to ${entry.recipient}...`);
-
-      const result = await smsProvider.sendSms({
-        to: entry.recipient,
-        body: smsContent.body,
-        tag: smsContent.tag,
-      });
-
-      // 6) Mark sent
-      scheduledSendRepo.updateStatus(entry.id, 'sent');
-
-      // 7) Record usage (with patient info + segment count)
-      const smsQty = result.smsCount || 1;
-      usageRepo.addEntry({
-        orgId: entry.orgId,
-        type: 'sms',
-        qty: smsQty,
-        details: {
-          scheduledSendId: entry.id,
-          recipient: entry.recipient,
-          patientName: entry.payload?.patientName || '',
-          patientFirstName: entry.payload?.patientFirstName || '',
-          requestId: entry.payload?.requestId || '',
-          source: 'scheduled_send',
-          provider: result.provider,
-          messageId: result.messageId,
-          smsCount: result.smsCount,
-          segments: result.smsCount || 1,
-          bodyLength: smsContent.body.length,
-        },
-      });
-
-      // 7b) Debit subscription credits counter (so dashboard shows correct usage)
-      try {
-        const freshOrg = orgRepo.getById(entry.orgId);
-        if (freshOrg) {
-          const subCredits = freshOrg.subscriptionCredits || {};
-          orgRepo.update(entry.orgId, {
-            subscriptionCredits: {
-              ...subCredits,
-              smsUsedThisPeriod: (subCredits.smsUsedThisPeriod || 0) + smsQty,
-            }
-          });
-        }
-      } catch (debitErr) {
-        console.warn(`  ⚠️ Could not debit subscription credits: ${debitErr.message}`);
-      }
-
-      // 8) Update request lifecycle if linked
-      if (entry.requestDbId) {
-        try {
-          db.run(`
-            UPDATE review_requests
-            SET status = 'sent', sent_at = $now, updated_at = $now
-            WHERE id = $id AND status IN ('created', 'queued')
-          `, { id: entry.requestDbId, now: db.nowISO() });
-        } catch (e) {
-          console.error(`  \u26A0\uFE0F Lifecycle update error: ${e.message}`);
-        }
-      }
-
-      console.log(`  \u2705 Sent (${result.messageId}, ${result.smsCount} segment(s))`);
-      sent++;
-
+      const status = await processSingleEntry(entry);
+      counters[status]++;
     } catch (err) {
       console.error(`  \u274C Error: ${err.message}`);
       scheduledSendRepo.updateStatus(entry.id, 'failed', { error: err.message });
-      failed++;
+      counters.failed++;
     }
   }
 
@@ -225,11 +240,11 @@ async function processScheduledSends() {
   console.log('SUMMARY');
   console.log('='.repeat(60));
   console.log(`Processed: ${pending.length}`);
-  console.log(`Sent:      ${sent}`);
-  console.log(`Failed:    ${failed}`);
-  console.log(`Skipped:   ${skipped}`);
+  console.log(`Sent:      ${counters.sent}`);
+  console.log(`Failed:    ${counters.failed}`);
+  console.log(`Skipped:   ${counters.skipped}`);
 
-  return { processed: pending.length, sent, failed, skipped };
+  return { processed: pending.length, ...counters };
 }
 
 // Run

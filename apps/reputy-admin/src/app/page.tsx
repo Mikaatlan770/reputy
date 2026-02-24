@@ -65,6 +65,11 @@ function formatPrice(cents: number): string {
   }).format(cents / 100)
 }
 
+function computeTrend(delta: number | null): { value: number; isPositive: boolean } | undefined {
+  if (delta === null) return undefined
+  return { value: delta, isPositive: delta >= 0 }
+}
+
 function CreditsSection() {
   const { clientOrg } = useAuth()
   const isClient = useIsClient()
@@ -324,16 +329,9 @@ export default function DashboardPage() {
   const googleRating = googleData?.configured ? (googleData.rating ?? null) : null
   const googleTotalReviews = googleData?.configured ? (googleData.totalReviews ?? null) : null
 
-  // Calculate trend objects from deltas
-  const ratingTrend = kpi.avgRatingDelta !== null 
-    ? { value: kpi.avgRatingDelta, isPositive: kpi.avgRatingDelta >= 0 }
-    : undefined
-  const reviewsTrend = kpi.reviewsDeltaPct !== null
-    ? { value: kpi.reviewsDeltaPct, isPositive: kpi.reviewsDeltaPct >= 0 }
-    : undefined
-  const responseTrend = kpi.responseRateDeltaPct !== null
-    ? { value: kpi.responseRateDeltaPct, isPositive: kpi.responseRateDeltaPct >= 0 }
-    : undefined
+  const ratingTrend = computeTrend(kpi.avgRatingDelta)
+  const reviewsTrend = computeTrend(kpi.reviewsDeltaPct)
+  const responseTrend = computeTrend(kpi.responseRateDeltaPct)
 
   if (statsLoading) {
     return (
@@ -440,60 +438,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Google Reviews KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard
-          title="Note Google"
-          value={googleLoading ? '…' : (googleRating != null ? googleRating.toFixed(1) : kpi.averageRating.toFixed(1))}
-          subtitle={googleRating != null ? 'note publique Google' : `sur ${periodLabel}`}
-          icon={Star}
-          trend={googleRating != null ? undefined : ratingTrend}
-          iconColor="text-amber-500"
-          iconBg="bg-amber-50"
-        />
-        <KpiCard
-          title="Total avis Google"
-          value={googleLoading ? '…' : (googleTotalReviews ?? kpi.totalReviews)}
-          subtitle="avis publics"
-          icon={MessageSquare}
-          iconColor="text-blue-500"
-          iconBg="bg-blue-50"
-        />
-        <KpiCard
-          title={`Avis ${periodLabel}`}
-          value={kpi.totalPeriod}
-          subtitle="cette période"
-          icon={TrendingUp}
-          trend={reviewsTrend}
-          iconColor="text-green-500"
-          iconBg="bg-green-50"
-        />
-        <KpiCard
-          title="Non répondus"
-          value={kpi.unrepliedReviews}
-          subtitle="à traiter"
-          icon={AlertCircle}
-          iconColor="text-red-500"
-          iconBg="bg-red-50"
-        />
-        <KpiCard
-          title="Taux réponse"
-          value={`${kpi.responseRate}%`}
-          subtitle={`sur ${periodLabel}`}
-          icon={CheckCircle}
-          trend={responseTrend}
-          iconColor="text-emerald-500"
-          iconBg="bg-emerald-50"
-        />
-        <KpiCard
-          title="Délai réponse"
-          value={formatResponseTime(kpi.avgResponseTime)}
-          subtitle="moyenne"
-          icon={Clock}
-          iconColor="text-purple-500"
-          iconBg="bg-purple-50"
-        />
-      </div>
+      <GoogleReviewsKpis
+        kpi={kpi}
+        googleLoading={googleLoading}
+        googleRating={googleRating}
+        googleTotalReviews={googleTotalReviews}
+        periodLabel={periodLabel}
+        ratingTrend={ratingTrend}
+        reviewsTrend={reviewsTrend}
+        responseTrend={responseTrend}
+      />
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -516,6 +470,82 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <QuickActions />
       </div>
+    </div>
+  )
+}
+
+function GoogleReviewsKpis({
+  kpi,
+  googleLoading,
+  googleRating,
+  googleTotalReviews,
+  periodLabel,
+  ratingTrend,
+  reviewsTrend,
+  responseTrend,
+}: {
+  kpi: ReturnType<typeof statsToKpiData>
+  googleLoading: boolean
+  googleRating: number | null
+  googleTotalReviews: number | null
+  periodLabel: string
+  ratingTrend: { value: number; isPositive: boolean } | undefined
+  reviewsTrend: { value: number; isPositive: boolean } | undefined
+  responseTrend: { value: number; isPositive: boolean } | undefined
+}) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <KpiCard
+        title="Note Google"
+        value={googleLoading ? '…' : (googleRating != null ? googleRating.toFixed(1) : kpi.averageRating.toFixed(1))}
+        subtitle={googleRating != null ? 'note publique Google' : `sur ${periodLabel}`}
+        icon={Star}
+        trend={googleRating != null ? undefined : ratingTrend}
+        iconColor="text-amber-500"
+        iconBg="bg-amber-50"
+      />
+      <KpiCard
+        title="Total avis Google"
+        value={googleLoading ? '…' : (googleTotalReviews ?? kpi.totalReviews)}
+        subtitle="avis publics"
+        icon={MessageSquare}
+        iconColor="text-blue-500"
+        iconBg="bg-blue-50"
+      />
+      <KpiCard
+        title={`Avis ${periodLabel}`}
+        value={kpi.totalPeriod}
+        subtitle="cette période"
+        icon={TrendingUp}
+        trend={reviewsTrend}
+        iconColor="text-green-500"
+        iconBg="bg-green-50"
+      />
+      <KpiCard
+        title="Non répondus"
+        value={kpi.unrepliedReviews}
+        subtitle="à traiter"
+        icon={AlertCircle}
+        iconColor="text-red-500"
+        iconBg="bg-red-50"
+      />
+      <KpiCard
+        title="Taux réponse"
+        value={`${kpi.responseRate}%`}
+        subtitle={`sur ${periodLabel}`}
+        icon={CheckCircle}
+        trend={responseTrend}
+        iconColor="text-emerald-500"
+        iconBg="bg-emerald-50"
+      />
+      <KpiCard
+        title="Délai réponse"
+        value={formatResponseTime(kpi.avgResponseTime)}
+        subtitle="moyenne"
+        icon={Clock}
+        iconColor="text-purple-500"
+        iconBg="bg-purple-50"
+      />
     </div>
   )
 }

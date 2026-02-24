@@ -46,20 +46,18 @@ function logError(msg) {
   console.error(`[DB-RESTORE] ❌ ${new Date().toISOString()} — ${msg}`);
 }
 
-function isServerRunning() {
-  // Check PM2 for the configured app name
+function _isPm2Running() {
   try {
     const output = execSync('pm2 jlist 2>/dev/null', { encoding: 'utf-8' });
     const processes = JSON.parse(output);
     const app = processes.find(p => p.name === PM2_NAME);
-    if (app && app.pm2_env?.status === 'online') {
-      return true;
-    }
+    return app?.pm2_env?.status === 'online';
   } catch {
-    // PM2 not available or not running — that's fine
+    return false;
   }
+}
 
-  // Fallback: check if backend port is in use
+function _isPortInUse() {
   try {
     const port = String(process.env.REPUTY_BACKEND_PORT || process.env.PORT || '8787');
     if (!/^\d{2,5}$/.test(port)) return false;
@@ -68,6 +66,10 @@ function isServerRunning() {
   } catch {
     return false;
   }
+}
+
+function isServerRunning() {
+  return _isPm2Running() || _isPortInUse();
 }
 
 // ──────────────────────────────────────────────
@@ -125,6 +127,25 @@ function verifyRestoredDb() {
   }
 }
 
+function _backupExistingDb() {
+  if (!fs.existsSync(DB_PATH)) {
+    log('No existing DB to back up (first restore?)');
+    return;
+  }
+  const bakPath = DB_PATH + '.pre-restore.bak';
+  fs.copyFileSync(DB_PATH, bakPath);
+  log(`Current DB saved as: ${bakPath}`);
+}
+
+function _cleanSidecars() {
+  for (const ext of ['-wal', '-shm']) {
+    const sidecar = DB_PATH + ext;
+    if (!fs.existsSync(sidecar)) continue;
+    fs.unlinkSync(sidecar);
+    log(`Removed sidecar: ${path.basename(sidecar)}`);
+  }
+}
+
 function main() {
   const backupPath = process.argv[2];
   if (!backupPath) {
@@ -151,20 +172,8 @@ function main() {
   }
   log('Server not running ✓');
 
-  if (fs.existsSync(DB_PATH)) {
-    const bakPath = DB_PATH + '.pre-restore.bak';
-    fs.copyFileSync(DB_PATH, bakPath);
-    log(`Current DB saved as: ${bakPath}`);
-  } else {
-    log('No existing DB to back up (first restore?)');
-  }
-
-  for (const sidecar of [DB_PATH + '-wal', DB_PATH + '-shm']) {
-    if (fs.existsSync(sidecar)) {
-      fs.unlinkSync(sidecar);
-      log(`Removed sidecar: ${path.basename(sidecar)}`);
-    }
-  }
+  _backupExistingDb();
+  _cleanSidecars();
 
   fs.copyFileSync(resolvedBackup, DB_PATH);
   log('Backup copied to target path ✓');

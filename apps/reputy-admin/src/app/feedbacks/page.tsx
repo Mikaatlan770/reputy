@@ -309,103 +309,7 @@ export default function FeedbacksPage() {
       {!loading && !error && feedbacks.length > 0 && (
         <div className="space-y-4">
           {feedbacks.map((feedback) => (
-            <Card
-              key={feedback.requestId}
-              className={cn(
-                'hover:shadow-md transition-shadow',
-                feedback.rating <= 2 && 'border-l-4 border-l-red-500',
-                feedback.rating >= 4 && 'border-l-4 border-l-green-500'
-              )}
-            >
-              <CardContent className="p-5">
-                <div className="flex items-start gap-4">
-                  <Avatar className="h-11 w-11">
-                    <AvatarFallback
-                      className={cn(
-                        'text-sm font-medium',
-                        feedback.rating >= 4
-                          ? 'bg-green-100 text-green-700'
-                          : feedback.rating <= 2
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-amber-100 text-amber-700'
-                      )}
-                    >
-                      {getInitials(getPatientName(feedback.patient))}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground">
-                            {getPatientName(feedback.patient)}
-                          </span>
-                          <Badge
-                            variant="secondary"
-                            className={cn('text-xs', getRatingColor(feedback.rating))}
-                          >
-                            {getRatingLabel(feedback.rating)}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {formatDateTime(feedback.createdAt)}
-                          </span>
-                          {feedback.channel && (
-                            <span className="flex items-center gap-1">
-                              {feedback.channel === 'sms' ? (
-                                <Phone className="h-3 w-3" />
-                              ) : (
-                                <Mail className="h-3 w-3" />
-                              )}
-                              {feedback.channel.toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <Star
-                            key={star}
-                            className={cn(
-                              'h-5 w-5',
-                              star <= feedback.rating
-                                ? 'fill-amber-400 text-amber-400'
-                                : 'text-gray-200'
-                            )}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                    {feedback.comment ? (
-                      <p className="mt-3 text-sm text-foreground leading-relaxed bg-muted/50 p-3 rounded-lg">
-                        &ldquo;{feedback.comment}&rdquo;
-                      </p>
-                    ) : (
-                      <p className="mt-3 text-sm text-muted-foreground italic">
-                        Aucun commentaire
-                      </p>
-                    )}
-                    {/* Contact info */}
-                    <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-                      {feedback.patient?.phone && (
-                        <span className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {feedback.patient.phone}
-                        </span>
-                      )}
-                      {feedback.patient?.email && (
-                        <span className="flex items-center gap-1">
-                          <Mail className="h-3 w-3" />
-                          {feedback.patient.email}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <FeedbackCard key={feedback.requestId} feedback={feedback} />
           ))}
         </div>
       )}
@@ -426,5 +330,105 @@ export default function FeedbacksPage() {
         }))}
       />
     </div>
+  )
+}
+
+function FeedbackCard({ feedback }: { feedback: Feedback }) {
+  return (
+    <Card
+      className={cn(
+        'hover:shadow-md transition-shadow',
+        feedback.rating <= 2 && 'border-l-4 border-l-red-500',
+        feedback.rating >= 4 && 'border-l-4 border-l-green-500'
+      )}
+    >
+      <CardContent className="p-5">
+        <div className="flex items-start gap-4">
+          <Avatar className="h-11 w-11">
+            <AvatarFallback
+              className={cn(
+                'text-sm font-medium',
+                feedback.rating >= 4
+                  ? 'bg-green-100 text-green-700'
+                  : feedback.rating <= 2
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-700'
+              )}
+            >
+              {getInitials(getPatientName(feedback.patient))}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-foreground">
+                    {getPatientName(feedback.patient)}
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className={cn('text-xs', getRatingColor(feedback.rating))}
+                  >
+                    {getRatingLabel(feedback.rating)}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {formatDateTime(feedback.createdAt)}
+                  </span>
+                  {feedback.channel && (
+                    <span className="flex items-center gap-1">
+                      {feedback.channel === 'sms' ? (
+                        <Phone className="h-3 w-3" />
+                      ) : (
+                        <Mail className="h-3 w-3" />
+                      )}
+                      {feedback.channel.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Star
+                    key={star}
+                    className={cn(
+                      'h-5 w-5',
+                      star <= feedback.rating
+                        ? 'fill-amber-400 text-amber-400'
+                        : 'text-gray-200'
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+            {feedback.comment ? (
+              <p className="mt-3 text-sm text-foreground leading-relaxed bg-muted/50 p-3 rounded-lg">
+                &ldquo;{feedback.comment}&rdquo;
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground italic">
+                Aucun commentaire
+              </p>
+            )}
+            <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+              {feedback.patient?.phone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="h-3 w-3" />
+                  {feedback.patient.phone}
+                </span>
+              )}
+              {feedback.patient?.email && (
+                <span className="flex items-center gap-1">
+                  <Mail className="h-3 w-3" />
+                  {feedback.patient.email}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

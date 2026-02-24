@@ -110,11 +110,29 @@ function count(options = {}) {
  * @param {object} data - Organization data
  * @returns {object} Created organization
  */
+function _resolveCreateDefaults(data) {
+  const vertical = data.vertical || 'health';
+  return {
+    id: data.id || db.generateId(),
+    publicKey: data.publicKey || generatePublicKey(),
+    apiToken: data.apiToken || generateApiToken(),
+    name: data.name || 'New Organization',
+    email: data.email || null,
+    vertical,
+    status: data.status || 'active',
+    billing: data.billing || getDefaultBilling(),
+    plan: data.plan || getDefaultPlan(vertical),
+    negotiated: data.negotiated || {},
+    options: data.options || getDefaultOptions(),
+    quotas: data.quotas || getDefaultQuotas(),
+    balances: data.balances || {},
+    subscriptionCredits: data.subscriptionCredits || {},
+  };
+}
+
 function create(data) {
-  const id = data.id || db.generateId();
-  const publicKey = data.publicKey || generatePublicKey();
-  const apiToken = data.apiToken || generateApiToken();
-  const apiTokenHash = db.hashToken(apiToken);
+  const d = _resolveCreateDefaults(data);
+  const apiTokenHash = db.hashToken(d.apiToken);
   const now = db.nowISO();
   
   db.run(`
@@ -132,28 +150,27 @@ function create(data) {
       $createdAt, $updatedAt
     )
   `, {
-    id,
-    publicKey,
-    name: data.name || 'New Organization',
-    email: data.email || null,
-    vertical: data.vertical || 'health',
-    status: data.status || 'active',
+    id: d.id,
+    publicKey: d.publicKey,
+    name: d.name,
+    email: d.email,
+    vertical: d.vertical,
+    status: d.status,
     apiTokenHash,
     apiTokenCreatedAt: now,
-    billingJson: db.toJson(data.billing || getDefaultBilling()),
-    planJson: db.toJson(data.plan || getDefaultPlan(data.vertical)),
-    negotiatedJson: db.toJson(data.negotiated || {}),
-    optionsJson: db.toJson(data.options || getDefaultOptions()),
-    quotasJson: db.toJson(data.quotas || getDefaultQuotas()),
-    balancesJson: db.toJson(data.balances || {}),
-    subscriptionCreditsJson: db.toJson(data.subscriptionCredits || {}),
+    billingJson: db.toJson(d.billing),
+    planJson: db.toJson(d.plan),
+    negotiatedJson: db.toJson(d.negotiated),
+    optionsJson: db.toJson(d.options),
+    quotasJson: db.toJson(d.quotas),
+    balancesJson: db.toJson(d.balances),
+    subscriptionCreditsJson: db.toJson(d.subscriptionCredits),
     createdAt: now,
     updatedAt: now
   });
   
-  // Return created org (including plain token for initial display)
-  const org = getById(id);
-  org._plainApiToken = apiToken; // Only available on creation!
+  const org = getById(d.id);
+  org._plainApiToken = d.apiToken;
   return org;
 }
 

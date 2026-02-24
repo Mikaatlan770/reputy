@@ -478,199 +478,45 @@ function NewCampaignDialog({
           </div>
         )}
 
-        {/* STEP 1: Info */}
         {step === 1 && (
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Nom de la campagne</label>
-              <Input
-                placeholder="Ex: Campagne avis Février 2026"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Type de campagne</label>
-              <Select value={campaignType} onValueChange={(v: 'review' | 'marketing') => setCampaignType(v)}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="review">Collecte d&apos;avis</SelectItem>
-                  <SelectItem value="marketing">Marketing / Information</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Canal d&apos;envoi</label>
-              <div className="flex gap-3 mt-2">
-                <button
-                  onClick={() => setChannel('email')}
-                  className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
-                    channel === 'email' ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <Mail className={`h-6 w-6 mx-auto mb-2 ${channel === 'email' ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <p className="text-sm font-medium">Email</p>
-                  <p className="text-xs text-muted-foreground mt-1">Personnalisable, détaillé</p>
-                </button>
-                <button
-                  onClick={() => setChannel('sms')}
-                  className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
-                    channel === 'sms' ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <MessageSquare className={`h-6 w-6 mx-auto mb-2 ${channel === 'sms' ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <p className="text-sm font-medium">SMS</p>
-                  <p className="text-xs text-muted-foreground mt-1">Direct, haut taux d&apos;ouverture</p>
-                </button>
-              </div>
-            </div>
-
-            {campaignType === 'review' && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4" />
-                  <span className="font-medium">Protection anti-spam</span>
-                </div>
-                <p className="mt-1 text-xs">
-                  Les contacts ayant été sollicités {spamThreshold} fois sans laisser d&apos;avis seront automatiquement exclus.
-                </p>
-              </div>
-            )}
-          </div>
+          <CampaignInfoStep
+            name={name}
+            setName={setName}
+            campaignType={campaignType}
+            setCampaignType={setCampaignType}
+            channel={channel}
+            setChannel={setChannel}
+            spamThreshold={spamThreshold}
+          />
         )}
 
-        {/* STEP 2: Recipients */}
         {step === 2 && (
-          <div className="space-y-4">
-            {contactsLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-sm text-muted-foreground">Chargement des contacts...</span>
-              </div>
-            ) : contacts.length === 0 ? (
-              <div className="text-center py-8">
-                <Users className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
-                <p className="font-medium">Aucun contact avec {channel === 'sms' ? 'téléphone' : 'email'}</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Importez des contacts depuis l&apos;onglet Contacts d&apos;abord.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">
-                    {selectedContacts.size} / {contacts.length} contact(s) sélectionné(s)
-                  </p>
-                  <Button variant="outline" size="sm" onClick={toggleSelectAll}>
-                    {selectAll ? 'Tout désélectionner' : 'Tout sélectionner'}
-                  </Button>
-                </div>
-
-                <div className="max-h-[300px] overflow-y-auto space-y-1 border rounded-lg p-2">
-                  {contacts.map(contact => (
-                    <label
-                      key={contact.id}
-                      className={`flex items-center gap-3 p-2 rounded hover:bg-muted cursor-pointer ${
-                        selectedContacts.has(contact.id) ? 'bg-primary/5' : ''
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedContacts.has(contact.id)}
-                        onChange={() => toggleContact(contact.id)}
-                        className="rounded"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {contact.firstName || contact.lastName
-                            ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-                            : contact.email || contact.phone || 'Sans nom'}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {channel === 'email' ? contact.email : contact.phone}
-                        </p>
-                      </div>
-                      {contact.hasLeftReview && (
-                        <Badge variant="outline" className="text-xs text-green-600">A laissé un avis</Badge>
-                      )}
-                      {contact.reviewSolicitationsNoReply >= spamThreshold && (
-                        <Badge variant="outline" className="text-xs text-red-600">Seuil anti-spam</Badge>
-                      )}
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          <RecipientsStep
+            contactsLoading={contactsLoading}
+            contacts={contacts}
+            channel={channel}
+            selectedContacts={selectedContacts}
+            toggleContact={toggleContact}
+            selectAll={selectAll}
+            toggleSelectAll={toggleSelectAll}
+            spamThreshold={spamThreshold}
+          />
         )}
 
-        {/* STEP 3: Message */}
         {step === 3 && (
-          <div className="space-y-4">
-            {channel === 'email' && (
-              <div>
-                <label className="text-sm font-medium">Objet de l&apos;email</label>
-                <Input
-                  placeholder="Votre avis nous intéresse !"
-                  value={subject}
-                  onChange={e => setSubject(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-            )}
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-sm font-medium">Message</label>
-                <span className="text-xs text-muted-foreground">
-                  Variables : {'{prenom}'}, {'{nom}'}, {'{lien_avis}'}
-                </span>
-              </div>
-              <Textarea
-                rows={channel === 'sms' ? 4 : 8}
-                value={template}
-                onChange={e => setTemplate(e.target.value)}
-                placeholder="Composez votre message..."
-                className="font-mono text-sm"
-              />
-              {channel === 'sms' && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {smsLength} caractères • {smsSegments} segment{smsSegments > 1 ? 's' : ''} SMS
-                  {smsSegments > 1 && (
-                    <span className="text-amber-600 ml-1">(chaque segment = 1 crédit SMS)</span>
-                  )}
-                </p>
-              )}
-            </div>
-
-            {/* Preview */}
-            <div>
-              <label className="text-sm font-medium mb-1 block">Aperçu</label>
-              <div className={`p-4 rounded-lg border ${channel === 'sms' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
-                {channel === 'email' && subject && (
-                  <p className="text-sm font-semibold mb-2">{subject}</p>
-                )}
-                <p className="text-sm whitespace-pre-wrap">{previewText}</p>
-              </div>
-            </div>
-
-            {campaignType === 'review' && (
-              <div>
-                <label className="text-sm font-medium">Seuil anti-spam (sollicitations max sans réponse)</label>
-                <Select value={String(spamThreshold)} onValueChange={v => setSpamThreshold(Number(v))}>
-                  <SelectTrigger className="w-32 mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {[1, 2, 3, 4, 5].map(n => (
-                      <SelectItem key={n} value={String(n)}>{n} fois</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
+          <MessageStep
+            channel={channel}
+            subject={subject}
+            setSubject={setSubject}
+            template={template}
+            setTemplate={setTemplate}
+            smsLength={smsLength}
+            smsSegments={smsSegments}
+            previewText={previewText}
+            campaignType={campaignType}
+            spamThreshold={spamThreshold}
+            setSpamThreshold={setSpamThreshold}
+          />
         )}
 
         <DialogFooter className="flex justify-between">
@@ -1294,4 +1140,263 @@ function parseCSVLine(line: string): string[] {
   }
   result.push(current.trim())
   return result
+}
+
+// ============================================================
+// NewCampaignDialog step sub-components
+// ============================================================
+
+function CampaignInfoStep({
+  name,
+  setName,
+  campaignType,
+  setCampaignType,
+  channel,
+  setChannel,
+  spamThreshold,
+}: {
+  name: string
+  setName: (v: string) => void
+  campaignType: 'review' | 'marketing'
+  setCampaignType: (v: 'review' | 'marketing') => void
+  channel: 'sms' | 'email'
+  setChannel: (v: 'sms' | 'email') => void
+  spamThreshold: number
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-sm font-medium">Nom de la campagne</label>
+        <Input
+          placeholder="Ex: Campagne avis Février 2026"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          className="mt-1"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Type de campagne</label>
+        <Select value={campaignType} onValueChange={(v: 'review' | 'marketing') => setCampaignType(v)}>
+          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="review">Collecte d&apos;avis</SelectItem>
+            <SelectItem value="marketing">Marketing / Information</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Canal d&apos;envoi</label>
+        <div className="flex gap-3 mt-2">
+          <button
+            onClick={() => setChannel('email')}
+            className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+              channel === 'email' ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+            }`}
+          >
+            <Mail className={`h-6 w-6 mx-auto mb-2 ${channel === 'email' ? 'text-primary' : 'text-muted-foreground'}`} />
+            <p className="text-sm font-medium">Email</p>
+            <p className="text-xs text-muted-foreground mt-1">Personnalisable, détaillé</p>
+          </button>
+          <button
+            onClick={() => setChannel('sms')}
+            className={`flex-1 p-4 rounded-lg border-2 transition-colors ${
+              channel === 'sms' ? 'border-primary bg-primary/5' : 'border-muted hover:border-muted-foreground/30'
+            }`}
+          >
+            <MessageSquare className={`h-6 w-6 mx-auto mb-2 ${channel === 'sms' ? 'text-primary' : 'text-muted-foreground'}`} />
+            <p className="text-sm font-medium">SMS</p>
+            <p className="text-xs text-muted-foreground mt-1">Direct, haut taux d&apos;ouverture</p>
+          </button>
+        </div>
+      </div>
+
+      {campaignType === 'review' && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            <span className="font-medium">Protection anti-spam</span>
+          </div>
+          <p className="mt-1 text-xs">
+            Les contacts ayant été sollicités {spamThreshold} fois sans laisser d&apos;avis seront automatiquement exclus.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RecipientsStep({
+  contactsLoading,
+  contacts,
+  channel,
+  selectedContacts,
+  toggleContact,
+  selectAll,
+  toggleSelectAll,
+  spamThreshold,
+}: {
+  contactsLoading: boolean
+  contacts: Contact[]
+  channel: 'sms' | 'email'
+  selectedContacts: Set<string>
+  toggleContact: (id: string) => void
+  selectAll: boolean
+  toggleSelectAll: () => void
+  spamThreshold: number
+}) {
+  return (
+    <div className="space-y-4">
+      {contactsLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Chargement des contacts...</span>
+        </div>
+      ) : contacts.length === 0 ? (
+        <div className="text-center py-8">
+          <Users className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
+          <p className="font-medium">Aucun contact avec {channel === 'sms' ? 'téléphone' : 'email'}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Importez des contacts depuis l&apos;onglet Contacts d&apos;abord.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">
+              {selectedContacts.size} / {contacts.length} contact(s) sélectionné(s)
+            </p>
+            <Button variant="outline" size="sm" onClick={toggleSelectAll}>
+              {selectAll ? 'Tout désélectionner' : 'Tout sélectionner'}
+            </Button>
+          </div>
+
+          <div className="max-h-[300px] overflow-y-auto space-y-1 border rounded-lg p-2">
+            {contacts.map(contact => (
+              <label
+                key={contact.id}
+                className={`flex items-center gap-3 p-2 rounded hover:bg-muted cursor-pointer ${
+                  selectedContacts.has(contact.id) ? 'bg-primary/5' : ''
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedContacts.has(contact.id)}
+                  onChange={() => toggleContact(contact.id)}
+                  className="rounded"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {contact.firstName || contact.lastName
+                      ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+                      : contact.email || contact.phone || 'Sans nom'}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {channel === 'email' ? contact.email : contact.phone}
+                  </p>
+                </div>
+                {contact.hasLeftReview && (
+                  <Badge variant="outline" className="text-xs text-green-600">A laissé un avis</Badge>
+                )}
+                {contact.reviewSolicitationsNoReply >= spamThreshold && (
+                  <Badge variant="outline" className="text-xs text-red-600">Seuil anti-spam</Badge>
+                )}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function MessageStep({
+  channel,
+  subject,
+  setSubject,
+  template,
+  setTemplate,
+  smsLength,
+  smsSegments,
+  previewText,
+  campaignType,
+  spamThreshold,
+  setSpamThreshold,
+}: {
+  channel: 'sms' | 'email'
+  subject: string
+  setSubject: (v: string) => void
+  template: string
+  setTemplate: (v: string) => void
+  smsLength: number
+  smsSegments: number
+  previewText: string
+  campaignType: 'review' | 'marketing'
+  spamThreshold: number
+  setSpamThreshold: (v: number) => void
+}) {
+  return (
+    <div className="space-y-4">
+      {channel === 'email' && (
+        <div>
+          <label className="text-sm font-medium">Objet de l&apos;email</label>
+          <Input
+            placeholder="Votre avis nous intéresse !"
+            value={subject}
+            onChange={e => setSubject(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+      )}
+
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm font-medium">Message</label>
+          <span className="text-xs text-muted-foreground">
+            Variables : {'{prenom}'}, {'{nom}'}, {'{lien_avis}'}
+          </span>
+        </div>
+        <Textarea
+          rows={channel === 'sms' ? 4 : 8}
+          value={template}
+          onChange={e => setTemplate(e.target.value)}
+          placeholder="Composez votre message..."
+          className="font-mono text-sm"
+        />
+        {channel === 'sms' && (
+          <p className="text-xs text-muted-foreground mt-1">
+            {smsLength} caractères • {smsSegments} segment{smsSegments > 1 ? 's' : ''} SMS
+            {smsSegments > 1 && (
+              <span className="text-amber-600 ml-1">(chaque segment = 1 crédit SMS)</span>
+            )}
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label className="text-sm font-medium mb-1 block">Aperçu</label>
+        <div className={`p-4 rounded-lg border ${channel === 'sms' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
+          {channel === 'email' && subject && (
+            <p className="text-sm font-semibold mb-2">{subject}</p>
+          )}
+          <p className="text-sm whitespace-pre-wrap">{previewText}</p>
+        </div>
+      </div>
+
+      {campaignType === 'review' && (
+        <div>
+          <label className="text-sm font-medium">Seuil anti-spam (sollicitations max sans réponse)</label>
+          <Select value={String(spamThreshold)} onValueChange={v => setSpamThreshold(Number(v))}>
+            <SelectTrigger className="w-32 mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {[1, 2, 3, 4, 5].map(n => (
+                <SelectItem key={n} value={String(n)}>{n} fois</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    </div>
+  )
 }

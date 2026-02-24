@@ -151,6 +151,888 @@ function formatPeriod(startStr: string, endStr: string): string {
   return `${startDay} ${month} – ${endDay} ${endMonth} ${year}`
 }
 
+// === Lookup objects (reduce ternary chains) ===
+
+const USAGE_STATUS_LABELS: Record<string, string> = {
+  success: 'Envoyé',
+  sent: 'Envoyé',
+  queued: 'En attente',
+  feedback_received: 'Feedback reçu',
+}
+
+const USAGE_STATUS_COLORS: Record<string, string> = {
+  success: 'text-green-400',
+  sent: 'text-green-400',
+  queued: 'text-yellow-400',
+  feedback_received: 'text-blue-400',
+}
+
+const USAGE_OK_STATUSES = new Set(['success', 'sent', 'queued', 'feedback_received'])
+
+const TELEMETRY_LEVEL_STYLES: Record<string, string> = {
+  error: 'bg-red-500/10 border-red-500/20',
+  warn: 'bg-amber-500/10 border-amber-500/20',
+  info: 'bg-slate-700/30 border-slate-600',
+}
+
+const TELEMETRY_ICON_COLORS: Record<string, string> = {
+  error: 'text-red-400',
+  warn: 'text-amber-400',
+  info: 'text-blue-400',
+}
+
+const TELEMETRY_ICONS = { error: AlertCircle, warn: AlertTriangle, info: CheckCircle }
+
+// === Helper functions ===
+
+type ApiTokenInfo = {
+  apiTokenMasked: string
+  apiTokenCreatedAt: string | null
+  apiTokenLastRotatedAt: string | null
+  previousTokenActive: boolean
+  previousTokenMasked: string | null
+  previousTokenExpiresAt: string | null
+}
+
+function getPatientDisplayName(meta: Record<string, unknown>): string {
+  const firstName = (meta.patientFirstName as string || '').trim()
+  const lastName = (meta.patientLastName as string || '').trim()
+  const fullName = [firstName, lastName].filter(Boolean).join(' ')
+  return fullName
+    || (meta.patientName as string || '').trim()
+    || (meta.patientContact as string || '').trim()
+    || 'N/A'
+}
+
+function getPlanBadgeClass(planCode: string): string {
+  if (planCode.includes('platinum') || planCode.includes('or') || planCode.includes('gold')) {
+    return 'bg-purple-500/20 text-purple-400'
+  }
+  if (planCode.includes('argent') || planCode.includes('silver')) {
+    return 'bg-slate-500/20 text-slate-300'
+  }
+  return 'bg-orange-500/20 text-orange-400'
+}
+
+function buildCreditSummaryParts(sms: number, email: number, ai: number): string[] {
+  const parts: string[] = []
+  if (sms > 0) parts.push(`${sms} SMS`)
+  if (email > 0) parts.push(`${email} emails`)
+  if (ai > 0) parts.push(`${ai} IA`)
+  return parts
+}
+
+// === Extracted small components ===
+
+function UsageEntryRow({ entry }: { entry: UsageEntry }) {
+  const meta = entry.meta || {}
+  const patientName = getPatientDisplayName(meta)
+  const patientContact = (meta.patientContact as string || '').trim()
+  const showContact = patientContact && patientContact !== patientName
+  const status = meta.status as string || 'success'
+  const simulated = meta.simulated as boolean
+  const resend = meta.resend as boolean
+  const segments = meta.segments as number | null
+  const statusLabel = USAGE_STATUS_LABELS[status] || 'Échec'
+  const statusColor = USAGE_STATUS_COLORS[status] || 'text-red-400'
+  const isOkStatus = USAGE_OK_STATUSES.has(status)
+
+  return (
+    <div className={cn(
+      'flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded border',
+      isOkStatus ? 'bg-slate-700/30 border-slate-600' : 'bg-red-500/10 border-red-500/20'
+    )}>
+      <div className="flex items-center gap-3 flex-1">
+        {entry.type === 'sms' ? (
+          <MessageSquare className="h-5 w-5 text-blue-400 flex-shrink-0" />
+        ) : (
+          <Mail className="h-5 w-5 text-orange-400 flex-shrink-0" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-white font-medium truncate">{patientName}</p>
+          {showContact && (
+            <p className="text-xs text-slate-500 truncate">{patientContact}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {simulated && (
+          <Badge variant="outline" className="text-xs text-slate-500">Simulé</Badge>
+        )}
+        {resend && (
+          <Badge variant="outline" className="text-xs text-amber-400">Renvoi</Badge>
+        )}
+        {entry.type === 'sms' && segments != null && segments >= 1 && (
+          <Badge variant="outline" className="text-xs text-purple-400">
+            {segments} segment{segments > 1 ? 's' : ''}
+          </Badge>
+        )}
+        {entry.type === 'sms' && entry.qty > 1 && (
+          <Badge variant="outline" className="text-xs text-purple-400">
+            ×{entry.qty} crédits
+          </Badge>
+        )}
+        <Badge variant="outline" className={cn('text-xs', statusColor)}>
+          {statusLabel}
+        </Badge>
+        <span className="text-slate-500 text-xs whitespace-nowrap">{formatDate(entry.ts)}</span>
+      </div>
+    </div>
+  )
+}
+
+function TelemetryEntryRow({ entry }: { entry: TelemetryEntry }) {
+  const bgStyle = TELEMETRY_LEVEL_STYLES[entry.level] || TELEMETRY_LEVEL_STYLES.info
+  const LevelIcon = TELEMETRY_ICONS[entry.level as keyof typeof TELEMETRY_ICONS] || CheckCircle
+  const iconColor = TELEMETRY_ICON_COLORS[entry.level] || 'text-blue-400'
+
+  return (
+    <div className={cn('p-3 rounded text-sm border', bgStyle)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <LevelIcon className={cn('h-4 w-4 flex-shrink-0', iconColor)} />
+        <Badge variant="outline" className={cn(
+          'text-xs',
+          entry.source === 'extension' ? 'text-purple-400' : 'text-slate-400'
+        )}>
+          {entry.source}
+        </Badge>
+        {entry.code && (
+          <Badge variant="outline" className="text-xs text-white font-mono">
+            {entry.code}
+          </Badge>
+        )}
+        <span className="text-xs text-slate-500 ml-auto whitespace-nowrap">{formatDate(entry.ts)}</span>
+      </div>
+      <p className="text-white mt-2">{entry.message}</p>
+      {entry.stack && (
+        <pre className="text-xs text-slate-400 mt-2 overflow-x-auto bg-slate-800 p-2 rounded">{entry.stack}</pre>
+      )}
+    </div>
+  )
+}
+
+function PricingDisplay({ effectiveBillingData, billingComputed, planCode }: {
+  effectiveBillingData: EffectiveBilling | null
+  billingComputed: Org['billingComputed']
+  planCode: string
+}) {
+  const raw = effectiveBillingData || billingComputed
+  if (!raw) {
+    return (
+      <p className="text-2xl font-bold text-white">
+        {formatPriceHT(getCatalogPrice(planCode))}
+      </p>
+    )
+  }
+
+  const b = toBillingUI(raw)
+  const catalog = displayPrice(b, b.priceCatalogCents)
+  const effective = displayPrice(b, b.priceEffectiveCents)
+
+  return (
+    <>
+      {b.hasDiscount ? (
+        <div className="flex items-center gap-2">
+          <span className="text-slate-500 line-through text-sm">
+            {formatPriceHT(catalog)}
+          </span>
+          <span className="text-2xl font-bold text-emerald-400">
+            {formatPriceHT(effective)}
+          </span>
+        </div>
+      ) : (
+        <p className="text-2xl font-bold text-white">
+          {formatPriceHT(effective)}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1 mt-1">
+        {b.hasDiscount && b.discountLabel && (
+          <Badge className="bg-emerald-500/20 text-emerald-400 text-[10px]">
+            {b.discountLabel}
+          </Badge>
+        )}
+        {b.hasDiscount && !b.discountLabel && b.discountPercent != null && (
+          <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
+            -{b.discountPercent}%
+          </Badge>
+        )}
+        {b.isProrata && (
+          <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
+            prorata
+          </Badge>
+        )}
+        <span className="text-xs text-slate-500">
+          {!b.isProrata && ' /mois'}
+          {b.isNegotiated && !b.isProrata && !b.hasDiscount && ' (négocié)'}
+        </span>
+      </div>
+      {b.isProrata && (
+        <p className="text-[10px] text-slate-500 mt-1">
+          Base mensuelle: {formatPriceHT(b.priceEffectiveCents)}/mois
+        </p>
+      )}
+    </>
+  )
+}
+
+function SubscriptionCreditCell({ icon, label, used, total, remaining, isProrata, monthlyBase, includedMonthly, giftMonthly }: {
+  icon: React.ReactNode
+  label: string
+  used: number
+  total: number
+  remaining: number
+  isProrata: boolean
+  monthlyBase: number
+  includedMonthly: number
+  giftMonthly: number
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="text-xs text-slate-500">{label}</span>
+      </div>
+      <p className="text-xl font-bold text-white">
+        {used} <span className="text-slate-500 text-sm">/ {total}</span>
+      </p>
+      <p className="text-xs text-green-400">
+        {remaining} restants
+      </p>
+      {isProrata && monthlyBase !== includedMonthly && (
+        <p className="text-xs text-purple-400">
+          {includedMonthly} inclus (base: {monthlyBase})
+        </p>
+      )}
+      {giftMonthly > 0 && (
+        <p className="text-xs text-amber-400">
+          + {giftMonthly} offerts
+        </p>
+      )}
+    </div>
+  )
+}
+
+// === Extracted tab sub-components ===
+
+function IntegrationTabContent({ org, onError, onSuccess }: {
+  org: Org
+  onError: (msg: string) => void
+  onSuccess: (msg: string) => void
+}) {
+  const router = useRouter()
+  const [copied, setCopied] = useState(false)
+  const [resetKeyOpen, setResetKeyOpen] = useState(false)
+  const [resetKeyLoading, setResetKeyLoading] = useState(false)
+  const [apiTokenInfo, setApiTokenInfo] = useState<ApiTokenInfo | null>(null)
+  const [rotateTokenOpen, setRotateTokenOpen] = useState(false)
+  const [rotateTokenLoading, setRotateTokenLoading] = useState(false)
+  const [newApiToken, setNewApiToken] = useState<string | null>(null)
+  const [tokenCopied, setTokenCopied] = useState(false)
+
+  useEffect(() => {
+    async function load() {
+      const result = await getApiToken(org.id)
+      if (result.ok && result.tokenInfo) {
+        setApiTokenInfo(result.tokenInfo)
+      }
+    }
+    load()
+  }, [org.id])
+
+  async function handleCopyPublicKey() {
+    try {
+      await navigator.clipboard.writeText(org.publicKey)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      onError('Impossible de copier la clé')
+    }
+  }
+
+  async function handleResetPublicKey() {
+    setResetKeyLoading(true)
+    const result = await resetPublicKey({ orgId: org.id })
+    if (result.ok) {
+      setResetKeyOpen(false)
+      onSuccess(`Clé régénérée: ${result.newPublicKey}`)
+      router.refresh()
+    } else {
+      onError(result.error || 'Erreur lors de la régénération')
+    }
+    setResetKeyLoading(false)
+  }
+
+  async function handleRotateApiToken() {
+    setRotateTokenLoading(true)
+    setNewApiToken(null)
+    const result = await rotateApiToken(org.id)
+    if (result.ok && result.newApiToken) {
+      setNewApiToken(result.newApiToken)
+      onSuccess(result.message || 'Token régénéré avec succès')
+      const refreshResult = await getApiToken(org.id)
+      if (refreshResult.ok && refreshResult.tokenInfo) {
+        setApiTokenInfo(refreshResult.tokenInfo)
+      }
+    } else {
+      onError(result.error || 'Erreur lors de la rotation du token')
+      setRotateTokenOpen(false)
+    }
+    setRotateTokenLoading(false)
+  }
+
+  async function handleCopyNewToken() {
+    if (!newApiToken) return
+    try {
+      await navigator.clipboard.writeText(newApiToken)
+      setTokenCopied(true)
+      setTimeout(() => setTokenCopied(false), 2000)
+    } catch {
+      onError('Impossible de copier le token')
+    }
+  }
+
+  function closeRotateDialog() {
+    setRotateTokenOpen(false)
+    setNewApiToken(null)
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-base text-white flex items-center gap-2">
+            <Key className="h-5 w-5 text-amber-400" />
+            Clé publique (Public Key)
+          </CardTitle>
+          <CardDescription className="text-slate-400">
+            Cette clé permet de relier l&apos;extension Reputy à ce client.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            <code className="flex-1 px-4 py-3 bg-slate-900 rounded-lg font-mono text-amber-400 text-lg">
+              {org.publicKey}
+            </code>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleCopyPublicKey}
+              className="border-slate-600 hover:bg-slate-700"
+            >
+              {copied ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+          
+          <div className="flex items-center justify-between pt-4 border-t border-slate-700">
+            <div>
+              <p className="text-sm text-slate-300">Régénérer la clé</p>
+              <p className="text-xs text-slate-500">
+                L&apos;extension Chrome devra être mise à jour avec la nouvelle clé.
+              </p>
+            </div>
+            <Dialog open={resetKeyOpen} onOpenChange={setResetKeyOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Régénérer
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-amber-400" />
+                    Régénérer la clé publique ?
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-400">
+                    Cette action est irréversible. La clé actuelle sera invalidée et l&apos;extension Chrome devra être reconfigurée.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                  <p className="text-sm text-amber-300">
+                    <strong>Important :</strong> Après la régénération, le client devra :
+                  </p>
+                  <ol className="mt-2 text-sm text-slate-300 list-decimal list-inside space-y-1">
+                    <li>Ouvrir les options de l&apos;extension Chrome</li>
+                    <li>Coller la nouvelle Public Key</li>
+                    <li>Sauvegarder les paramètres</li>
+                  </ol>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setResetKeyOpen(false)} className="border-slate-600">
+                    Annuler
+                  </Button>
+                  <Button
+                    onClick={handleResetPublicKey}
+                    disabled={resetKeyLoading}
+                    className="bg-amber-500 hover:bg-amber-600"
+                  >
+                    {resetKeyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmer'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-base text-white flex items-center gap-2">
+            <Key className="h-5 w-5 text-emerald-400" />
+            Token API (Extension)
+          </CardTitle>
+          <CardDescription className="text-slate-400">
+            Ce token secret permet à l&apos;extension d&apos;authentifier les requêtes pour ce client.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {apiTokenInfo ? (
+            <>
+              <div className="flex items-center gap-3">
+                <code className="flex-1 px-4 py-3 bg-slate-900 rounded-lg font-mono text-emerald-400 text-lg">
+                  {apiTokenInfo.apiTokenMasked}
+                </code>
+                <Badge variant="outline" className="border-emerald-500/30 text-emerald-400">
+                  Actif
+                </Badge>
+              </div>
+              
+              {apiTokenInfo.previousTokenActive && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                  <p className="text-sm text-amber-300 flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Ancien token encore valide jusqu&apos;au{' '}
+                    {apiTokenInfo.previousTokenExpiresAt && formatDate(apiTokenInfo.previousTokenExpiresAt)}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Token: {apiTokenInfo.previousTokenMasked}
+                  </p>
+                </div>
+              )}
+              
+              <div className="text-xs text-slate-500 space-y-1">
+                {apiTokenInfo.apiTokenCreatedAt && (
+                  <p>Créé le: {formatDate(apiTokenInfo.apiTokenCreatedAt)}</p>
+                )}
+                {apiTokenInfo.apiTokenLastRotatedAt && (
+                  <p>Dernière rotation: {formatDate(apiTokenInfo.apiTokenLastRotatedAt)}</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            </div>
+          )}
+          
+          <div className="flex items-center justify-between pt-4 border-t border-slate-700">
+            <div>
+              <p className="text-sm text-slate-300">Rotation du token</p>
+              <p className="text-xs text-slate-500">
+                L&apos;ancien token reste valide 24h après rotation.
+              </p>
+            </div>
+            <Dialog open={rotateTokenOpen} onOpenChange={(open) => open ? setRotateTokenOpen(true) : closeRotateDialog()}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Rotation
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    {newApiToken ? (
+                      <><CheckCircle className="h-5 w-5 text-emerald-400" /> Nouveau token généré</>
+                    ) : (
+                      <><Key className="h-5 w-5 text-emerald-400" /> Rotation du token API</>
+                    )}
+                  </DialogTitle>
+                  <DialogDescription className="text-slate-400">
+                    {newApiToken 
+                      ? "Copiez ce token maintenant, il ne sera plus affiché en clair."
+                      : "Un nouveau token sera généré. L'ancien reste valide 24h."
+                    }
+                  </DialogDescription>
+                </DialogHeader>
+                
+                {newApiToken ? (
+                  <div className="space-y-4">
+                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                      <p className="text-xs text-emerald-300 mb-2 font-medium">Nouveau token (à copier maintenant) :</p>
+                      <code className="block px-3 py-2 bg-slate-900 rounded font-mono text-emerald-400 text-sm break-all">
+                        {newApiToken}
+                      </code>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={handleCopyNewToken} className="flex-1 bg-emerald-500 hover:bg-emerald-600">
+                        {tokenCopied ? (
+                          <><CheckCircle className="h-4 w-4 mr-2" /> Copié !</>
+                        ) : (
+                          <><Copy className="h-4 w-4 mr-2" /> Copier le token</>
+                        )}
+                      </Button>
+                      <Button variant="outline" onClick={closeRotateDialog} className="border-slate-600">
+                        Fermer
+                      </Button>
+                    </div>
+                    <p className="text-xs text-amber-300 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      Ce token ne sera plus visible après fermeture de cette fenêtre.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="p-4 bg-slate-700/30 border border-slate-600 rounded-lg">
+                      <p className="text-sm text-slate-300">
+                        <strong>Important :</strong> Après la rotation, le client devra mettre à jour le token dans l&apos;extension Chrome.
+                      </p>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={closeRotateDialog} className="border-slate-600">
+                        Annuler
+                      </Button>
+                      <Button
+                        onClick={handleRotateApiToken}
+                        disabled={rotateTokenLoading}
+                        className="bg-emerald-500 hover:bg-emerald-600"
+                      >
+                        {rotateTokenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Générer nouveau token'}
+                      </Button>
+                    </DialogFooter>
+                  </>
+                )}
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-base text-white flex items-center gap-2">
+            <Plug className="h-5 w-5 text-blue-400" />
+            Instructions d&apos;intégration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+              <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">1</div>
+              <div>
+                <p className="text-white font-medium">Installer l&apos;extension Chrome</p>
+                <p className="text-sm text-slate-400">
+                  Téléchargez et installez l&apos;extension Reputy depuis le Chrome Web Store.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+              <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">2</div>
+              <div>
+                <p className="text-white font-medium">Configurer la Public Key</p>
+                <p className="text-sm text-slate-400">
+                  Ouvrez les options de l&apos;extension et collez la clé publique.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+              <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">3</div>
+              <div>
+                <p className="text-white font-medium">Configurer le Token API</p>
+                <p className="text-sm text-slate-400">
+                  Générez un token API (section ci-dessus) et collez-le dans les options de l&apos;extension.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
+              <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">4</div>
+              <div>
+                <p className="text-white font-medium">Commencer à collecter des avis</p>
+                <p className="text-sm text-slate-400">
+                  L&apos;extension est prête ! Les demandes d&apos;avis seront automatiquement rattachées à ce compte.
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function UsageTabContent({ usage, recentUsage }: {
+  usage: ClientDetailProps['usage']
+  recentUsage: UsageEntry[]
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-400">SMS 7j</p>
+            <p className="text-2xl font-bold text-blue-400">{usage.days7.sms}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-400">Email 7j</p>
+            <p className="text-2xl font-bold text-orange-400">{usage.days7.email}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-400">SMS 30j</p>
+            <p className="text-2xl font-bold text-blue-400">{usage.days30.sms}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-400">Email 30j</p>
+            <p className="text-2xl font-bold text-orange-400">{usage.days30.email}</p>
+          </CardContent>
+        </Card>
+      </div>
+      
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-base text-white">Derniers envois</CardTitle>
+          <CardDescription className="text-slate-400">
+            Historique détaillé des SMS et emails envoyés
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentUsage.length === 0 ? (
+            <p className="text-slate-500 text-center py-8">Aucun envoi enregistré</p>
+          ) : (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {recentUsage.map((entry) => (
+                <UsageEntryRow key={entry.id} entry={entry} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function TelemetryTabContent({ recentTelemetry }: { recentTelemetry: TelemetryEntry[] }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-400">Infos</p>
+            <p className="text-2xl font-bold text-blue-400">
+              {recentTelemetry.filter(e => e.level === 'info').length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-400">Warnings</p>
+            <p className="text-2xl font-bold text-amber-400">
+              {recentTelemetry.filter(e => e.level === 'warn').length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-slate-800/50 border-slate-700">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-400">Erreurs</p>
+            <p className="text-2xl font-bold text-red-400">
+              {recentTelemetry.filter(e => e.level === 'error').length}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+      
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-base text-white">Logs & Événements</CardTitle>
+          <CardDescription className="text-slate-400">
+            Télémétrie détaillée depuis l&apos;extension et le backend
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentTelemetry.length === 0 ? (
+            <p className="text-slate-500 text-center py-8">Aucun log enregistré</p>
+          ) : (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {recentTelemetry.map((entry) => (
+                <TelemetryEntryRow key={entry.id} entry={entry} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function ActionsTabContent({ org, onError, onSuccess }: {
+  org: Org
+  onError: (msg: string) => void
+  onSuccess: (msg: string) => void
+}) {
+  const router = useRouter()
+  const [statusModalOpen, setStatusModalOpen] = useState(false)
+  const [newStatus, setNewStatus] = useState<'active' | 'suspended' | 'cancelled'>(org.status)
+  const [statusLoading, setStatusLoading] = useState(false)
+
+  async function handleChangeStatus() {
+    setStatusLoading(true)
+    onError('')
+    const result = await changeStatus({ orgId: org.id, status: newStatus })
+    if (result.ok) {
+      setStatusModalOpen(false)
+      onSuccess(`Statut changé: ${statusLabels[result.previousStatus as keyof typeof statusLabels]} → ${statusLabels[newStatus]}`)
+      router.refresh()
+    } else {
+      onError(result.error || 'Erreur lors du changement de statut')
+    }
+    setStatusLoading(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-base text-white">Actions sur le compte</CardTitle>
+          <CardDescription className="text-slate-400">
+            Suspendre, réactiver ou annuler ce client
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 rounded-lg border border-slate-700">
+            <div>
+              <p className="text-white font-medium">Statut actuel</p>
+              <Badge variant="outline" className={cn('mt-1', statusColors[org.status])}>
+                {statusLabels[org.status]}
+              </Badge>
+            </div>
+            <Dialog open={statusModalOpen} onOpenChange={setStatusModalOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="border-slate-600">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Changer le statut
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="bg-slate-800 border-slate-700 text-white">
+                <DialogHeader>
+                  <DialogTitle>Changer le statut</DialogTitle>
+                  <DialogDescription className="text-slate-400">
+                    Cette action affectera l&apos;accès du client à la plateforme.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <Select value={newStatus} onValueChange={(v: 'active' | 'suspended' | 'cancelled') => setNewStatus(v)}>
+                    <SelectTrigger className="bg-slate-700 border-slate-600">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-slate-700">
+                      <SelectItem value="active">
+                        <div className="flex items-center gap-2">
+                          <Play className="h-4 w-4 text-green-400" />
+                          Actif
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="suspended">
+                        <div className="flex items-center gap-2">
+                          <Pause className="h-4 w-4 text-amber-400" />
+                          Suspendu
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="cancelled">
+                        <div className="flex items-center gap-2">
+                          <Ban className="h-4 w-4 text-red-400" />
+                          Annulé
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {newStatus === 'cancelled' && (
+                    <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                      <AlertTriangle className="h-4 w-4 text-red-400" />
+                      <p className="text-sm text-red-400">
+                        L&apos;annulation est définitive et supprimera l&apos;accès du client.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setStatusModalOpen(false)} className="border-slate-600">
+                    Annuler
+                  </Button>
+                  <Button
+                    onClick={handleChangeStatus}
+                    disabled={statusLoading || newStatus === org.status}
+                    className={cn(
+                      newStatus === 'cancelled' ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'
+                    )}
+                  >
+                    {statusLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmer'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function OptionsTabContent({ org, editMode, editOptions, setEditOptions }: {
+  org: Org
+  editMode: boolean
+  editOptions: { reviewRouting: boolean; widgetsSeo: boolean; multiLocations: boolean; prioritySupport: boolean }
+  setEditOptions: (opts: { reviewRouting: boolean; widgetsSeo: boolean; multiLocations: boolean; prioritySupport: boolean }) => void
+}) {
+  const options = [
+    { key: 'reviewRouting' as const, label: 'Routing des avis', desc: 'Redirection intelligente vers avis publics' },
+    { key: 'widgetsSeo' as const, label: 'Widgets SEO', desc: 'Widget et badge pour site web' },
+    { key: 'multiLocations' as const, label: 'Multi-établissements', desc: 'Gestion de plusieurs points de vente' },
+    { key: 'prioritySupport' as const, label: 'Support prioritaire', desc: 'Assistance premium' },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-base text-white">Options activées</CardTitle>
+          <CardDescription className="text-slate-400">
+            Fonctionnalités supplémentaires pour ce client
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {options.map((option) => (
+            <div key={option.key} className="flex items-center justify-between py-2">
+              <div>
+                <p className="text-white font-medium">{option.label}</p>
+                <p className="text-xs text-slate-500">{option.desc}</p>
+              </div>
+              {editMode ? (
+                <Switch
+                  checked={editOptions[option.key]}
+                  onCheckedChange={(checked) => setEditOptions({ ...editOptions, [option.key]: checked })}
+                />
+              ) : (
+                <Badge variant="outline" className={org.options[option.key] ? 'text-green-400' : 'text-slate-500'}>
+                  {org.options[option.key] ? 'Actif' : 'Inactif'}
+                </Badge>
+              )}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: ClientDetailProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -189,29 +1071,6 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
   const [creditsReason, setCreditsReason] = useState('')
   const [creditsLoading, setCreditsLoading] = useState(false)
   
-  // Status modal
-  const [statusModalOpen, setStatusModalOpen] = useState(false)
-  const [newStatus, setNewStatus] = useState<'active' | 'suspended' | 'cancelled'>(org.status)
-  const [statusLoading, setStatusLoading] = useState(false)
-  
-  // PublicKey modal
-  const [resetKeyOpen, setResetKeyOpen] = useState(false)
-  const [resetKeyLoading, setResetKeyLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
-  
-  // P1.3: API Token states
-  const [apiTokenInfo, setApiTokenInfo] = useState<{
-    apiTokenMasked: string
-    apiTokenCreatedAt: string | null
-    apiTokenLastRotatedAt: string | null
-    previousTokenActive: boolean
-    previousTokenMasked: string | null
-    previousTokenExpiresAt: string | null
-  } | null>(null)
-  const [rotateTokenOpen, setRotateTokenOpen] = useState(false)
-  const [rotateTokenLoading, setRotateTokenLoading] = useState(false)
-  const [newApiToken, setNewApiToken] = useState<string | null>(null)
-  const [tokenCopied, setTokenCopied] = useState(false)
   
   // Feedback states
   const [error, setError] = useState('')
@@ -226,11 +1085,6 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
   const [applyCouponLoading, setApplyCouponLoading] = useState(false)
   const [removeCouponLoading, setRemoveCouponLoading] = useState(false)
   const [effectiveBillingData, setEffectiveBillingData] = useState<EffectiveBilling | null>(null)
-
-  // P1.3: Load API Token info on mount
-  useEffect(() => {
-    loadApiTokenInfo()
-  }, [org.id])
 
   // Load effective billing data on mount
   useEffect(() => {
@@ -307,10 +1161,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
       setCreditsSource('gift')
       setCreditsReason('')
       const sourceLabel = creditsSource === 'gift' ? 'offerts' : 'vendus'
-      const parts = []
-      if (creditsSms > 0) parts.push(`${creditsSms} SMS`)
-      if (creditsEmail > 0) parts.push(`${creditsEmail} emails`)
-      if (creditsAi > 0) parts.push(`${creditsAi} IA`)
+      const parts = buildCreditSummaryParts(creditsSms, creditsEmail, creditsAi)
       setSuccess(`Crédits ${sourceLabel} ajoutés: ${parts.join(', ')} (expire fin de période)`)
       router.refresh()
     } else {
@@ -320,98 +1171,6 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
     setCreditsLoading(false)
   }
 
-  async function handleChangeStatus() {
-    setStatusLoading(true)
-    setError('')
-
-    const result = await changeStatus({
-      orgId: org.id,
-      status: newStatus,
-    })
-
-    if (result.ok) {
-      setStatusModalOpen(false)
-      setSuccess(`Statut changé: ${statusLabels[result.previousStatus as keyof typeof statusLabels]} → ${statusLabels[newStatus]}`)
-      router.refresh()
-    } else {
-      setError(result.error || 'Erreur lors du changement de statut')
-    }
-
-    setStatusLoading(false)
-  }
-
-  async function handleCopyPublicKey() {
-    try {
-      await navigator.clipboard.writeText(org.publicKey)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      setError('Impossible de copier la clé')
-    }
-  }
-
-  async function handleResetPublicKey() {
-    setResetKeyLoading(true)
-    setError('')
-
-    const result = await resetPublicKey({ orgId: org.id })
-
-    if (result.ok) {
-      setResetKeyOpen(false)
-      setSuccess(`Clé régénérée: ${result.newPublicKey}`)
-      router.refresh()
-    } else {
-      setError(result.error || 'Erreur lors de la régénération')
-    }
-
-    setResetKeyLoading(false)
-  }
-
-  // P1.3: Load API Token info
-  async function loadApiTokenInfo() {
-    const result = await getApiToken(org.id)
-    if (result.ok && result.tokenInfo) {
-      setApiTokenInfo(result.tokenInfo)
-    }
-  }
-
-  // P1.3: Rotate API Token
-  async function handleRotateApiToken() {
-    setRotateTokenLoading(true)
-    setError('')
-    setNewApiToken(null)
-
-    const result = await rotateApiToken(org.id)
-
-    if (result.ok && result.newApiToken) {
-      setNewApiToken(result.newApiToken)
-      setSuccess(result.message || 'Token régénéré avec succès')
-      loadApiTokenInfo() // Refresh token info
-    } else {
-      setError(result.error || 'Erreur lors de la rotation du token')
-      setRotateTokenOpen(false)
-    }
-
-    setRotateTokenLoading(false)
-  }
-
-  // P1.3: Copy new token
-  async function handleCopyNewToken() {
-    if (!newApiToken) return
-    try {
-      await navigator.clipboard.writeText(newApiToken)
-      setTokenCopied(true)
-      setTimeout(() => setTokenCopied(false), 2000)
-    } catch (err) {
-      setError('Impossible de copier le token')
-    }
-  }
-
-  // P1.3: Close rotate dialog and clear new token
-  function closeRotateDialog() {
-    setRotateTokenOpen(false)
-    setNewApiToken(null)
-  }
 
   // Plan assignment
   async function handleAssignPlan() {
@@ -601,72 +1360,39 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 lg:grid-cols-5 gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <MessageSquare className="h-4 w-4 text-blue-400" />
-                      <span className="text-xs text-slate-500">SMS</span>
-                    </div>
-                    <p className="text-xl font-bold text-white">
-                      {org.creditsComputed?.subscription.smsUsed || 0} <span className="text-slate-500 text-sm">/ {org.creditsComputed?.subscription.smsTotal || 0}</span>
-                    </p>
-                    <p className="text-xs text-green-400">
-                      {org.creditsComputed?.subscription.smsRemaining || 0} restants
-                    </p>
-                    {org.creditsComputed?.isProrata && org.creditsComputed?.subscription.smsMonthlyBase !== org.creditsComputed?.subscription.smsIncludedMonthly && (
-                      <p className="text-xs text-purple-400">
-                        {org.creditsComputed.subscription.smsIncludedMonthly} inclus (base: {org.creditsComputed.subscription.smsMonthlyBase})
-                      </p>
-                    )}
-                    {(org.creditsComputed?.subscription.smsGiftMonthly || 0) > 0 && (
-                      <p className="text-xs text-amber-400">
-                        + {org.creditsComputed?.subscription.smsGiftMonthly} offerts
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-orange-400" />
-                      <span className="text-xs text-slate-500">Email</span>
-                    </div>
-                    <p className="text-xl font-bold text-white">
-                      {org.creditsComputed?.subscription.emailUsed || 0} <span className="text-slate-500 text-sm">/ {org.creditsComputed?.subscription.emailTotal || 0}</span>
-                    </p>
-                    <p className="text-xs text-green-400">
-                      {org.creditsComputed?.subscription.emailRemaining || 0} restants
-                    </p>
-                    {org.creditsComputed?.isProrata && org.creditsComputed?.subscription.emailMonthlyBase !== org.creditsComputed?.subscription.emailIncludedMonthly && (
-                      <p className="text-xs text-purple-400">
-                        {org.creditsComputed.subscription.emailIncludedMonthly} inclus (base: {org.creditsComputed.subscription.emailMonthlyBase})
-                      </p>
-                    )}
-                    {(org.creditsComputed?.subscription.emailGiftMonthly || 0) > 0 && (
-                      <p className="text-xs text-amber-400">
-                        + {org.creditsComputed?.subscription.emailGiftMonthly} offerts
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-purple-400" />
-                      <span className="text-xs text-slate-500">IA</span>
-                    </div>
-                    <p className="text-xl font-bold text-white">
-                      {org.creditsComputed?.subscription.aiUsed || 0} <span className="text-slate-500 text-sm">/ {org.creditsComputed?.subscription.aiTotal || 0}</span>
-                    </p>
-                    <p className="text-xs text-green-400">
-                      {org.creditsComputed?.subscription.aiRemaining || 0} restants
-                    </p>
-                    {org.creditsComputed?.isProrata && org.creditsComputed?.subscription.aiMonthlyBase !== org.creditsComputed?.subscription.aiIncludedMonthly && (
-                      <p className="text-xs text-purple-400">
-                        {org.creditsComputed.subscription.aiIncludedMonthly} inclus (base: {org.creditsComputed.subscription.aiMonthlyBase})
-                      </p>
-                    )}
-                    {(org.creditsComputed?.subscription.aiGiftMonthly || 0) > 0 && (
-                      <p className="text-xs text-amber-400">
-                        + {org.creditsComputed?.subscription.aiGiftMonthly} offerts
-                      </p>
-                    )}
-                  </div>
+                  <SubscriptionCreditCell
+                    icon={<MessageSquare className="h-4 w-4 text-blue-400" />}
+                    label="SMS"
+                    used={org.creditsComputed?.subscription.smsUsed || 0}
+                    total={org.creditsComputed?.subscription.smsTotal || 0}
+                    remaining={org.creditsComputed?.subscription.smsRemaining || 0}
+                    isProrata={org.creditsComputed?.isProrata || false}
+                    monthlyBase={org.creditsComputed?.subscription.smsMonthlyBase || 0}
+                    includedMonthly={org.creditsComputed?.subscription.smsIncludedMonthly || 0}
+                    giftMonthly={org.creditsComputed?.subscription.smsGiftMonthly || 0}
+                  />
+                  <SubscriptionCreditCell
+                    icon={<Mail className="h-4 w-4 text-orange-400" />}
+                    label="Email"
+                    used={org.creditsComputed?.subscription.emailUsed || 0}
+                    total={org.creditsComputed?.subscription.emailTotal || 0}
+                    remaining={org.creditsComputed?.subscription.emailRemaining || 0}
+                    isProrata={org.creditsComputed?.isProrata || false}
+                    monthlyBase={org.creditsComputed?.subscription.emailMonthlyBase || 0}
+                    includedMonthly={org.creditsComputed?.subscription.emailIncludedMonthly || 0}
+                    giftMonthly={org.creditsComputed?.subscription.emailGiftMonthly || 0}
+                  />
+                  <SubscriptionCreditCell
+                    icon={<Sparkles className="h-4 w-4 text-purple-400" />}
+                    label="IA"
+                    used={org.creditsComputed?.subscription.aiUsed || 0}
+                    total={org.creditsComputed?.subscription.aiTotal || 0}
+                    remaining={org.creditsComputed?.subscription.aiRemaining || 0}
+                    isProrata={org.creditsComputed?.isProrata || false}
+                    monthlyBase={org.creditsComputed?.subscription.aiMonthlyBase || 0}
+                    includedMonthly={org.creditsComputed?.subscription.aiIncludedMonthly || 0}
+                    giftMonthly={org.creditsComputed?.subscription.aiGiftMonthly || 0}
+                  />
                   <div>
                     <div className="flex items-center gap-2">
                       <QrCode className="h-4 w-4 text-cyan-400" />
@@ -796,66 +1522,11 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                 <CardTitle className="text-sm text-slate-300 font-medium">Facturation période</CardTitle>
               </CardHeader>
               <CardContent>
-                {/* Pricing — source unique BillingUI */}
-                {(() => {
-                  const raw = effectiveBillingData || org.billingComputed
-                  if (!raw) {
-                    return (
-                      <p className="text-2xl font-bold text-white">
-                        {formatPriceHT(getCatalogPrice(org.plan.code))}
-                      </p>
-                    )
-                  }
-
-                  const b = toBillingUI(raw)
-                  const catalog = displayPrice(b, b.priceCatalogCents)
-                  const effective = displayPrice(b, b.priceEffectiveCents)
-
-                  return (
-                    <>
-                      {b.hasDiscount ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-500 line-through text-sm">
-                            {formatPriceHT(catalog)}
-                          </span>
-                          <span className="text-2xl font-bold text-emerald-400">
-                            {formatPriceHT(effective)}
-                          </span>
-                        </div>
-                      ) : (
-                        <p className="text-2xl font-bold text-white">
-                          {formatPriceHT(effective)}
-                        </p>
-                      )}
-                      <div className="flex flex-wrap items-center gap-1 mt-1">
-                        {b.hasDiscount && b.discountLabel && (
-                          <Badge className="bg-emerald-500/20 text-emerald-400 text-[10px]">
-                            {b.discountLabel}
-                          </Badge>
-                        )}
-                        {b.hasDiscount && !b.discountLabel && b.discountPercent != null && (
-                          <Badge className="bg-amber-500/20 text-amber-400 text-[10px]">
-                            -{b.discountPercent}%
-                          </Badge>
-                        )}
-                        {b.isProrata && (
-                          <Badge className="bg-purple-500/20 text-purple-400 text-[10px]">
-                            prorata
-                          </Badge>
-                        )}
-                        <span className="text-xs text-slate-500">
-                          {!b.isProrata && ' /mois'}
-                          {b.isNegotiated && !b.isProrata && !b.hasDiscount && ' (négocié)'}
-                        </span>
-                      </div>
-                      {b.isProrata && (
-                        <p className="text-[10px] text-slate-500 mt-1">
-                          Base mensuelle: {formatPriceHT(b.priceEffectiveCents)}/mois
-                        </p>
-                      )}
-                    </>
-                  )
-                })()}
+                <PricingDisplay
+                  effectiveBillingData={effectiveBillingData}
+                  billingComputed={org.billingComputed}
+                  planCode={org.plan.code}
+                />
               </CardContent>
             </Card>
           </div>
@@ -903,268 +1574,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
         {/* Integration Tab */}
         <TabsContent value="integration" className="space-y-4">
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-base text-white flex items-center gap-2">
-                <Key className="h-5 w-5 text-amber-400" />
-                Clé publique (Public Key)
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Cette clé permet de relier l&apos;extension Reputy à ce client.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-3">
-                <code className="flex-1 px-4 py-3 bg-slate-900 rounded-lg font-mono text-amber-400 text-lg">
-                  {org.publicKey}
-                </code>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={handleCopyPublicKey}
-                  className="border-slate-600 hover:bg-slate-700"
-                >
-                  {copied ? <CheckCircle className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              
-              <div className="flex items-center justify-between pt-4 border-t border-slate-700">
-                <div>
-                  <p className="text-sm text-slate-300">Régénérer la clé</p>
-                  <p className="text-xs text-slate-500">
-                    L&apos;extension Chrome devra être mise à jour avec la nouvelle clé.
-                  </p>
-                </div>
-                <Dialog open={resetKeyOpen} onOpenChange={setResetKeyOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Régénérer
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-slate-800 border-slate-700 text-white">
-                    <DialogHeader>
-                      <DialogTitle className="flex items-center gap-2">
-                        <AlertTriangle className="h-5 w-5 text-amber-400" />
-                        Régénérer la clé publique ?
-                      </DialogTitle>
-                      <DialogDescription className="text-slate-400">
-                        Cette action est irréversible. La clé actuelle sera invalidée et l&apos;extension Chrome devra être reconfigurée.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <p className="text-sm text-amber-300">
-                        <strong>Important :</strong> Après la régénération, le client devra :
-                      </p>
-                      <ol className="mt-2 text-sm text-slate-300 list-decimal list-inside space-y-1">
-                        <li>Ouvrir les options de l&apos;extension Chrome</li>
-                        <li>Coller la nouvelle Public Key</li>
-                        <li>Sauvegarder les paramètres</li>
-                      </ol>
-                    </div>
-                    <DialogFooter>
-                      <Button type="button" variant="outline" onClick={() => setResetKeyOpen(false)} className="border-slate-600">
-                        Annuler
-                      </Button>
-                      <Button
-                        onClick={handleResetPublicKey}
-                        disabled={resetKeyLoading}
-                        className="bg-amber-500 hover:bg-amber-600"
-                      >
-                        {resetKeyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmer'}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* P1.3: API Token Card */}
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-base text-white flex items-center gap-2">
-                <Key className="h-5 w-5 text-emerald-400" />
-                Token API (Extension)
-              </CardTitle>
-              <CardDescription className="text-slate-400">
-                Ce token secret permet à l&apos;extension d&apos;authentifier les requêtes pour ce client.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {apiTokenInfo ? (
-                <>
-                  <div className="flex items-center gap-3">
-                    <code className="flex-1 px-4 py-3 bg-slate-900 rounded-lg font-mono text-emerald-400 text-lg">
-                      {apiTokenInfo.apiTokenMasked}
-                    </code>
-                    <Badge variant="outline" className="border-emerald-500/30 text-emerald-400">
-                      Actif
-                    </Badge>
-                  </div>
-                  
-                  {apiTokenInfo.previousTokenActive && (
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <p className="text-sm text-amber-300 flex items-center gap-2">
-                        <Clock className="h-4 w-4" />
-                        Ancien token encore valide jusqu&apos;au{' '}
-                        {apiTokenInfo.previousTokenExpiresAt && formatDate(apiTokenInfo.previousTokenExpiresAt)}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Token: {apiTokenInfo.previousTokenMasked}
-                      </p>
-                    </div>
-                  )}
-                  
-                  <div className="text-xs text-slate-500 space-y-1">
-                    {apiTokenInfo.apiTokenCreatedAt && (
-                      <p>Créé le: {formatDate(apiTokenInfo.apiTokenCreatedAt)}</p>
-                    )}
-                    {apiTokenInfo.apiTokenLastRotatedAt && (
-                      <p>Dernière rotation: {formatDate(apiTokenInfo.apiTokenLastRotatedAt)}</p>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                </div>
-              )}
-              
-              <div className="flex items-center justify-between pt-4 border-t border-slate-700">
-                <div>
-                  <p className="text-sm text-slate-300">Rotation du token</p>
-                  <p className="text-xs text-slate-500">
-                    L&apos;ancien token reste valide 24h après rotation.
-                  </p>
-                </div>
-                <Dialog open={rotateTokenOpen} onOpenChange={(open) => open ? setRotateTokenOpen(true) : closeRotateDialog()}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Rotation
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-slate-800 border-slate-700 text-white">
-                    <DialogHeader>
-                      <DialogTitle className="flex items-center gap-2">
-                        {newApiToken ? (
-                          <><CheckCircle className="h-5 w-5 text-emerald-400" /> Nouveau token généré</>
-                        ) : (
-                          <><Key className="h-5 w-5 text-emerald-400" /> Rotation du token API</>
-                        )}
-                      </DialogTitle>
-                      <DialogDescription className="text-slate-400">
-                        {newApiToken 
-                          ? "Copiez ce token maintenant, il ne sera plus affiché en clair."
-                          : "Un nouveau token sera généré. L'ancien reste valide 24h."
-                        }
-                      </DialogDescription>
-                    </DialogHeader>
-                    
-                    {newApiToken ? (
-                      <div className="space-y-4">
-                        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                          <p className="text-xs text-emerald-300 mb-2 font-medium">Nouveau token (à copier maintenant) :</p>
-                          <code className="block px-3 py-2 bg-slate-900 rounded font-mono text-emerald-400 text-sm break-all">
-                            {newApiToken}
-                          </code>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button onClick={handleCopyNewToken} className="flex-1 bg-emerald-500 hover:bg-emerald-600">
-                            {tokenCopied ? (
-                              <><CheckCircle className="h-4 w-4 mr-2" /> Copié !</>
-                            ) : (
-                              <><Copy className="h-4 w-4 mr-2" /> Copier le token</>
-                            )}
-                          </Button>
-                          <Button variant="outline" onClick={closeRotateDialog} className="border-slate-600">
-                            Fermer
-                          </Button>
-                        </div>
-                        <p className="text-xs text-amber-300 flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3" />
-                          Ce token ne sera plus visible après fermeture de cette fenêtre.
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="p-4 bg-slate-700/30 border border-slate-600 rounded-lg">
-                          <p className="text-sm text-slate-300">
-                            <strong>Important :</strong> Après la rotation, le client devra mettre à jour le token dans l&apos;extension Chrome.
-                          </p>
-                        </div>
-                        <DialogFooter>
-                          <Button type="button" variant="outline" onClick={closeRotateDialog} className="border-slate-600">
-                            Annuler
-                          </Button>
-                          <Button
-                            onClick={handleRotateApiToken}
-                            disabled={rotateTokenLoading}
-                            className="bg-emerald-500 hover:bg-emerald-600"
-                          >
-                            {rotateTokenLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Générer nouveau token'}
-                          </Button>
-                        </DialogFooter>
-                      </>
-                    )}
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-base text-white flex items-center gap-2">
-                <Plug className="h-5 w-5 text-blue-400" />
-                Instructions d&apos;intégration
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
-                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">1</div>
-                  <div>
-                    <p className="text-white font-medium">Installer l&apos;extension Chrome</p>
-                    <p className="text-sm text-slate-400">
-                      Téléchargez et installez l&apos;extension Reputy depuis le Chrome Web Store.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
-                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">2</div>
-                  <div>
-                    <p className="text-white font-medium">Configurer la Public Key</p>
-                    <p className="text-sm text-slate-400">
-                      Ouvrez les options de l&apos;extension et collez la clé publique.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
-                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">3</div>
-                  <div>
-                    <p className="text-white font-medium">Configurer le Token API</p>
-                    <p className="text-sm text-slate-400">
-                      Générez un token API (section ci-dessus) et collez-le dans les options de l&apos;extension.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start gap-3 p-3 bg-slate-700/30 rounded-lg">
-                  <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold">4</div>
-                  <div>
-                    <p className="text-white font-medium">Commencer à collecter des avis</p>
-                    <p className="text-sm text-slate-400">
-                      L&apos;extension est prête ! Les demandes d&apos;avis seront automatiquement rattachées à ce compte.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <IntegrationTabContent org={org} onError={setError} onSuccess={setSuccess} />
         </TabsContent>
 
         {/* Commercial Tab */}
@@ -1185,11 +1595,7 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
                 <div>
                   <label className="text-sm text-slate-500">Plan actuel</label>
                   <div className="flex items-center gap-2 mt-1">
-                    <Badge className={
-                      org.plan.code.includes('platinum') || org.plan.code.includes('or') || org.plan.code.includes('gold') ? 'bg-purple-500/20 text-purple-400' :
-                      org.plan.code.includes('argent') || org.plan.code.includes('silver') ? 'bg-slate-500/20 text-slate-300' :
-                      'bg-orange-500/20 text-orange-400'
-                    }>
+                    <Badge className={getPlanBadgeClass(org.plan.code)}>
                       {org.plan.code}
                     </Badge>
                     <span className="text-white">{formatPriceHT(getCatalogPrice(org.plan.code))}/mois</span>
@@ -1921,324 +2327,22 @@ export function ClientDetail({ org, usage, recentUsage, recentTelemetry }: Clien
 
         {/* Options Tab */}
         <TabsContent value="options" className="space-y-4">
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-base text-white">Options activées</CardTitle>
-              <CardDescription className="text-slate-400">
-                Fonctionnalités supplémentaires pour ce client
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {[
-                { key: 'reviewRouting', label: 'Routing des avis', desc: 'Redirection intelligente vers avis publics' },
-                { key: 'widgetsSeo', label: 'Widgets SEO', desc: 'Widget et badge pour site web' },
-                { key: 'multiLocations', label: 'Multi-établissements', desc: 'Gestion de plusieurs points de vente' },
-                { key: 'prioritySupport', label: 'Support prioritaire', desc: 'Assistance premium' },
-              ].map((option) => (
-                <div key={option.key} className="flex items-center justify-between py-2">
-                  <div>
-                    <p className="text-white font-medium">{option.label}</p>
-                    <p className="text-xs text-slate-500">{option.desc}</p>
-                  </div>
-                  {editMode ? (
-                    <Switch
-                      checked={editOptions[option.key as keyof typeof editOptions]}
-                      onCheckedChange={(checked) => setEditOptions({ ...editOptions, [option.key]: checked })}
-                    />
-                  ) : (
-                    <Badge variant="outline" className={org.options[option.key as keyof typeof org.options] ? 'text-green-400' : 'text-slate-500'}>
-                      {org.options[option.key as keyof typeof org.options] ? 'Actif' : 'Inactif'}
-                    </Badge>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          <OptionsTabContent org={org} editMode={editMode} editOptions={editOptions} setEditOptions={setEditOptions} />
         </TabsContent>
 
         {/* Usage Tab */}
         <TabsContent value="usage" className="space-y-4">
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400">SMS 7j</p>
-                <p className="text-2xl font-bold text-blue-400">{usage.days7.sms}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400">Email 7j</p>
-                <p className="text-2xl font-bold text-orange-400">{usage.days7.email}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400">SMS 30j</p>
-                <p className="text-2xl font-bold text-blue-400">{usage.days30.sms}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400">Email 30j</p>
-                <p className="text-2xl font-bold text-orange-400">{usage.days30.email}</p>
-              </CardContent>
-            </Card>
-          </div>
-          
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-base text-white">Derniers envois</CardTitle>
-              <CardDescription className="text-slate-400">
-                Historique détaillé des SMS et emails envoyés
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {recentUsage.length === 0 ? (
-                <p className="text-slate-500 text-center py-8">Aucun envoi enregistré</p>
-              ) : (
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                  {recentUsage.map((entry) => {
-                    const meta = entry.meta || {}
-                    // Display priority: firstName+lastName > name > recipient (phone/email) > never anonymous
-                    const firstName = (meta.patientFirstName as string || '').trim()
-                    const lastName = (meta.patientLastName as string || '').trim()
-                    const fullName = [firstName, lastName].filter(Boolean).join(' ')
-                    const patientName = fullName
-                      || (meta.patientName as string || '').trim()
-                      || (meta.patientContact as string || '').trim()
-                      || 'N/A'
-                    const patientContact = (meta.patientContact as string || '').trim()
-                    // Only show contact line if different from name (avoid duplication)
-                    const showContact = patientContact && patientContact !== patientName
-                    const status = meta.status as string || 'success'
-                    const simulated = meta.simulated as boolean
-                    const resend = meta.resend as boolean
-                    const segments = meta.segments as number | null
-                    const statusLabel = status === 'success' || status === 'sent' ? 'Envoyé' 
-                      : status === 'queued' ? 'En attente'
-                      : status === 'feedback_received' ? 'Feedback reçu'
-                      : 'Échec'
-                    const statusColor = status === 'success' || status === 'sent' ? 'text-green-400'
-                      : status === 'queued' ? 'text-yellow-400'
-                      : status === 'feedback_received' ? 'text-blue-400'
-                      : 'text-red-400'
-                    
-                    return (
-                      <div key={entry.id} className={cn(
-                        'flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded border',
-                        status === 'success' || status === 'sent' || status === 'queued' || status === 'feedback_received'
-                          ? 'bg-slate-700/30 border-slate-600' 
-                          : 'bg-red-500/10 border-red-500/20'
-                      )}>
-                        <div className="flex items-center gap-3 flex-1">
-                          {entry.type === 'sms' ? (
-                            <MessageSquare className="h-5 w-5 text-blue-400 flex-shrink-0" />
-                          ) : (
-                            <Mail className="h-5 w-5 text-orange-400 flex-shrink-0" />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className="text-white font-medium truncate">{patientName}</p>
-                            {showContact && (
-                              <p className="text-xs text-slate-500 truncate">{patientContact}</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {simulated && (
-                            <Badge variant="outline" className="text-xs text-slate-500">Simulé</Badge>
-                          )}
-                          {resend && (
-                            <Badge variant="outline" className="text-xs text-amber-400">Renvoi</Badge>
-                          )}
-                          {entry.type === 'sms' && segments != null && segments >= 1 && (
-                            <Badge variant="outline" className="text-xs text-purple-400">
-                              {segments} segment{segments > 1 ? 's' : ''}
-                            </Badge>
-                          )}
-                          {entry.type === 'sms' && entry.qty > 1 && (
-                            <Badge variant="outline" className="text-xs text-purple-400">
-                              ×{entry.qty} crédits
-                            </Badge>
-                          )}
-                          <Badge variant="outline" className={cn('text-xs', statusColor)}>
-                            {statusLabel}
-                          </Badge>
-                          <span className="text-slate-500 text-xs whitespace-nowrap">{formatDate(entry.ts)}</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <UsageTabContent usage={usage} recentUsage={recentUsage} />
         </TabsContent>
 
         {/* Telemetry Tab */}
         <TabsContent value="telemetry" className="space-y-4">
-          {/* Level counts */}
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400">Infos</p>
-                <p className="text-2xl font-bold text-blue-400">
-                  {recentTelemetry.filter(e => e.level === 'info').length}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400">Warnings</p>
-                <p className="text-2xl font-bold text-amber-400">
-                  {recentTelemetry.filter(e => e.level === 'warn').length}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400">Erreurs</p>
-                <p className="text-2xl font-bold text-red-400">
-                  {recentTelemetry.filter(e => e.level === 'error').length}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-          
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-base text-white">Logs & Événements</CardTitle>
-              <CardDescription className="text-slate-400">
-                Télémétrie détaillée depuis l&apos;extension et le backend
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {recentTelemetry.length === 0 ? (
-                <p className="text-slate-500 text-center py-8">Aucun log enregistré</p>
-              ) : (
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                  {recentTelemetry.map((entry) => (
-                    <div key={entry.id} className={cn(
-                      'p-3 rounded text-sm border',
-                      entry.level === 'error' ? 'bg-red-500/10 border-red-500/20' :
-                      entry.level === 'warn' ? 'bg-amber-500/10 border-amber-500/20' :
-                      'bg-slate-700/30 border-slate-600'
-                    )}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {entry.level === 'error' && <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />}
-                        {entry.level === 'warn' && <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />}
-                        {entry.level === 'info' && <CheckCircle className="h-4 w-4 text-blue-400 flex-shrink-0" />}
-                        <Badge variant="outline" className={cn(
-                          'text-xs',
-                          entry.source === 'extension' ? 'text-purple-400' : 'text-slate-400'
-                        )}>
-                          {entry.source}
-                        </Badge>
-                        {entry.code && (
-                          <Badge variant="outline" className="text-xs text-white font-mono">
-                            {entry.code}
-                          </Badge>
-                        )}
-                        <span className="text-xs text-slate-500 ml-auto whitespace-nowrap">{formatDate(entry.ts)}</span>
-                      </div>
-                      <p className="text-white mt-2">{entry.message}</p>
-                      {entry.stack && (
-                        <pre className="text-xs text-slate-400 mt-2 overflow-x-auto bg-slate-800 p-2 rounded">{entry.stack}</pre>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <TelemetryTabContent recentTelemetry={recentTelemetry} />
         </TabsContent>
 
         {/* Actions Tab */}
         <TabsContent value="actions" className="space-y-4">
-          <Card className="bg-slate-800/50 border-slate-700">
-            <CardHeader>
-              <CardTitle className="text-base text-white">Actions sur le compte</CardTitle>
-              <CardDescription className="text-slate-400">
-                Suspendre, réactiver ou annuler ce client
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg border border-slate-700">
-                <div>
-                  <p className="text-white font-medium">Statut actuel</p>
-                  <Badge variant="outline" className={cn('mt-1', statusColors[org.status])}>
-                    {statusLabels[org.status]}
-                  </Badge>
-                </div>
-                <Dialog open={statusModalOpen} onOpenChange={setStatusModalOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="border-slate-600">
-                      <Settings className="h-4 w-4 mr-2" />
-                      Changer le statut
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-slate-800 border-slate-700 text-white">
-                    <DialogHeader>
-                      <DialogTitle>Changer le statut</DialogTitle>
-                      <DialogDescription className="text-slate-400">
-                        Cette action affectera l&apos;accès du client à la plateforme.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <Select value={newStatus} onValueChange={(v: 'active' | 'suspended' | 'cancelled') => setNewStatus(v)}>
-                        <SelectTrigger className="bg-slate-700 border-slate-600">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-800 border-slate-700">
-                          <SelectItem value="active">
-                            <div className="flex items-center gap-2">
-                              <Play className="h-4 w-4 text-green-400" />
-                              Actif
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="suspended">
-                            <div className="flex items-center gap-2">
-                              <Pause className="h-4 w-4 text-amber-400" />
-                              Suspendu
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="cancelled">
-                            <div className="flex items-center gap-2">
-                              <Ban className="h-4 w-4 text-red-400" />
-                              Annulé
-                            </div>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-
-                      {newStatus === 'cancelled' && (
-                        <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                          <AlertTriangle className="h-4 w-4 text-red-400" />
-                          <p className="text-sm text-red-400">
-                            L&apos;annulation est définitive et supprimera l&apos;accès du client.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                    <DialogFooter>
-                      <Button type="button" variant="outline" onClick={() => setStatusModalOpen(false)} className="border-slate-600">
-                        Annuler
-                      </Button>
-                      <Button
-                        onClick={handleChangeStatus}
-                        disabled={statusLoading || newStatus === org.status}
-                        className={cn(
-                          newStatus === 'cancelled' ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'
-                        )}
-                      >
-                        {statusLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirmer'}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardContent>
-          </Card>
+          <ActionsTabContent org={org} onError={setError} onSuccess={setSuccess} />
         </TabsContent>
       </Tabs>
     </div>

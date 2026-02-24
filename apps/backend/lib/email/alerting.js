@@ -299,6 +299,87 @@ async function sendEmail(alerts, window) {
   }
 }
 
+// ============ ALERTING HELPERS ============
+
+function filterBySeverity(alerts, includeOrange) {
+  return alerts.filter(a => {
+    if (a.severity === 'red') return true;
+    if (a.severity === 'orange' && includeOrange) return true;
+    return false;
+  });
+}
+
+function classifyAlerts(filtered, mutes, state, cooldownMs, now) {
+  const eligible = [];
+  const details = [];
+
+  for (const alert of filtered) {
+    const key = alertKey(alert);
+    const muteCheck = isMuted(key, mutes, now);
+
+    if (muteCheck.muted) {
+      logger.logInfo('ALERT_SKIPPED_MUTED', `Alert ${key} is muted`, {
+        key, mutedUntil: mutes[key]?.mutedUntil, reason: muteCheck.reason,
+      });
+      details.push({ key, status: 'muted', reason: muteCheck.reason });
+      continue;
+    }
+
+    if (isInCooldown(key, state, cooldownMs, now)) {
+      const nextEligible = new Date(new Date(state[key].lastSentAt).getTime() + cooldownMs).toISOString();
+      logger.logInfo('ALERT_SKIPPED_COOLDOWN', `Alert ${key} in cooldown`, {
+        key, lastSentAt: state[key].lastSentAt, nextEligibleAt: nextEligible,
+      });
+      details.push({ key, status: 'cooldown', nextEligibleAt: nextEligible });
+      continue;
+    }
+
+    eligible.push(alert);
+  }
+
+  return { eligible, details };
+}
+
+function dispatchToProvider(eligible, window) {
+  const PROVIDERS = { webhook: sendWebhook, email: sendEmail };
+  const sender = PROVIDERS[ALERTING_PROVIDER];
+  if (!sender) return null;
+  return sender(eligible, window);
+}
+
+function recordSendSuccess(eligible, state, now, details) {
+  for (const alert of eligible) {
+    const key = alertKey(alert);
+    state[key] = { lastSentAt: new Date(now).toISOString() };
+    logger.logInfo('ALERT_SENT', `Alert sent: ${key}`, {
+      provider: ALERTING_PROVIDER, key, severity: alert.severity, type: alert.type,
+      orgId: alert.orgId || null,
+    });
+    details.push({ key, status: 'sent', provider: ALERTING_PROVIDER });
+  }
+  writeJsonFile(STATE_FILE, state);
+}
+
+function recordSendFailure(sendResult, eligible, details) {
+  logger.logError('ALERT_SEND_FAILED', `Failed to send alerts: ${sendResult.error}`, {
+    provider: ALERTING_PROVIDER, error: sendResult.error, alertCount: eligible.length,
+  });
+  for (const alert of eligible) {
+    details.push({ key: alertKey(alert), status: 'send_failed', error: sendResult.error });
+  }
+}
+
+function buildResult(allAlerts, filtered, sent, details) {
+  return {
+    total: allAlerts.length,
+    filtered: filtered.length,
+    sent,
+    skipped: filtered.length - sent,
+    errors: sent === 0 && filtered.length > 0 ? filtered.length : 0,
+    details,
+  };
+}
+
 // ============ MAIN ALERTING FUNCTION ============
 
 /**
@@ -319,120 +400,41 @@ async function runAlerting(opts = {}) {
 
   const now = Date.now();
   const cooldownMs = cooldownHours * 60 * 60 * 1000;
-
-  // 1) Compute alerts
   const allAlerts = monitoring.computeAlerts(window);
-
-  // 2) Filter by severity
-  const filtered = allAlerts.filter(a => {
-    if (a.severity === 'red') return true;
-    if (a.severity === 'orange' && includeOrange) return true;
-    return false;
-  });
+  const filtered = filterBySeverity(allAlerts, includeOrange);
 
   if (filtered.length === 0) {
     logger.logInfo('ALERTING_RUN', 'No actionable alerts', { window, total: allAlerts.length, filtered: 0 });
-    return { total: allAlerts.length, filtered: 0, sent: 0, skipped: 0, errors: 0, details: [] };
+    return buildResult(allAlerts, [], 0, []);
   }
 
-  // 3) Load mutes and state
   const mutes = readJsonFile(MUTES_FILE);
   const state = readJsonFile(STATE_FILE);
-
-  // 4) Determine eligible alerts
-  const eligible = [];
-  const details = [];
-
-  for (const alert of filtered) {
-    const key = alertKey(alert);
-
-    // Check mute
-    const muteCheck = isMuted(key, mutes, now);
-    if (muteCheck.muted) {
-      logger.logInfo('ALERT_SKIPPED_MUTED', `Alert ${key} is muted`, {
-        key, mutedUntil: mutes[key]?.mutedUntil, reason: muteCheck.reason,
-      });
-      details.push({ key, status: 'muted', reason: muteCheck.reason });
-      continue;
-    }
-
-    // Check cooldown
-    if (isInCooldown(key, state, cooldownMs, now)) {
-      const nextEligible = new Date(new Date(state[key].lastSentAt).getTime() + cooldownMs).toISOString();
-      logger.logInfo('ALERT_SKIPPED_COOLDOWN', `Alert ${key} in cooldown`, {
-        key, lastSentAt: state[key].lastSentAt, nextEligibleAt: nextEligible,
-      });
-      details.push({ key, status: 'cooldown', nextEligibleAt: nextEligible });
-      continue;
-    }
-
-    eligible.push(alert);
-  }
+  const { eligible, details } = classifyAlerts(filtered, mutes, state, cooldownMs, now);
 
   if (eligible.length === 0) {
-    return {
-      total: allAlerts.length,
-      filtered: filtered.length,
-      sent: 0,
-      skipped: filtered.length,
-      errors: 0,
-      details,
-    };
+    return buildResult(allAlerts, filtered, 0, details);
   }
 
-  // 5) Send via active provider
-  let sendResult = { ok: false, error: 'No alerting provider configured' };
+  const sendResult = await dispatchToProvider(eligible, window);
 
-  if (ALERTING_PROVIDER === 'webhook') {
-    sendResult = await sendWebhook(eligible, window);
-  } else if (ALERTING_PROVIDER === 'email') {
-    sendResult = await sendEmail(eligible, window);
-  } else {
+  if (!sendResult) {
     logger.logWarn('ALERTING_NO_PROVIDER', 'ALERTING_PROVIDER not set — alerts computed but not sent', {
       window, eligibleCount: eligible.length,
     });
     for (const alert of eligible) {
       details.push({ key: alertKey(alert), status: 'no_provider' });
     }
-    return {
-      total: allAlerts.length,
-      filtered: filtered.length,
-      sent: 0,
-      skipped: filtered.length,
-      errors: 0,
-      details,
-    };
+    return buildResult(allAlerts, filtered, 0, details);
   }
 
-  // 6) Update state + log
   if (sendResult.ok) {
-    for (const alert of eligible) {
-      const key = alertKey(alert);
-      state[key] = { lastSentAt: new Date(now).toISOString() };
-      logger.logInfo('ALERT_SENT', `Alert sent: ${key}`, {
-        provider: ALERTING_PROVIDER, key, severity: alert.severity, type: alert.type,
-        orgId: alert.orgId || null, requestId: sendResult.requestId || null,
-      });
-      details.push({ key, status: 'sent', provider: ALERTING_PROVIDER });
-    }
-    writeJsonFile(STATE_FILE, state);
+    recordSendSuccess(eligible, state, now, details);
   } else {
-    logger.logError('ALERT_SEND_FAILED', `Failed to send alerts: ${sendResult.error}`, {
-      provider: ALERTING_PROVIDER, error: sendResult.error, alertCount: eligible.length,
-    });
-    for (const alert of eligible) {
-      details.push({ key: alertKey(alert), status: 'send_failed', error: sendResult.error });
-    }
+    recordSendFailure(sendResult, eligible, details);
   }
 
-  return {
-    total: allAlerts.length,
-    filtered: filtered.length,
-    sent: sendResult.ok ? eligible.length : 0,
-    skipped: filtered.length - eligible.length,
-    errors: sendResult.ok ? 0 : eligible.length,
-    details,
-  };
+  return buildResult(allAlerts, filtered, sendResult.ok ? eligible.length : 0, details);
 }
 
 // ============ EXPORTS ============

@@ -50,6 +50,119 @@ async function request(method, path, body = null) {
   }
 }
 
+// ============ TEST RESULT HELPERS ============
+
+function tally(result, counters) {
+  if (result.pass === true) counters.passed++;
+  else if (result.pass === false) counters.failed++;
+}
+
+// ============ INDIVIDUAL TESTS ============
+
+async function testListInstallations() {
+  console.log('📋 TEST 1: Lister les installations');
+  const res = await request('GET', '/client/installations');
+  console.log(`   Status: ${res.status}`);
+  if (res.status !== 200) {
+    console.log(`   Error: ${res.data.message || res.data.error}`);
+    console.log('   ❌ FAIL');
+    return { pass: false };
+  }
+  console.log(`   Count: ${res.data.installations?.length || 0}`);
+  console.log('   ✅ PASS');
+  return { pass: true };
+}
+
+async function testCreateInstallation() {
+  console.log('\n📦 TEST 2: Créer une installation');
+  const testLabel = 'Test-' + Date.now();
+  const res = await request('POST', '/client/installations', { label: testLabel });
+  console.log(`   Status: ${res.status}`);
+  if (res.status !== 201 || !res.data.token) {
+    console.log(`   Error: ${res.data.message || res.data.error}`);
+    console.log('   ❌ FAIL');
+    return { pass: false, data: null };
+  }
+  const id = res.data.installation?.id;
+  const token = res.data.token;
+  console.log(`   ID: ${id}`);
+  console.log(`   Token: ${token.substring(0, 12)}... (affiché 1 seule fois)`);
+  console.log('   ✅ PASS');
+  return { pass: true, data: { id, token } };
+}
+
+async function testVerifyCreation(createdId) {
+  console.log('\n📋 TEST 3: Vérifier la création dans la liste');
+  const res = await request('GET', '/client/installations');
+  const found = res.data.installations?.find(i => i.id === createdId);
+  if (found) {
+    console.log(`   Trouvé: ${found.label}`);
+    console.log('   ✅ PASS');
+    return { pass: true };
+  }
+  console.log('   Installation non trouvée dans la liste');
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+async function testRotateToken(createdId, createdToken) {
+  console.log('\n🔄 TEST 4: Rotation du token');
+  const res = await request('POST', `/client/installations/${createdId}/rotate`);
+  console.log(`   Status: ${res.status}`);
+  if (res.status !== 200 || !res.data.token) {
+    console.log(`   Error: ${res.data.message}`);
+    console.log('   ❌ FAIL');
+    return { pass: false };
+  }
+  const newToken = res.data.token;
+  const changed = newToken !== createdToken;
+  console.log(`   New Token: ${newToken.substring(0, 12)}...`);
+  console.log(`   Token différent: ${changed ? 'OUI' : 'NON'}`);
+  if (!changed) {
+    console.log('   ❌ FAIL (token identique)');
+    return { pass: false };
+  }
+  console.log('   ✅ PASS');
+  return { pass: true };
+}
+
+async function testRevokeInstallation(createdId) {
+  console.log('\n🗑️  TEST 5: Révoquer l\'installation');
+  const res = await request('POST', `/client/installations/${createdId}/revoke`);
+  console.log(`   Status: ${res.status}`);
+  if (res.status !== 200) {
+    console.log(`   Error: ${res.data.message}`);
+    console.log('   ❌ FAIL');
+    return { pass: false };
+  }
+  console.log('   ✅ PASS');
+  return { pass: true };
+}
+
+async function testRotateAfterRevoke(createdId) {
+  console.log('\n❌ TEST 6: Rotation après révocation (doit échouer)');
+  const res = await request('POST', `/client/installations/${createdId}/rotate`);
+  console.log(`   Status: ${res.status}`);
+  if (res.status === 409) {
+    console.log('   ✅ PASS (correctement rejeté)');
+    return { pass: true };
+  }
+  console.log(`   Attendu 409, reçu ${res.status}`);
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+// ============ TEST GROUP ============
+
+async function runCreatedInstallationTests(id, token, c) {
+  tally(await testVerifyCreation(id), c);
+  tally(await testRotateToken(id, token), c);
+  tally(await testRevokeInstallation(id), c);
+  tally(await testRotateAfterRevoke(id), c);
+}
+
+// ============ MAIN ============
+
 async function runTests() {
   console.log('='.repeat(60));
   console.log('INSTALLATIONS API TESTS');
@@ -58,119 +171,22 @@ async function runTests() {
   console.log(`Auth: Bearer ${AUTH_TOKEN.substring(0, 8)}...`);
   console.log('');
   
-  let createdId = null;
-  let createdToken = null;
-  let passed = 0;
-  let failed = 0;
+  const c = { passed: 0, failed: 0 };
   
-  // TEST 1: List
-  console.log('📋 TEST 1: Lister les installations');
-  const listRes = await request('GET', '/client/installations');
-  console.log(`   Status: ${listRes.status}`);
-  if (listRes.status === 200) {
-    console.log(`   Count: ${listRes.data.installations?.length || 0}`);
-    console.log('   ✅ PASS');
-    passed++;
-  } else {
-    console.log(`   Error: ${listRes.data.message || listRes.data.error}`);
-    console.log('   ❌ FAIL');
-    failed++;
+  tally(await testListInstallations(), c);
+  
+  const createResult = await testCreateInstallation();
+  tally(createResult, c);
+  
+  if (createResult.data) {
+    await runCreatedInstallationTests(createResult.data.id, createResult.data.token, c);
   }
   
-  // TEST 2: Create
-  console.log('\n📦 TEST 2: Créer une installation');
-  const testLabel = 'Test-' + Date.now();
-  const createRes = await request('POST', '/client/installations', { label: testLabel });
-  console.log(`   Status: ${createRes.status}`);
-  if (createRes.status === 201 && createRes.data.token) {
-    createdId = createRes.data.installation?.id;
-    createdToken = createRes.data.token;
-    console.log(`   ID: ${createdId}`);
-    console.log(`   Token: ${createdToken.substring(0, 12)}... (affiché 1 seule fois)`);
-    console.log('   ✅ PASS');
-    passed++;
-  } else {
-    console.log(`   Error: ${createRes.data.message || createRes.data.error}`);
-    console.log('   ❌ FAIL');
-    failed++;
-  }
-  
-  // TEST 3: List again
-  if (createdId) {
-    console.log('\n📋 TEST 3: Vérifier la création dans la liste');
-    const listRes2 = await request('GET', '/client/installations');
-    const found = listRes2.data.installations?.find(i => i.id === createdId);
-    if (found) {
-      console.log(`   Trouvé: ${found.label}`);
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log('   Installation non trouvée dans la liste');
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 4: Rotate
-  if (createdId) {
-    console.log('\n🔄 TEST 4: Rotation du token');
-    const rotateRes = await request('POST', `/client/installations/${createdId}/rotate`);
-    console.log(`   Status: ${rotateRes.status}`);
-    if (rotateRes.status === 200 && rotateRes.data.token) {
-      const newToken = rotateRes.data.token;
-      const changed = newToken !== createdToken;
-      console.log(`   New Token: ${newToken.substring(0, 12)}...`);
-      console.log(`   Token différent: ${changed ? 'OUI' : 'NON'}`);
-      if (changed) {
-        console.log('   ✅ PASS');
-        passed++;
-      } else {
-        console.log('   ❌ FAIL (token identique)');
-        failed++;
-      }
-    } else {
-      console.log(`   Error: ${rotateRes.data.message}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 5: Revoke
-  if (createdId) {
-    console.log('\n🗑️  TEST 5: Révoquer l\'installation');
-    const revokeRes = await request('POST', `/client/installations/${createdId}/revoke`);
-    console.log(`   Status: ${revokeRes.status}`);
-    if (revokeRes.status === 200) {
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log(`   Error: ${revokeRes.data.message}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 6: Rotate revoked (should fail)
-  if (createdId) {
-    console.log('\n❌ TEST 6: Rotation après révocation (doit échouer)');
-    const rotateRevokedRes = await request('POST', `/client/installations/${createdId}/rotate`);
-    console.log(`   Status: ${rotateRevokedRes.status}`);
-    if (rotateRevokedRes.status === 409) {
-      console.log('   ✅ PASS (correctement rejeté)');
-      passed++;
-    } else {
-      console.log(`   Attendu 409, reçu ${rotateRevokedRes.status}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // Summary
   console.log('\n' + '='.repeat(60));
-  console.log(`RÉSULTAT: ${passed} passés, ${failed} échoués`);
+  console.log(`RÉSULTAT: ${c.passed} passés, ${c.failed} échoués`);
   console.log('='.repeat(60));
   
-  process.exit(failed > 0 ? 1 : 0);
+  process.exit(c.failed > 0 ? 1 : 0);
 }
 
 runTests().catch(err => {

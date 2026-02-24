@@ -477,90 +477,87 @@ function extractEmailFromInfosAdministratives() {
   return m ? m[0] : "";
 }
 
+// ===== EXTRACTION HELPERS =====
+const NAME_SELECTORS = [
+  '[data-testid*="patient-name"]', '.agenda-patient-name',
+  '.booking-patient-name', '.appointment-patient-name',
+  '.patient-name', '[data-patient-name]', 'h1', 'h2', '.patient-info-name'
+];
+const PHONE_SELECTORS = [
+  '[data-testid*="patient-phone"]',
+  '.booking-patient-phone',
+  '.appointment-patient-phone'
+];
+const EMAIL_SELECTORS = [
+  '[data-testid*="patient-email"]',
+  '.booking-patient-email',
+  '.appointment-patient-email'
+];
+
+function _findTextBySelectors(scope, selectors) {
+  for (const sel of selectors) {
+    const el = scope.querySelector(sel);
+    if (el?.textContent?.trim()) return el.textContent.trim();
+  }
+  return '';
+}
+
+function _extractNameFromScope(scope) {
+  for (const sel of NAME_SELECTORS) {
+    const el = scope.querySelector(sel);
+    if (!el?.textContent) continue;
+    const text = el.textContent.trim();
+    if (text.length <= 2 || text.length >= 100 || text.includes('Doctolib')) continue;
+    const parsed = parseFullName(text);
+    return { name: text, firstName: parsed.firstName, lastName: parsed.lastName };
+  }
+  return null;
+}
+
+function _extractPhoneFromScope(scope) {
+  const fromSelector = _findTextBySelectors(scope, PHONE_SELECTORS);
+  if (fromSelector) return fromSelector.replace(/[^\d+]/g, '');
+  const m = scope.innerText?.match(/(?:\+33|0)[1-9](?:[\s.-]?\d{2}){4}/);
+  return m ? m[0].replace(/[^\d+]/g, '') : '';
+}
+
+function _extractEmailFromScope(scope) {
+  const fromSelector = _findTextBySelectors(scope, EMAIL_SELECTORS);
+  if (fromSelector) return fromSelector;
+  if (scope.innerText) {
+    const m = scope.innerText.match(/[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,10}/);
+    if (m) return m[0];
+  }
+  return extractEmailFromInfosAdministratives() || '';
+}
+
+function _applyLeftPanelFallback(info) {
+  if (info.name && info.firstName && info.lastName) return;
+  const left = extractIdentityFromLeftPanel();
+  if (!left?.full || !left.firstName || !left.lastName) return;
+  if (/provisoire|identité provisoire|trouver un créneau/i.test(left.full)) return;
+  info.name = left.full;
+  info.firstName = left.firstName;
+  info.lastName = left.lastName;
+}
+
 // ===== EXTRACTION DONNÉES PATIENT =====
 function extractPatientInfo(rootEl) {
   if (!rootEl) {
     return { name: '', firstName: '', lastName: '', phone: '', email: '', missing: true };
   }
-  const scope = rootEl;
   const info = { name: '', firstName: '', lastName: '', phone: '', email: '', missing: false };
 
-  // Nom
-  const nameSelectors = [
-    '[data-testid*="patient-name"]',
-    '.agenda-patient-name',
-    '.booking-patient-name',
-    '.appointment-patient-name',
-    '.patient-name',
-    '[data-patient-name]',
-    'h1',
-    'h2',
-    '.patient-info-name'
-  ];
-  for (const sel of nameSelectors) {
-    const el = scope.querySelector(sel);
-    if (el && el.textContent) {
-      const text = el.textContent.trim();
-      if (text.length > 2 && text.length < 100 && !text.includes('Doctolib')) {
-        info.name = text;
-        const parsed = parseFullName(text);
-        info.firstName = parsed.firstName;
-        info.lastName = parsed.lastName;
-        break;
-      }
-    }
-  }
-  // MOD: Fallback fiable via identité colonne gauche (évite "Madame" tout seul)
-  if (!info.name || !info.firstName || !info.lastName) {
-    const left = extractIdentityFromLeftPanel();
-    if (left?.full && left.firstName && left.lastName && !/provisoire|identité provisoire|trouver un créneau/i.test(left.full)) {
-      info.name = left.full;
-      info.firstName = left.firstName;
-      info.lastName = left.lastName;
-    }
+  const nameResult = _extractNameFromScope(rootEl);
+  if (nameResult) {
+    info.name = nameResult.name;
+    info.firstName = nameResult.firstName;
+    info.lastName = nameResult.lastName;
   }
 
-  // Téléphone
-  const phoneSelectors = [
-    '[data-testid*="patient-phone"]',
-    '.booking-patient-phone',
-    '.appointment-patient-phone'
-  ];
-  for (const sel of phoneSelectors) {
-    const el = scope.querySelector(sel);
-    if (el?.textContent?.trim()) {
-      info.phone = el.textContent.trim().replace(/[^\d+]/g, '');
-      break;
-    }
-  }
-  if (!info.phone && scope.innerText) {
-    const m = scope.innerText.match(/(?:\+33|0)[1-9](?:[\s.-]?\d{2}){4}/);
-    if (m) info.phone = m[0].replace(/[^\d+]/g, '');
-  }
-
-  // Email
-  const emailSelectors = [
-    '[data-testid*="patient-email"]',
-    '.booking-patient-email',
-    '.appointment-patient-email'
-  ];
-  for (const sel of emailSelectors) {
-    const el = scope.querySelector(sel);
-    if (el?.textContent?.trim()) {
-      info.email = el.textContent.trim();
-      break;
-    }
-  }
-  if (!info.email && scope.innerText) {
-    const m = scope.innerText.match(/[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,10}/);
-    if (m) info.email = m[0];
-  }
-
-  // MOD: si une fiche RDV est déjà ouverte, tente email côté "Infos administratives"
-  if (!info.email) {
-    const e = extractEmailFromInfosAdministratives();
-    if (e) info.email = e;
-  }
+  _applyLeftPanelFallback(info);
+  info.phone = _extractPhoneFromScope(rootEl);
+  info.email = _extractEmailFromScope(rootEl);
 
   if (!info.name && !info.phone && !info.email) {
     info.missing = true;
@@ -674,6 +671,38 @@ function waitForEmail(timeoutMs = 2500) {
   });
 }
 
+// ===== MODAL HELPERS =====
+function _buildChannelSelectorHtml(calendarOnly, patientInfo) {
+  const smsBtn = `<button class="reputy-channel-btn active" data-channel="sms">
+          ${ICONS.sms}
+          <span>SMS</span>
+        </button>`;
+  if (calendarOnly) {
+    return `<div class="reputy-channel-selector">${smsBtn}</div>`;
+  }
+  const emailDisabled = !patientInfo.email;
+  return `<div class="reputy-channel-selector">
+        ${smsBtn}
+        <button class="reputy-channel-btn${emailDisabled ? ' disabled' : ''}" data-channel="email"${emailDisabled ? ' title="Email introuvable"' : ''}>
+          ${ICONS.email}
+          <span>Email</span>
+        </button>
+      </div>`;
+}
+
+function _buildContactHintHtml(calendarOnly, patientInfo) {
+  if (calendarOnly && !patientInfo.phone) {
+    return `<div class="reputy-hint reputy-hint-warning">Téléphone introuvable sur cette vue.</div>`;
+  }
+  if (!calendarOnly && !patientInfo.email) {
+    return `<div class="reputy-hint">
+        Email introuvable.
+        <button class="reputy-link-btn" id="reputy-fetch-email" type="button">Récupérer depuis la fiche</button>
+      </div>`;
+  }
+  return '';
+}
+
 // ===== MODAL =====
 function createModal(patientInfo, rootEl) {
   currentRootEl = rootEl || currentRootEl;
@@ -716,41 +745,8 @@ function createModal(patientInfo, rootEl) {
     ? (patientInfo.phone || "Téléphone à compléter")
     : (patientInfo.phone || patientInfo.email || "Coordonnées à compléter");
 
-  // Channel selector: sur agenda principal = SMS uniquement
-  const channelSelectorHtml = calendarOnly
-    ? `<div class="reputy-channel-selector">
-        <button class="reputy-channel-btn active" data-channel="sms">
-          ${ICONS.sms}
-          <span>SMS</span>
-        </button>
-      </div>`
-    : `<div class="reputy-channel-selector">
-        <button class="reputy-channel-btn active" data-channel="sms">
-          ${ICONS.sms}
-          <span>SMS</span>
-        </button>
-        <button class="reputy-channel-btn${!patientInfo.email ? ' disabled' : ''}" data-channel="email"${!patientInfo.email ? ' title="Email introuvable"' : ''}>
-          ${ICONS.email}
-          <span>Email</span>
-        </button>
-      </div>`;
-
-  // Hint selon contexte
-  let hintHtml = '';
-  if (calendarOnly) {
-    // Page agenda: si téléphone manquant, afficher hint
-    if (!patientInfo.phone) {
-      hintHtml = `<div class="reputy-hint reputy-hint-warning">Téléphone introuvable sur cette vue.</div>`;
-    }
-  } else {
-    // Page RDV: hint pour récupérer email si absent
-    if (!patientInfo.email) {
-      hintHtml = `<div class="reputy-hint">
-        Email introuvable.
-        <button class="reputy-link-btn" id="reputy-fetch-email" type="button">Récupérer depuis la fiche</button>
-      </div>`;
-    }
-  }
+  const channelSelectorHtml = _buildChannelSelectorHtml(calendarOnly, patientInfo);
+  const hintHtml = _buildContactHintHtml(calendarOnly, patientInfo);
 
   // Groupe email: masqué sur agenda principal
   const emailGroupHtml = calendarOnly
@@ -878,32 +874,76 @@ function closeModal() {
   }
 }
 
+function _processApiResponse(response, name, phone, email) {
+  if (response?.subscriptionInactive || response?.error === 'SUBSCRIPTION_INACTIVE') {
+    closeModal();
+    showToast('error', '🚫 Abonnement inactif',
+      'Votre abonnement est inactif. Les envois sont désactivés. Contactez votre administrateur.', null, false);
+    console.warn('[REPUTY] SUBSCRIPTION_INACTIVE');
+    return;
+  }
+  if (response?.quotaExceeded || response?.error === 'QUOTA_EXCEEDED') {
+    closeModal();
+    const details = response.details || {};
+    const periodEnd = details.periodEndFormatted || 'fin de mois';
+    showToast('warning', '⚠️ Crédits épuisés',
+      `Crédits ${selectedChannel.toUpperCase()} épuisés. Renouvellement abonnement le ${periodEnd}. Achetez un pack pour des crédits supplémentaires.`,
+      null, false);
+    console.warn('[REPUTY] QUOTA_EXCEEDED:', details);
+    return;
+  }
+  if (!response?.success) {
+    throw new Error(response?.error || 'Erreur inconnue');
+  }
+  closeModal();
+  const parsed = parseFullName(name);
+  const fullForToast = `${(parsed.lastName || '').toUpperCase()} ${parsed.firstName || ''}`.trim();
+  const successTitle = `${fullForToast} • ${selectedChannel.toUpperCase()} envoyé`.trim();
+  showToast('success', successTitle, `Contact: ${selectedChannel === 'sms' ? phone : email}`);
+  markAsSeen(resolveRootFromEvent(lastClickEvent));
+}
+
+const SEND_ERROR_HANDLERS = [
+  { test: (m) => m.includes('API extension indisponible') || m.includes('Extension context invalidated'),
+    type: 'warning', title: 'Extension rechargée', msg: 'Veuillez recharger la page pour continuer.', reload: true },
+  { test: (m) => m.includes('SUBSCRIPTION_INACTIVE'),
+    type: 'error', title: '🚫 Abonnement inactif', msg: 'Abonnement inactif. Les envois sont désactivés.' },
+  { test: (m) => m.includes('QUOTA_EXCEEDED'),
+    type: 'warning', title: '⚠️ Crédits épuisés', msg: 'Crédits épuisés. Contactez votre administrateur.' },
+];
+
+function _handleSendCatchError(error) {
+  console.error('[REPUTY] Send error:', error);
+  const msg = error.message || '';
+  const handler = SEND_ERROR_HANDLERS.find(h => h.test(msg));
+  if (handler) {
+    showToast(handler.type, handler.title, handler.msg, null, handler.reload || false);
+  } else {
+    showToast('error', 'Erreur', msg || 'Impossible d\'envoyer la demande.');
+  }
+}
+
 async function handleSend() {
   const sendBtn = currentModal.querySelector('#reputy-send');
   const originalContent = sendBtn.innerHTML;
   
-  // Get form values
   const name = currentModal.querySelector('#reputy-name').value.trim();
   const phone = currentModal.querySelector('#reputy-phone').value.trim();
   const email = currentModal.querySelector('#reputy-email').value.trim();
   
-  // Validation
   if (!name) {
     showToast('error', 'Erreur', 'Veuillez entrer le nom du patient.');
     return;
   }
-  
   if (selectedChannel === 'sms' && !phone) {
     showToast('error', 'Erreur', 'Veuillez entrer le numéro de téléphone.');
     return;
   }
-  
   if (selectedChannel === 'email' && !email) {
     showToast('error', 'Erreur', 'Veuillez entrer l\'adresse email.');
     return;
   }
   
-  // Loading state
   sendBtn.disabled = true;
   sendBtn.innerHTML = `<div class="reputy-spinner"></div><span>Envoi en cours...</span>`;
   scheduleFailsafe();
@@ -920,71 +960,15 @@ async function handleSend() {
         channel: selectedChannel
       }
     });
-    
-  if (response && response.success) {
-      closeModal();
-      const parsed = parseFullName(name);
-      const fullForToast = `${(parsed.lastName || '').toUpperCase()} ${parsed.firstName || ''}`.trim();
-      const successTitle = `${fullForToast} • ${selectedChannel.toUpperCase()} envoyé`.trim();
-      const successMsg = `Contact: ${selectedChannel === 'sms' ? phone : email}`;
-      showToast('success', successTitle.trim(), successMsg /* pas de bouton copier */);
-      markAsSeen(resolveRootFromEvent(lastClickEvent));
-    } else if (response?.subscriptionInactive || response?.error === 'SUBSCRIPTION_INACTIVE') {
-      // SUBSCRIPTION_INACTIVE: Abonnement inactif
-      closeModal();
-      const title = '🚫 Abonnement inactif';
-      const message = 'Votre abonnement est inactif. Les envois sont désactivés. Contactez votre administrateur.';
-      showToast('error', title, message, null, false);
-      console.warn('[REPUTY] SUBSCRIPTION_INACTIVE');
-    } else if (response?.quotaExceeded || response?.error === 'QUOTA_EXCEEDED') {
-      // QUOTA_EXCEEDED: Afficher toast spécifique avec info de renouvellement
-      closeModal();
-      const details = response.details || {};
-      const periodEnd = details.periodEndFormatted || 'fin de mois';
-      const subRemaining = details.subscriptionRemaining || { sms: 0, email: 0 };
-      const packRemaining = details.packRemaining || { sms: 0, email: 0 };
-      
-      const title = '⚠️ Crédits épuisés';
-      const message = `Crédits ${selectedChannel.toUpperCase()} épuisés. ` +
-        `Renouvellement abonnement le ${periodEnd}. ` +
-        `Achetez un pack pour des crédits supplémentaires.`;
-      
-      showToast('warning', title, message, null, false);
-      console.warn('[REPUTY] QUOTA_EXCEEDED:', { subRemaining, packRemaining, periodEnd });
-    } else {
-      throw new Error(response?.error || 'Erreur inconnue');
-    }
+    _processApiResponse(response, name, phone, email);
   } catch (error) {
-    console.error('[REPUTY] Send error:', error);
-    
-    if (error.message.includes('API extension indisponible') || 
-        error.message.includes('Extension context invalidated')) {
-      showToast('warning', 'Extension rechargée', 
-        'Veuillez recharger la page pour continuer.',
-        null, true
-      );
-    } else if (error.message.includes('SUBSCRIPTION_INACTIVE')) {
-      showToast('error', '🚫 Abonnement inactif', 
-        'Abonnement inactif. Les envois sont désactivés.',
-        null, false
-      );
-    } else if (error.message.includes('QUOTA_EXCEEDED')) {
-      showToast('warning', '⚠️ Crédits épuisés', 
-        'Crédits épuisés. Contactez votre administrateur.',
-        null, false
-      );
-    } else {
-      showToast('error', 'Erreur', error.message || 'Impossible d\'envoyer la demande.');
-    }
+    _handleSendCatchError(error);
   } finally {
     cancelFailsafe();
-    // Nettoyage immédiat
     cleanupOverlayAndBlockers();
-    // Nettoyage différé pour s'assurer que tout est supprimé
     setTimeout(() => cleanupOverlayAndBlockers(), 300);
     setTimeout(() => cleanupOverlayAndBlockers(), 1000);
     setTimeout(() => cleanupOverlayAndBlockers(), 2000);
-    // Restaurer le bouton (si le modal existe encore)
     if (sendBtn && document.body.contains(sendBtn)) {
       sendBtn.disabled = false;
       sendBtn.innerHTML = originalContent;

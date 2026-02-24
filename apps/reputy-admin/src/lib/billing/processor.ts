@@ -57,97 +57,84 @@ function resolveCancelEffectiveAt(sub?: Subscription): number | undefined {
   return undefined
 }
 
+function parseQuantity(metadata?: Record<string, string>): number | undefined {
+  if (!metadata?.quantity) return undefined
+  return Number(metadata.quantity)
+}
+
+async function handleCheckoutCompleted(
+  event: GenericWebhookEvent,
+  orgId: string
+): Promise<ProcessResult> {
+  if (event.mode === 'subscription') {
+    await activateOrUpdateSubscription({
+      orgId,
+      subscriptionId: event.subscriptionId,
+      stripeCustomerId: event.customerId,
+      metadata: event.metadata,
+    })
+    return { handled: true }
+  }
+  if (event.mode === 'payment' && event.metadata?.packId) {
+    await creditPack({
+      orgId,
+      packId: event.metadata.packId,
+      quantity: parseQuantity(event.metadata),
+    })
+    return { handled: true }
+  }
+  return { handled: true }
+}
+
+async function handlePaymentSucceeded(
+  event: GenericWebhookEvent,
+  orgId: string
+): Promise<ProcessResult> {
+  if (event.metadata?.packId) {
+    await creditPack({
+      orgId,
+      packId: event.metadata.packId,
+      quantity: parseQuantity(event.metadata),
+    })
+  }
+  return { handled: true }
+}
+
+async function handleSubscriptionDeleted(
+  event: GenericWebhookEvent,
+  orgId: string
+): Promise<ProcessResult> {
+  const cancelEffectiveAt = resolveCancelEffectiveAt(event.subscription)
+  const revokeNow = !!cancelEffectiveAt && nowTs() >= cancelEffectiveAt
+
+  await markSubscriptionProviderEnded({
+    orgId,
+    subscriptionId: event.subscriptionId,
+    cancelEffectiveAt,
+    revokeNow,
+  })
+  return { handled: true }
+}
+
 export async function processEvent(
   event: GenericWebhookEvent,
   orgId: string
 ): Promise<ProcessResult> {
   switch (event.type) {
-    case 'checkout.session.completed': {
-      if (event.mode === 'subscription') {
-        await activateOrUpdateSubscription({
-          orgId,
-          subscriptionId: event.subscriptionId,
-          stripeCustomerId: event.customerId,
-          metadata: event.metadata,
-        })
-        return { handled: true }
-      }
-
-      if (event.mode === 'payment' && event.metadata?.packId) {
-        await creditPack({
-          orgId,
-          packId: event.metadata.packId,
-          quantity: event.metadata.quantity ? Number(event.metadata.quantity) : undefined,
-        })
-        return { handled: true }
-      }
-
+    case 'checkout.session.completed':
+      return handleCheckoutCompleted(event, orgId)
+    case 'payment_intent.succeeded':
+      return handlePaymentSucceeded(event, orgId)
+    case 'payment_intent.payment_failed':
       return { handled: true }
-    }
-
-    case 'payment_intent.succeeded': {
-      // Pack only (never subscriptions here)
-      if (event.metadata?.packId) {
-        await creditPack({
-          orgId,
-          packId: event.metadata.packId,
-          quantity: event.metadata.quantity ? Number(event.metadata.quantity) : undefined,
-        })
-      }
-      return { handled: true }
-    }
-
-    case 'payment_intent.payment_failed': {
-      // Optional: notify user / log audit
-      return { handled: true }
-    }
-
-    case 'invoice.paid': {
+    case 'invoice.paid':
       await markInvoicePaid({ orgId, invoiceId: event.invoiceId })
       return { handled: true }
-    }
-
-    case 'invoice.payment_failed': {
+    case 'invoice.payment_failed':
       await markInvoicePastDue({ orgId, invoiceId: event.invoiceId })
       return { handled: true }
-    }
-
-    case 'customer.subscription.deleted': {
-      // Never cut access early. Preavis is internal.
-      const cancelEffectiveAt = resolveCancelEffectiveAt(event.subscription)
-
-      // If we don't know the effective date, we MUST NOT revoke here.
-      if (!cancelEffectiveAt) {
-        await markSubscriptionProviderEnded({
-          orgId,
-          subscriptionId: event.subscriptionId,
-          cancelEffectiveAt: undefined,
-          revokeNow: false,
-        })
-        return { handled: true }
-      }
-
-      // If still before effective date => keep active
-      if (nowTs() < cancelEffectiveAt) {
-        await markSubscriptionProviderEnded({
-          orgId,
-          subscriptionId: event.subscriptionId,
-          cancelEffectiveAt,
-          revokeNow: false,
-        })
-        return { handled: true }
-      }
-
-      // Only now we may revoke (after notice period)
-      await markSubscriptionProviderEnded({
-        orgId,
-        subscriptionId: event.subscriptionId,
-        cancelEffectiveAt,
-        revokeNow: true,
-      })
-      return { handled: true }
-    }
-
+    case 'customer.subscription.deleted':
+      return handleSubscriptionDeleted(event, orgId)
     default:
       return { handled: false }
   }

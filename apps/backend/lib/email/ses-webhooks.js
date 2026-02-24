@@ -288,6 +288,89 @@ function normalizeSesEvent(messageJson) {
 // EVENT PROCESSING (DEDUP + PERSIST + SUPPRESS)
 // ============================================================
 
+function isBounceOrComplaint(type) {
+  return type === 'bounce' || type === 'complaint';
+}
+
+function insertWebhookEvent(dedupeKey, type, orgId, recipient, messageId, raw) {
+  db.run(`
+    INSERT INTO webhook_events (id, provider, event_type, org_id, payload_json, created_at, processed_at)
+    VALUES ($id, $provider, $eventType, $orgId, $payloadJson, $createdAt, $processedAt)
+  `, {
+    id: dedupeKey,
+    provider: 'ses',
+    eventType: type,
+    orgId,
+    payloadJson: db.toJson({ recipient, messageId, raw: summarizeRaw(raw) }),
+    createdAt: db.nowISO(),
+    processedAt: db.nowISO(),
+  });
+}
+
+function recordOutboxEvent(outbox, type, messageId, email, recipient) {
+  emailOutboxRepo.addEvent(outbox.id, type, {
+    sesMessageId: messageId,
+    email,
+    ...recipient,
+  });
+
+  if (isBounceOrComplaint(type)) {
+    emailOutboxRepo.updateStatus(outbox.id, 'failed', {
+      error: `ses:${type}${recipient.bounceType ? ':' + recipient.bounceType : ''}${recipient.feedbackType ? ':' + recipient.feedbackType : ''}`,
+    });
+  }
+}
+
+function suppressIfNeeded(type, orgId, email, messageId, recipient) {
+  if (!isBounceOrComplaint(type)) return;
+
+  if (orgId) {
+    emailOutboxRepo.addUnsubscribe(orgId, email, type, null);
+    logger.logInfo('SES_WEBHOOK', `Auto-suppressed ${email} for org ${orgId} (${type})`, {
+      bounceType: recipient.bounceType, feedbackType: recipient.feedbackType,
+    });
+  } else {
+    logger.logWarn('SES_WEBHOOK', `Cannot suppress ${email}: no org_id found (messageId: ${messageId})`, {
+      type, messageId, email,
+    });
+  }
+}
+
+function processSingleRecipient(type, messageId, recipient, raw) {
+  const email = recipient.email;
+  if (!email || !email.includes('@')) {
+    logger.logWarn('SES_WEBHOOK', `Skipping invalid email in ${type} event`, { email });
+    return 'skipped';
+  }
+
+  const dedupeKey = `ses:${type}:${messageId || 'unknown'}:${email}`;
+  const existing = db.get('SELECT id FROM webhook_events WHERE id = $id', { id: dedupeKey });
+  if (existing) {
+    logger.logInfo('SES_WEBHOOK', `Dedup: already processed ${dedupeKey}`);
+    return 'skipped';
+  }
+
+  try {
+    const outbox = messageId ? emailOutboxRepo.getByProviderMessageId(messageId) : null;
+    const orgId = outbox?.orgId || null;
+
+    insertWebhookEvent(dedupeKey, type, orgId, recipient, messageId, raw);
+    if (outbox) recordOutboxEvent(outbox, type, messageId, email, recipient);
+    suppressIfNeeded(type, orgId, email, messageId, recipient);
+
+    logger.logInfo('SES_WEBHOOK', `Processed ${type} for ${email}`, {
+      dedupeKey, outboxId: outbox?.id || null, orgId,
+    });
+    return 'processed';
+  } catch (err) {
+    if (err.message?.includes('UNIQUE')) return 'skipped';
+    logger.logError('SES_WEBHOOK', `Error processing ${type} for ${email}: ${err.message}`, {
+      dedupeKey, error: err.message,
+    });
+    return 'error';
+  }
+}
+
 /**
  * Process a normalized SES event
  * - Dedup via webhook_events (id = dedupe_key)
@@ -300,105 +383,15 @@ function normalizeSesEvent(messageJson) {
  */
 function processSesEvent(event) {
   const { type, messageId, recipients, raw } = event;
-  let processed = 0;
-  let skipped = 0;
-  let errors = 0;
+  const STATUS_MAP = { processed: 'processed', skipped: 'skipped', error: 'errors' };
+  const counters = { processed: 0, skipped: 0, errors: 0 };
 
   for (const recipient of recipients) {
-    const email = recipient.email;
-    if (!email || !email.includes('@')) {
-      logger.logWarn('SES_WEBHOOK', `Skipping invalid email in ${type} event`, { email });
-      skipped++;
-      continue;
-    }
-
-    // Dedupe key = PK of webhook_events
-    const dedupeKey = `ses:${type}:${messageId || 'unknown'}:${email}`;
-
-    // Check dedup
-    const existing = db.get(
-      'SELECT id FROM webhook_events WHERE id = $id',
-      { id: dedupeKey }
-    );
-
-    if (existing) {
-      logger.logInfo('SES_WEBHOOK', `Dedup: already processed ${dedupeKey}`);
-      skipped++;
-      continue;
-    }
-
-    try {
-      // 1) Find outbox by provider_message_id
-      const outbox = messageId
-        ? emailOutboxRepo.getByProviderMessageId(messageId)
-        : null;
-
-      const orgId = outbox?.orgId || null;
-
-      // 2) Insert into webhook_events (dedup record)
-      db.run(`
-        INSERT INTO webhook_events (id, provider, event_type, org_id, payload_json, created_at, processed_at)
-        VALUES ($id, $provider, $eventType, $orgId, $payloadJson, $createdAt, $processedAt)
-      `, {
-        id: dedupeKey,
-        provider: 'ses',
-        eventType: type,
-        orgId,
-        payloadJson: db.toJson({ recipient, messageId, raw: summarizeRaw(raw) }),
-        createdAt: db.nowISO(),
-        processedAt: db.nowISO(),
-      });
-
-      // 3) If outbox found → record email_events + update status
-      if (outbox) {
-        emailOutboxRepo.addEvent(outbox.id, type, {
-          sesMessageId: messageId,
-          email,
-          ...recipient,
-        });
-
-        // Bounce/Complaint → mark outbox as failed
-        if (type === 'bounce' || type === 'complaint') {
-          emailOutboxRepo.updateStatus(outbox.id, 'failed', {
-            error: `ses:${type}${recipient.bounceType ? ':' + recipient.bounceType : ''}${recipient.feedbackType ? ':' + recipient.feedbackType : ''}`,
-          });
-        }
-        // Delivery → just the event, don't change status (already 'sent')
-      }
-
-      // 4) Bounce/Complaint → suppress email (only if we know the org)
-      if ((type === 'bounce' || type === 'complaint') && orgId) {
-        emailOutboxRepo.addUnsubscribe(orgId, email, type, null);
-        logger.logInfo('SES_WEBHOOK', `Auto-suppressed ${email} for org ${orgId} (${type})`, {
-          bounceType: recipient.bounceType,
-          feedbackType: recipient.feedbackType,
-        });
-      } else if ((type === 'bounce' || type === 'complaint') && !orgId) {
-        // No org_id — can't add to email_unsubscribes, but event is recorded in webhook_events
-        logger.logWarn('SES_WEBHOOK', `Cannot suppress ${email}: no org_id found (messageId: ${messageId})`, {
-          type, messageId, email,
-        });
-      }
-
-      processed++;
-      logger.logInfo('SES_WEBHOOK', `Processed ${type} for ${email}`, {
-        dedupeKey, outboxId: outbox?.id || null, orgId,
-      });
-
-    } catch (err) {
-      // UNIQUE constraint = dedup race condition → skip silently
-      if (err.message?.includes('UNIQUE')) {
-        skipped++;
-        continue;
-      }
-      logger.logError('SES_WEBHOOK', `Error processing ${type} for ${email}: ${err.message}`, {
-        dedupeKey, error: err.message,
-      });
-      errors++;
-    }
+    const result = processSingleRecipient(type, messageId, recipient, raw);
+    counters[STATUS_MAP[result]]++;
   }
 
-  return { processed, skipped, errors };
+  return counters;
 }
 
 /**
@@ -429,6 +422,34 @@ function summarizeRaw(raw) {
 // MAIN HANDLER (called from server.js)
 // ============================================================
 
+async function handleSubscriptionConfirmation(snsMessage) {
+  try {
+    await confirmSubscription(snsMessage.SubscribeURL);
+    return { status: 200, body: { ok: true, action: 'subscription_confirmed' } };
+  } catch (err) {
+    logger.logError('SES_WEBHOOK', `Subscription confirmation failed: ${err.message}`);
+    return { status: 500, body: { ok: false, error: err.message } };
+  }
+}
+
+function handleNotification(snsMessage) {
+  const sesEvent = normalizeSesEvent(snsMessage.Message);
+  if (!sesEvent.type) {
+    logger.logWarn('SES_WEBHOOK', 'Unknown SES event type', { raw: snsMessage.Message?.substring?.(0, 200) });
+    return { status: 200, body: { ok: true, action: 'ignored_unknown_type' } };
+  }
+
+  const result = processSesEvent(sesEvent);
+  logger.logInfo('SES_WEBHOOK', `Processed SNS Notification: ${sesEvent.type}`, {
+    messageId: sesEvent.messageId, recipientCount: sesEvent.recipients.length, ...result,
+  });
+
+  return {
+    status: 200,
+    body: { ok: true, action: 'notification_processed', type: sesEvent.type, messageId: sesEvent.messageId, ...result },
+  };
+}
+
 /**
  * Handle incoming SNS webhook request
  * @param {string} rawBody - Raw request body (string, not parsed)
@@ -436,7 +457,6 @@ function summarizeRaw(raw) {
  * @returns {Promise<{ status: number, body: object }>}
  */
 async function handleSnsRequest(rawBody, headers) {
-  // 1) Parse SNS envelope
   let snsMessage;
   try {
     snsMessage = parseSnsEnvelope(rawBody);
@@ -445,72 +465,30 @@ async function handleSnsRequest(rawBody, headers) {
   }
 
   const messageType = headers['x-amz-sns-message-type'] || snsMessage.Type;
-
-  // 2) Validate SNS authenticity
   const validation = await validateSnsMessage(snsMessage, headers);
   if (!validation.valid) {
-    logger.logError('SES_WEBHOOK', `SNS validation failed: ${validation.error}`, {
-      messageType, topicArn: snsMessage.TopicArn,
-    });
+    logger.logError('SES_WEBHOOK', `SNS validation failed: ${validation.error}`, { messageType, topicArn: snsMessage.TopicArn });
     return { status: 401, body: { ok: false, error: validation.error } };
   }
 
-  // 3) Handle by message type
   if (messageType === 'SubscriptionConfirmation') {
-    try {
-      await confirmSubscription(snsMessage.SubscribeURL);
-      return { status: 200, body: { ok: true, action: 'subscription_confirmed' } };
-    } catch (err) {
-      logger.logError('SES_WEBHOOK', `Subscription confirmation failed: ${err.message}`);
-      return { status: 500, body: { ok: false, error: err.message } };
-    }
+    return handleSubscriptionConfirmation(snsMessage);
   }
 
   if (messageType === 'UnsubscribeConfirmation') {
-    logger.logWarn('SES_WEBHOOK', 'Received UnsubscribeConfirmation — SNS topic unsubscribed', {
-      topicArn: snsMessage.TopicArn,
-    });
+    logger.logWarn('SES_WEBHOOK', 'Received UnsubscribeConfirmation — SNS topic unsubscribed', { topicArn: snsMessage.TopicArn });
     return { status: 200, body: { ok: true, action: 'unsubscribe_acknowledged' } };
   }
 
   if (messageType === 'Notification') {
     try {
-      // Parse the embedded SES event
-      const sesEvent = normalizeSesEvent(snsMessage.Message);
-
-      if (!sesEvent.type) {
-        logger.logWarn('SES_WEBHOOK', 'Unknown SES event type', { raw: snsMessage.Message?.substring?.(0, 200) });
-        return { status: 200, body: { ok: true, action: 'ignored_unknown_type' } };
-      }
-
-      // Process
-      const result = processSesEvent(sesEvent);
-
-      logger.logInfo('SES_WEBHOOK', `Processed SNS Notification: ${sesEvent.type}`, {
-        messageId: sesEvent.messageId,
-        recipientCount: sesEvent.recipients.length,
-        ...result,
-      });
-
-      return {
-        status: 200,
-        body: {
-          ok: true,
-          action: 'notification_processed',
-          type: sesEvent.type,
-          messageId: sesEvent.messageId,
-          ...result,
-        },
-      };
+      return handleNotification(snsMessage);
     } catch (err) {
-      logger.logError('SES_WEBHOOK', `Error processing notification: ${err.message}`, {
-        error: err.message, stack: err.stack?.substring(0, 300),
-      });
+      logger.logError('SES_WEBHOOK', `Error processing notification: ${err.message}`, { error: err.message, stack: err.stack?.substring(0, 300) });
       return { status: 500, body: { ok: false, error: err.message } };
     }
   }
 
-  // Unknown message type
   logger.logWarn('SES_WEBHOOK', `Unknown SNS message type: ${messageType}`);
   return { status: 200, body: { ok: true, action: 'ignored_unknown_message_type' } };
 }

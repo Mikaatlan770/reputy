@@ -387,156 +387,217 @@ export default function InstallationsPage() {
         </div>
       )}
 
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={(open) => !newToken && setCreateOpen(open)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {newToken ? '🔑 Token créé !' : 'Nouvelle installation'}
-            </DialogTitle>
-            <DialogDescription>
-              {newToken 
-                ? 'Copiez ce token maintenant. Il ne sera plus affiché.'
-                : 'Donnez un nom à cette installation pour l\'identifier facilement.'}
-            </DialogDescription>
-          </DialogHeader>
+      <CreateInstallationDialog
+        open={createOpen}
+        newToken={newToken}
+        newLabel={newLabel}
+        setNewLabel={setNewLabel}
+        showToken={showToken}
+        setShowToken={setShowToken}
+        tokenCopied={tokenCopied}
+        creating={creating}
+        onClose={closeCreateDialog}
+        onCreate={handleCreate}
+        onCopyToken={copyToken}
+      />
 
-          {!newToken ? (
-            <>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Nom de l'installation</label>
-                  <input
-                    type="text"
-                    value={newLabel}
-                    onChange={(e) => setNewLabel(e.target.value)}
-                    placeholder="Ex: Poste accueil, iPhone Dr. Martin..."
-                    className="w-full mt-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+      <RevokeInstallationDialog
+        target={revokeTarget}
+        revoking={revoking}
+        onClose={() => setRevokeTarget(null)}
+        onRevoke={handleRevoke}
+      />
+    </div>
+  )
+}
+
+function CreateInstallationDialog({
+  open,
+  newToken,
+  newLabel,
+  setNewLabel,
+  showToken,
+  setShowToken,
+  tokenCopied,
+  creating,
+  onClose,
+  onCreate,
+  onCopyToken,
+}: {
+  open: boolean
+  newToken: string | null
+  newLabel: string
+  setNewLabel: (v: string) => void
+  showToken: boolean
+  setShowToken: (v: boolean) => void
+  tokenCopied: boolean
+  creating: boolean
+  onClose: () => void
+  onCreate: () => void
+  onCopyToken: () => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !newToken && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {newToken ? '🔑 Token créé !' : 'Nouvelle installation'}
+          </DialogTitle>
+          <DialogDescription>
+            {newToken 
+              ? 'Copiez ce token maintenant. Il ne sera plus affiché.'
+              : 'Donnez un nom à cette installation pour l\'identifier facilement.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {!newToken ? (
+          <>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Nom de l'installation</label>
+                <input
+                  type="text"
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  placeholder="Ex: Poste accueil, iPhone Dr. Martin..."
+                  className="w-full mt-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={closeCreateDialog}>
-                  Annuler
-                </Button>
-                <Button onClick={handleCreate} disabled={creating}>
-                  {creating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Création...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Créer
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <div className="space-y-4">
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <p className="text-sm text-amber-800">
-                    ⚠️ Ce token ne sera affiché qu'une seule fois. Copiez-le maintenant !
-                  </p>
-                </div>
-                
-                <div className="relative">
-                  <div className="bg-slate-900 text-white rounded-lg p-4 font-mono text-sm break-all">
-                    {showToken ? newToken : '•'.repeat(newToken.length)}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-2 right-12"
-                    onClick={() => setShowToken(!showToken)}
-                  >
-                    {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-2 right-2"
-                    onClick={copyToken}
-                  >
-                    {tokenCopied ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Annuler
+              </Button>
+              <Button onClick={onCreate} disabled={creating}>
+                {creating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Création...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Créer
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-sm text-amber-800">
+                  ⚠️ Ce token ne sera affiché qu'une seule fois. Copiez-le maintenant !
+                </p>
               </div>
-              <DialogFooter>
-                <Button 
-                  onClick={copyToken}
-                  variant={tokenCopied ? 'default' : 'outline'}
-                  className={tokenCopied ? 'bg-green-600 hover:bg-green-700' : ''}
+              
+              <div className="relative">
+                <div className="bg-slate-900 text-white rounded-lg p-4 font-mono text-sm break-all">
+                  {showToken ? newToken : '•'.repeat(newToken.length)}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-12"
+                  onClick={() => setShowToken(!showToken)}
+                >
+                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2"
+                  onClick={onCopyToken}
                 >
                   {tokenCopied ? (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Copié !
-                    </>
+                    <CheckCircle className="h-4 w-4 text-green-500" />
                   ) : (
-                    <>
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copier le token
-                    </>
+                    <Copy className="h-4 w-4" />
                   )}
                 </Button>
-                <Button onClick={closeCreateDialog}>
-                  Fermer
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Revoke Dialog */}
-      <Dialog open={!!revokeTarget} onOpenChange={() => setRevokeTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Révoquer l'installation ?</DialogTitle>
-            <DialogDescription>
-              Cette action est irréversible. L'appareil utilisant ce token ne pourra plus accéder à l'API.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {revokeTarget && (
-            <div className="bg-muted rounded-lg p-4">
-              <p className="font-medium">{revokeTarget.label}</p>
-              <p className="text-sm text-muted-foreground font-mono">{revokeTarget.tokenMasked}</p>
+              </div>
             </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRevokeTarget(null)}>
-              Annuler
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleRevoke}
-              disabled={revoking}
-            >
-              {revoking ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Révocation...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Révoquer
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+            <DialogFooter>
+              <Button 
+                onClick={onCopyToken}
+                variant={tokenCopied ? 'default' : 'outline'}
+                className={tokenCopied ? 'bg-green-600 hover:bg-green-700' : ''}
+              >
+                {tokenCopied ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Copié !
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copier le token
+                  </>
+                )}
+              </Button>
+              <Button onClick={onClose}>
+                Fermer
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function RevokeInstallationDialog({
+  target,
+  revoking,
+  onClose,
+  onRevoke,
+}: {
+  target: Installation | null
+  revoking: boolean
+  onClose: () => void
+  onRevoke: () => void
+}) {
+  return (
+    <Dialog open={!!target} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Révoquer l'installation ?</DialogTitle>
+          <DialogDescription>
+            Cette action est irréversible. L'appareil utilisant ce token ne pourra plus accéder à l'API.
+          </DialogDescription>
+        </DialogHeader>
+        
+        {target && (
+          <div className="bg-muted rounded-lg p-4">
+            <p className="font-medium">{target.label}</p>
+            <p className="text-sm text-muted-foreground font-mono">{target.tokenMasked}</p>
+          </div>
+        )}
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button 
+            variant="destructive" 
+            onClick={onRevoke}
+            disabled={revoking}
+          >
+            {revoking ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Révocation...
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Révoquer
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

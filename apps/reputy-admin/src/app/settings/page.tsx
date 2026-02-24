@@ -66,6 +66,108 @@ const getAuthToken = async () => {
   return await getSecureToken()
 }
 
+interface GoogleOAuthCallbacks {
+  setConnecting: (v: boolean) => void
+  setError: (msg: string | null) => void
+  refreshStatus: () => Promise<void>
+}
+
+async function performGoogleOAuth(token: string, callbacks: GoogleOAuthCallbacks) {
+  callbacks.setConnecting(true)
+  callbacks.setError(null)
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/client/google/auth-url`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await response.json()
+
+    if (!data.ok || !data.authUrl) {
+      callbacks.setError(data.message || 'Impossible de générer le lien Google')
+      callbacks.setConnecting(false)
+      return
+    }
+
+    const width = 600
+    const height = 700
+    const left = window.screenX + (window.outerWidth - width) / 2
+    const top = window.screenY + (window.outerHeight - height) / 2
+
+    const popup = window.open(
+      data.authUrl,
+      'google_oauth',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+    )
+
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.type !== 'GOOGLE_OAUTH_CALLBACK') return
+      window.removeEventListener('message', handleMessage)
+
+      const { code, error: oauthError } = event.data as { code: string; state: string; error: string }
+
+      if (oauthError) {
+        callbacks.setError(`Erreur Google: ${oauthError}`)
+        callbacks.setConnecting(false)
+        return
+      }
+
+      if (code) {
+        try {
+          const callbackResponse = await fetch(`${BACKEND_URL}/client/google/callback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ code, state: event.data.state }),
+          })
+          const callbackData = await callbackResponse.json()
+          if (callbackData.ok) {
+            await callbacks.refreshStatus()
+          } else {
+            callbacks.setError(callbackData.message || 'Erreur lors de la connexion')
+          }
+        } catch (callbackErr) {
+          console.error('Google callback error:', callbackErr)
+          callbacks.setError('Erreur lors de la connexion à Google')
+        }
+      }
+      callbacks.setConnecting(false)
+    }
+
+    window.addEventListener('message', handleMessage)
+
+    const urlParams = new URLSearchParams(window.location.search)
+    const googleCode = urlParams.get('google_code')
+    if (googleCode) {
+      handleMessage({ data: { type: 'GOOGLE_OAUTH_CALLBACK', code: googleCode, state: urlParams.get('google_state') || '' }, origin: new URL(BACKEND_URL).origin } as MessageEvent)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+
+    const checkPopup = setInterval(() => {
+      try {
+        if (!popup || popup.closed) {
+          clearInterval(checkPopup)
+          setTimeout(() => {
+            window.removeEventListener('message', handleMessage)
+            callbacks.setConnecting(false)
+            callbacks.refreshStatus()
+          }, 2000)
+        }
+      } catch {
+        // Cross-Origin-Opener-Policy may block popup.closed
+      }
+    }, 1000)
+
+    setTimeout(() => {
+      clearInterval(checkPopup)
+      window.removeEventListener('message', handleMessage)
+      callbacks.setConnecting(false)
+    }, 120000)
+  } catch (err) {
+    console.error('Google connect error:', err)
+    callbacks.setError('Erreur de connexion à Google')
+    callbacks.setConnecting(false)
+  }
+}
+
 export default function SettingsPage() {
   const { currentLocation, orgSettings, setCurrentLocation } = useAppStore()
   const { clientOrg } = useAuth()
@@ -263,118 +365,11 @@ export default function SettingsPage() {
   const connectGoogle = async () => {
     const token = await getAuthToken()
     if (!token) return
-
-    setGoogleConnecting(true)
-    setGoogleError(null)
-
-    try {
-      // Step 1: Get auth URL from backend
-      const response = await fetch(`${BACKEND_URL}/client/google/auth-url`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await response.json()
-      
-      if (!data.ok || !data.authUrl) {
-        setGoogleError(data.message || 'Impossible de générer le lien Google')
-        setGoogleConnecting(false)
-        return
-      }
-
-      // Step 2: Open popup for Google OAuth
-      const width = 600
-      const height = 700
-      const left = window.screenX + (window.outerWidth - width) / 2
-      const top = window.screenY + (window.outerHeight - height) / 2
-      
-      const popup = window.open(
-        data.authUrl,
-        'google_oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-      )
-
-      // Step 3: Listen for postMessage from the callback page
-      const handleMessage = async (event: MessageEvent) => {
-        // Validate message type (origin check removed: localhost vs 127.0.0.1 mismatch)
-        if (event.data?.type !== 'GOOGLE_OAUTH_CALLBACK') return
-
-        window.removeEventListener('message', handleMessage)
-
-        const { code, error: oauthError } = event.data as { code: string; state: string; error: string }
-
-        if (oauthError) {
-          setGoogleError(`Erreur Google: ${oauthError}`)
-          setGoogleConnecting(false)
-          return
-        }
-
-        if (code) {
-          try {
-            // Exchange code with backend
-            const callbackResponse = await fetch(`${BACKEND_URL}/client/google/callback`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ code, state: event.data.state }),
-            })
-            const callbackData = await callbackResponse.json()
-            
-            if (callbackData.ok) {
-              await fetchGoogleStatus()
-            } else {
-              setGoogleError(callbackData.message || 'Erreur lors de la connexion')
-            }
-          } catch (callbackErr) {
-            console.error('Google callback error:', callbackErr)
-            setGoogleError('Erreur lors de la connexion à Google')
-          }
-        }
-        setGoogleConnecting(false)
-      }
-
-      window.addEventListener('message', handleMessage)
-
-      // Also check for URL-based fallback (if popup navigates instead of postMessage)
-      const checkUrl = () => {
-        const urlParams = new URLSearchParams(window.location.search)
-        const googleCode = urlParams.get('google_code')
-        if (googleCode) {
-          handleMessage({ data: { type: 'GOOGLE_OAUTH_CALLBACK', code: googleCode, state: urlParams.get('google_state') || '' }, origin: new URL(BACKEND_URL).origin } as MessageEvent)
-          // Clean URL
-          window.history.replaceState({}, '', window.location.pathname)
-        }
-      }
-      checkUrl()
-
-      // Safety: check if popup was closed without completing OAuth
-      const checkPopup = setInterval(() => {
-        try {
-          if (!popup || popup.closed) {
-            clearInterval(checkPopup)
-            // Give a small delay for postMessage to arrive
-            setTimeout(() => {
-              window.removeEventListener('message', handleMessage)
-              setGoogleConnecting(false)
-              fetchGoogleStatus() // Refresh status in case it worked
-            }, 2000)
-          }
-        } catch {
-          // Cross-Origin-Opener-Policy may block popup.closed — ignore
-        }
-      }, 1000)
-
-      // Safety timeout (2 minutes)
-      setTimeout(() => {
-        clearInterval(checkPopup)
-        window.removeEventListener('message', handleMessage)
-        setGoogleConnecting(false)
-      }, 120000)
-    } catch (err) {
-      console.error('Google connect error:', err)
-      setGoogleError('Erreur de connexion à Google')
-      setGoogleConnecting(false)
-    }
+    await performGoogleOAuth(token, {
+      setConnecting: setGoogleConnecting,
+      setError: setGoogleError,
+      refreshStatus: fetchGoogleStatus,
+    })
   }
 
   const disconnectGoogle = async () => {
@@ -396,6 +391,36 @@ export default function SettingsPage() {
       }
     } catch (err) {
       console.error('Google disconnect error:', err)
+    }
+  }
+
+  const handleSaveEstablishment = async () => {
+    if (!establishmentLat || !establishmentLng) return
+    setSavingEstablishment(true)
+    setEstablishmentSaveSuccess(false)
+    try {
+      const result = await configureCompetitors({
+        lat: establishmentLat,
+        lng: establishmentLng,
+        address: establishmentAddress,
+        googlePlaceId: establishmentPlaceId || undefined,
+      })
+      if (result) {
+        setEstablishmentSaveSuccess(true)
+        setTimeout(() => setEstablishmentSaveSuccess(false), 3000)
+        if (currentLocation) {
+          setCurrentLocation({
+            ...currentLocation,
+            address: establishmentAddress,
+            lat: establishmentLat,
+            lng: establishmentLng,
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to save establishment info:', err)
+    } finally {
+      setSavingEstablishment(false)
     }
   }
 
@@ -657,135 +682,17 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Google Business Profile Connection */}
-        <Card className="border-blue-200">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Globe className="h-5 w-5 text-blue-600" />
-              Google Business Profile
-            </CardTitle>
-            <CardDescription>
-              Connectez votre fiche Google pour synchroniser et répondre aux avis
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {googleLoading ? (
-              <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border">
-                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-                <p className="text-sm text-muted-foreground">Chargement...</p>
-              </div>
-            ) : googleStatus?.google?.connected ? (
-              <>
-                {/* Connected state */}
-              <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                  <div className="flex-1">
-                  <p className="font-medium text-green-800">Connecté</p>
-                    <p className="text-xs text-green-700">
-                      {googleStatus.google.locationName || 'Établissement Google'}
-                    </p>
-                    {googleStatus.google.lastSyncAt && (
-                      <p className="text-xs text-green-600 mt-0.5">
-                        Dernière synchro : {new Date(googleStatus.google.lastSyncAt).toLocaleString('fr-FR')}
-                      </p>
-                    )}
-                </div>
-                  <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
-                    Actif
-                  </Badge>
-              </div>
-
-                {/* Sync controls */}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={syncGoogleReviews}
-                    disabled={googleSyncing}
-                    className="flex-1 gap-2"
-                  >
-                    {googleSyncing ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
-                    {googleSyncing ? 'Synchronisation...' : 'Synchroniser les avis'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={disconnectGoogle}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    Déconnecter
-                  </Button>
-                </div>
-
-                {/* Sync result */}
-                {googleSyncResult && (
-                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
-                    <p className="text-sm text-green-700">{googleSyncResult}</p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                {/* Not connected state */}
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <AlertTriangle className="h-5 w-5 text-amber-500" />
-                <div>
-                    <p className="font-medium text-gray-800">Non connecté</p>
-                    <p className="text-xs text-muted-foreground">
-                      Connectez votre compte Google pour importer vos avis automatiquement
-                  </p>
-                </div>
-              </div>
-
-                {googleStatus?.configured ? (
-                  <Button
-                    onClick={connectGoogle}
-                    disabled={googleConnecting}
-                    className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
-                  >
-                    {googleConnecting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Globe className="h-4 w-4" />
-                    )}
-                    {googleConnecting ? 'Connexion en cours...' : 'Connecter Google Business'}
-              </Button>
-                ) : (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <p className="text-sm text-amber-700">
-                      <strong>Configuration requise :</strong> Google Business Profile n&apos;est pas encore configuré sur le serveur. Contactez le support pour activer cette fonctionnalité.
-                    </p>
-            </div>
-                )}
-
-                {/* Info */}
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <Info className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-xs text-blue-700 space-y-1">
-                      <p className="font-medium">La connexion Google permet de :</p>
-                      <ul className="list-disc list-inside space-y-0.5">
-                        <li>Importer automatiquement vos avis Google</li>
-                        <li>Répondre aux avis directement depuis Reputy</li>
-                        <li>Suivre vos statistiques en temps réel</li>
-                      </ul>
-            </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Error message */}
-            {googleError && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
-                <p className="text-sm text-red-700">{googleError}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <GoogleBusinessCard
+          googleLoading={googleLoading}
+          googleStatus={googleStatus}
+          googleConnecting={googleConnecting}
+          googleSyncing={googleSyncing}
+          googleError={googleError}
+          googleSyncResult={googleSyncResult}
+          onConnect={connectGoogle}
+          onDisconnect={disconnectGoogle}
+          onSync={syncGoogleReviews}
+        />
 
         {/* Establishment Info */}
         <Card>
@@ -848,38 +755,7 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center gap-3">
               <Button
-                onClick={async () => {
-                  if (!establishmentLat || !establishmentLng) {
-                    return
-                  }
-                  setSavingEstablishment(true)
-                  setEstablishmentSaveSuccess(false)
-                  try {
-                    const result = await configureCompetitors({
-                      lat: establishmentLat,
-                      lng: establishmentLng,
-                      address: establishmentAddress,
-                      googlePlaceId: establishmentPlaceId || undefined,
-                    })
-                    if (result) {
-                      setEstablishmentSaveSuccess(true)
-                      setTimeout(() => setEstablishmentSaveSuccess(false), 3000)
-                      // Mettre à jour le store pour que la page Concurrence ait les bonnes données
-                      if (currentLocation) {
-                        setCurrentLocation({
-                          ...currentLocation,
-                          address: establishmentAddress,
-                          lat: establishmentLat,
-                          lng: establishmentLng,
-                        })
-                      }
-                    }
-                  } catch (err) {
-                    console.error('Failed to save establishment info:', err)
-                  } finally {
-                    setSavingEstablishment(false)
-                  }
-                }}
+                onClick={handleSaveEstablishment}
                 disabled={savingEstablishment || (!establishmentLat && !establishmentLng)}
                 className="gap-2"
               >
@@ -1200,5 +1076,188 @@ export default function SettingsPage() {
         />
       )}
     </div>
+  )
+}
+
+function GoogleBusinessCard({
+  googleLoading,
+  googleStatus,
+  googleConnecting,
+  googleSyncing,
+  googleError,
+  googleSyncResult,
+  onConnect,
+  onDisconnect,
+  onSync,
+}: {
+  googleLoading: boolean
+  googleStatus: any
+  googleConnecting: boolean
+  googleSyncing: boolean
+  googleError: string | null
+  googleSyncResult: string | null
+  onConnect: () => void
+  onDisconnect: () => void
+  onSync: () => void
+}) {
+  return (
+    <Card className="border-blue-200">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Globe className="h-5 w-5 text-blue-600" />
+          Google Business Profile
+        </CardTitle>
+        <CardDescription>
+          Connectez votre fiche Google pour synchroniser et répondre aux avis
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {googleLoading ? (
+          <GoogleLoadingState />
+        ) : googleStatus?.google?.connected ? (
+          <GoogleConnectedState
+            googleStatus={googleStatus}
+            googleSyncing={googleSyncing}
+            googleSyncResult={googleSyncResult}
+            onSync={onSync}
+            onDisconnect={onDisconnect}
+          />
+        ) : (
+          <GoogleDisconnectedState
+            googleStatus={googleStatus}
+            googleConnecting={googleConnecting}
+            onConnect={onConnect}
+          />
+        )}
+
+        {googleError && (
+          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+            <p className="text-sm text-red-700">{googleError}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function GoogleLoadingState() {
+  return (
+    <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border">
+      <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+      <p className="text-sm text-muted-foreground">Chargement...</p>
+    </div>
+  )
+}
+
+function GoogleConnectedState({
+  googleStatus,
+  googleSyncing,
+  googleSyncResult,
+  onSync,
+  onDisconnect,
+}: {
+  googleStatus: any
+  googleSyncing: boolean
+  googleSyncResult: string | null
+  onSync: () => void
+  onDisconnect: () => void
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
+        <CheckCircle className="h-5 w-5 text-green-600" />
+        <div className="flex-1">
+          <p className="font-medium text-green-800">Connecté</p>
+          <p className="text-xs text-green-700">
+            {googleStatus.google.locationName || 'Établissement Google'}
+          </p>
+          {googleStatus.google.lastSyncAt && (
+            <p className="text-xs text-green-600 mt-0.5">
+              Dernière synchro : {new Date(googleStatus.google.lastSyncAt).toLocaleString('fr-FR')}
+            </p>
+          )}
+        </div>
+        <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50">
+          Actif
+        </Badge>
+      </div>
+
+      <div className="flex gap-2">
+        <Button onClick={onSync} disabled={googleSyncing} className="flex-1 gap-2">
+          {googleSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          {googleSyncing ? 'Synchronisation...' : 'Synchroniser les avis'}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onDisconnect}
+          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+        >
+          Déconnecter
+        </Button>
+      </div>
+
+      {googleSyncResult && (
+        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+          <p className="text-sm text-green-700">{googleSyncResult}</p>
+        </div>
+      )}
+    </>
+  )
+}
+
+function GoogleDisconnectedState({
+  googleStatus,
+  googleConnecting,
+  onConnect,
+}: {
+  googleStatus: any
+  googleConnecting: boolean
+  onConnect: () => void
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <AlertTriangle className="h-5 w-5 text-amber-500" />
+        <div>
+          <p className="font-medium text-gray-800">Non connecté</p>
+          <p className="text-xs text-muted-foreground">
+            Connectez votre compte Google pour importer vos avis automatiquement
+          </p>
+        </div>
+      </div>
+
+      {googleStatus?.configured ? (
+        <Button
+          onClick={onConnect}
+          disabled={googleConnecting}
+          className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
+        >
+          {googleConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+          {googleConnecting ? 'Connexion en cours...' : 'Connecter Google Business'}
+        </Button>
+      ) : (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <p className="text-sm text-amber-700">
+            <strong>Configuration requise :</strong> Google Business Profile n&apos;est pas encore configuré sur le serveur. Contactez le support pour activer cette fonctionnalité.
+          </p>
+        </div>
+      )}
+
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div className="flex items-start gap-2">
+          <Info className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-blue-700 space-y-1">
+            <p className="font-medium">La connexion Google permet de :</p>
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>Importer automatiquement vos avis Google</li>
+              <li>Répondre aux avis directement depuis Reputy</li>
+              <li>Suivre vos statistiques en temps réel</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }

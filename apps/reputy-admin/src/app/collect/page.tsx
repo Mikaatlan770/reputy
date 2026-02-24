@@ -488,175 +488,30 @@ export default function CollectPage() {
 
         {/* QR Code Tab - REAL DATA */}
         <TabsContent value="qr">
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Vos QR Codes</CardTitle>
-                  <CardDescription>
-                    QR codes pointant vers votre page de collecte
-                  </CardDescription>
-                </div>
-                <Button onClick={() => openCreateDialog('qr')} className="gap-1">
-                  <Plus className="h-4 w-4" />
-                  Nouveau QR
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {loadingShortlinks ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  </div>
-                ) : qrLinks.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <QrCode className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>Aucun QR code créé</p>
-                    <Button onClick={() => openCreateDialog('qr')} variant="outline" className="mt-4">
-                      Créer votre premier QR code
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                    {qrLinks.map((link) => (
-                      <div
-                        key={link.code}
-                        className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-blue-100 rounded-lg">
-                            <QrCode className="h-5 w-5 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="font-medium">{link.label}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(link.createdAt).toLocaleDateString('fr-FR')}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="text-sm font-medium">{link.clicks} clics</p>
-                          </div>
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => downloadQr(link.code, 'png')} title="Télécharger PNG">
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => copyUrl(link.shortUrl)} title="Copier l'URL">
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="text-red-600" onClick={() => setDeleteTarget(link)} title="Supprimer">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Performance QR Code</CardTitle>
-                <CardDescription>Statistiques de vos QR codes</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { label: 'QR codes actifs', value: qrLinks.length, icon: QrCode },
-                    { label: 'Total scans', value: stats.totalClicks, icon: Eye },
-                    { label: 'Clics moyen/QR', value: qrLinks.length > 0 ? Math.round(stats.totalClicks / qrLinks.length) : 0, icon: TrendingUp },
-                  ].map((stat) => (
-                    <div key={stat.label} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <stat.icon className="h-5 w-5 text-muted-foreground" />
-                        <span className="text-sm">{stat.label}</span>
-                      </div>
-                      <span className="font-semibold">{stat.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <QrTabContent
+            loading={loadingShortlinks}
+            qrLinks={qrLinks}
+            stats={stats}
+            onCreateDialog={() => openCreateDialog('qr')}
+            onDownloadQr={downloadQr}
+            onCopyUrl={copyUrl}
+            onDelete={setDeleteTarget}
+          />
         </TabsContent>
 
         {/* NFC Tab - REAL DATA */}
         <TabsContent value="nfc">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Tags NFC</CardTitle>
-                <CardDescription>Gérez vos tags NFC de collecte</CardDescription>
-              </div>
-              <Button onClick={() => openCreateDialog('nfc')} className="gap-1">
-                <Plus className="h-4 w-4" />
-                Nouveau tag
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {loadingShortlinks ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
-              ) : nfcLinks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Nfc className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>Aucun tag NFC configuré</p>
-                  <Button onClick={() => openCreateDialog('nfc')} variant="outline" className="mt-4">
-                    Créer votre premier lien NFC
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {nfcLinks.map((link) => (
-                    <div
-                      key={link.code}
-                      className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-purple-100 rounded-lg">
-                          <Nfc className="h-5 w-5 text-purple-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium">{link.label}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(link.createdAt).toLocaleDateString('fr-FR')}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-sm font-medium">{link.clicks} scans</p>
-                        </div>
-                        <Badge variant="success">Actif</Badge>
-                        <div className="flex gap-1">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => {
-                              setSelectedShortlink(link)
-                              setNfcInstructionsOpen(true)
-                            }}
-                            title="Instructions NFC"
-                          >
-                            <Smartphone className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => copyUrl(link.shortUrl)} title="Copier l'URL">
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="text-red-600" onClick={() => setDeleteTarget(link)} title="Supprimer">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <NfcTabContent
+            loading={loadingShortlinks}
+            nfcLinks={nfcLinks}
+            onCreateDialog={() => openCreateDialog('nfc')}
+            onCopyUrl={copyUrl}
+            onDelete={setDeleteTarget}
+            onShowInstructions={(link) => {
+              setSelectedShortlink(link)
+              setNfcInstructionsOpen(true)
+            }}
+          />
         </TabsContent>
 
         {/* SMS Tab - REAL DATA */}
@@ -872,209 +727,37 @@ export default function CollectPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={(open) => !newShortlink && setCreateOpen(open)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {newShortlink 
-                ? `✅ ${createType === 'qr' ? 'QR Code' : 'Lien NFC'} créé !`
-                : `Nouveau ${createType === 'qr' ? 'QR Code' : 'lien NFC'}`}
-            </DialogTitle>
-            <DialogDescription>
-              {newShortlink 
-                ? 'Votre lien court est prêt à utiliser.'
-                : 'Configurez votre nouveau lien court.'}
-            </DialogDescription>
-          </DialogHeader>
+      <CreateShortlinkDialog
+        open={createOpen}
+        newShortlink={newShortlink}
+        createType={createType}
+        newLabel={newLabel}
+        onNewLabelChange={setNewLabel}
+        newTargetUrl={newTargetUrl}
+        onNewTargetUrlChange={setNewTargetUrl}
+        googleReviewUrl={(clientOrg as any)?.options?.googleReviewUrl || ''}
+        creating={creating}
+        copied={copied}
+        onOpenChange={setCreateOpen}
+        onClose={closeCreateDialog}
+        onCreate={handleCreate}
+        onCopyUrl={copyUrl}
+        onDownloadQr={downloadQr}
+      />
 
-          {!newShortlink ? (
-            <>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Nom (optionnel)</label>
-                  <Input
-                    value={newLabel}
-                    onChange={(e) => setNewLabel(e.target.value)}
-                    placeholder="Ex: Comptoir accueil, Salle d'attente..."
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">URL de destination *</label>
-                  <Input
-                    type="url"
-                    value={newTargetUrl}
-                    onChange={(e) => setNewTargetUrl(e.target.value)}
-                    placeholder="https://g.page/r/votre-lien/review"
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {newTargetUrl && (clientOrg as any)?.options?.googleReviewUrl === newTargetUrl
-                      ? '✅ Pré-rempli avec votre URL Google Review'
-                      : "L'URL vers laquelle les utilisateurs seront redirigés"}
-                  </p>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={closeCreateDialog}>
-                  Annuler
-                </Button>
-                <Button onClick={handleCreate} disabled={creating || !newTargetUrl}>
-                  {creating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Création...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Créer
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <div className="space-y-4">
-                <div className="bg-slate-900 text-white rounded-lg p-4">
-                  <p className="text-sm text-slate-400 mb-1">URL courte</p>
-                  <p className="font-mono text-lg text-amber-300 break-all">
-                    {newShortlink.shortUrl}
-                  </p>
-                </div>
-                
-                <div className="flex gap-2">
-                  <Button 
-                    className="flex-1"
-                    variant={copied ? 'default' : 'outline'}
-                    onClick={() => copyUrl(newShortlink.shortUrl)}
-                  >
-                    {copied ? (
-                      <>
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Copié !
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-4 w-4 mr-2" />
-                        Copier l&apos;URL
-                      </>
-                    )}
-                  </Button>
-                  <Button variant="outline" asChild>
-                    <a href={newShortlink.shortUrl} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Tester
-                    </a>
-                  </Button>
-                </div>
-                
-                {createType === 'qr' && (
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground text-center">
-                      Téléchargez votre QR code :
-                    </p>
-                    <div className="flex gap-2 justify-center">
-                      <Button variant="outline" onClick={() => downloadQr(newShortlink.code, 'png')}>
-                        <Download className="h-4 w-4 mr-2" />
-                        PNG
-                      </Button>
-                      <Button variant="outline" onClick={() => downloadQr(newShortlink.code, 'svg')}>
-                        <Download className="h-4 w-4 mr-2" />
-                        SVG
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                
-                {createType === 'nfc' && (
-                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                    <p className="text-sm font-medium text-purple-900 mb-2">Instructions NFC</p>
-                    <ol className="text-sm text-purple-800 space-y-1 list-decimal list-inside">
-                      <li>Téléchargez NFC Tools (iOS/Android)</li>
-                      <li>Choisissez &quot;Écrire&quot; → &quot;Ajouter un enregistrement&quot;</li>
-                      <li>Sélectionnez &quot;URL&quot;</li>
-                      <li>Collez : <code className="bg-purple-100 px-1 rounded">{newShortlink.shortUrl}</code></li>
-                      <li>Approchez votre tag NFC et écrivez</li>
-                    </ol>
-                  </div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button onClick={closeCreateDialog}>
-                  Fermer
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <DeleteShortlinkDialog
+        target={deleteTarget}
+        deleting={deleting}
+        onClose={() => setDeleteTarget(null)}
+        onDelete={handleDelete}
+      />
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Supprimer ce shortlink ?</DialogTitle>
-            <DialogDescription>
-              Cette action est irréversible. Le lien &quot;{deleteTarget?.label}&quot; ne fonctionnera plus.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Annuler
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-              {deleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Suppression...
-                </>
-              ) : (
-                'Supprimer'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* NFC Instructions Dialog */}
-      <Dialog open={nfcInstructionsOpen} onOpenChange={setNfcInstructionsOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Comment programmer votre tag NFC</DialogTitle>
-            <DialogDescription>
-              Suivez ces étapes pour configurer votre tag NFC
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-              <p className="text-sm font-medium text-purple-900 mb-2">URL à programmer</p>
-              <code className="text-sm bg-purple-100 px-2 py-1 rounded block break-all">
-                {selectedShortlink?.shortUrl}
-              </code>
-            </div>
-            <ol className="text-sm space-y-2 list-decimal list-inside">
-              <li>Téléchargez l&apos;app <strong>NFC Tools</strong> (gratuite sur iOS/Android)</li>
-              <li>Ouvrez l&apos;app et allez dans &quot;Écrire&quot;</li>
-              <li>Appuyez sur &quot;Ajouter un enregistrement&quot;</li>
-              <li>Sélectionnez &quot;URL/URI&quot;</li>
-              <li>Collez l&apos;URL ci-dessus</li>
-              <li>Appuyez sur &quot;Écrire&quot; et approchez votre tag NFC</li>
-            </ol>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => selectedShortlink && copyUrl(selectedShortlink.shortUrl)}>
-              <Copy className="h-4 w-4 mr-2" />
-              Copier l&apos;URL
-            </Button>
-            <Button onClick={() => setNfcInstructionsOpen(false)}>
-              Fermer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <NfcInstructionsDialog
+        open={nfcInstructionsOpen}
+        onOpenChange={setNfcInstructionsOpen}
+        shortlink={selectedShortlink}
+        onCopyUrl={copyUrl}
+      />
 
       {/* Widget Manager Modal */}
       {currentLocation && (
@@ -1086,5 +769,445 @@ export default function CollectPage() {
         />
       )}
     </div>
+  )
+}
+
+interface QrTabContentProps {
+  loading: boolean
+  qrLinks: Shortlink[]
+  stats: ShortlinkStats
+  onCreateDialog: () => void
+  onDownloadQr: (code: string, format: 'png' | 'svg') => void
+  onCopyUrl: (url: string) => void
+  onDelete: (link: Shortlink) => void
+}
+
+function QrTabContent({ loading, qrLinks, stats, onCreateDialog, onDownloadQr, onCopyUrl, onDelete }: QrTabContentProps) {
+  return (
+    <div className="grid md:grid-cols-2 gap-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Vos QR Codes</CardTitle>
+            <CardDescription>
+              QR codes pointant vers votre page de collecte
+            </CardDescription>
+          </div>
+          <Button onClick={onCreateDialog} className="gap-1">
+            <Plus className="h-4 w-4" />
+            Nouveau QR
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : qrLinks.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <QrCode className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <p>Aucun QR code créé</p>
+              <Button onClick={onCreateDialog} variant="outline" className="mt-4">
+                Créer votre premier QR code
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              {qrLinks.map((link) => (
+                <div
+                  key={link.code}
+                  className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <QrCode className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{link.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(link.createdAt).toLocaleDateString('fr-FR')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-sm font-medium">{link.clicks} clics</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => onDownloadQr(link.code, 'png')} title="Télécharger PNG">
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => onCopyUrl(link.shortUrl)} title="Copier l'URL">
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="text-red-600" onClick={() => onDelete(link)} title="Supprimer">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Performance QR Code</CardTitle>
+          <CardDescription>Statistiques de vos QR codes</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {[
+              { label: 'QR codes actifs', value: qrLinks.length, icon: QrCode },
+              { label: 'Total scans', value: stats.totalClicks, icon: Eye },
+              { label: 'Clics moyen/QR', value: qrLinks.length > 0 ? Math.round(stats.totalClicks / qrLinks.length) : 0, icon: TrendingUp },
+            ].map((stat) => (
+              <div key={stat.label} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <stat.icon className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm">{stat.label}</span>
+                </div>
+                <span className="font-semibold">{stat.value}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+interface NfcTabContentProps {
+  loading: boolean
+  nfcLinks: Shortlink[]
+  onCreateDialog: () => void
+  onCopyUrl: (url: string) => void
+  onDelete: (link: Shortlink) => void
+  onShowInstructions: (link: Shortlink) => void
+}
+
+function NfcTabContent({ loading, nfcLinks, onCreateDialog, onCopyUrl, onDelete, onShowInstructions }: NfcTabContentProps) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Tags NFC</CardTitle>
+          <CardDescription>Gérez vos tags NFC de collecte</CardDescription>
+        </div>
+        <Button onClick={onCreateDialog} className="gap-1">
+          <Plus className="h-4 w-4" />
+          Nouveau tag
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : nfcLinks.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Nfc className="h-12 w-12 mx-auto mb-2 opacity-50" />
+            <p>Aucun tag NFC configuré</p>
+            <Button onClick={onCreateDialog} variant="outline" className="mt-4">
+              Créer votre premier lien NFC
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {nfcLinks.map((link) => (
+              <div
+                key={link.code}
+                className="flex items-center justify-between p-4 bg-muted/50 rounded-lg"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <Nfc className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="font-medium">{link.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(link.createdAt).toLocaleDateString('fr-FR')}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-sm font-medium">{link.clicks} scans</p>
+                  </div>
+                  <Badge variant="success">Actif</Badge>
+                  <div className="flex gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => onShowInstructions(link)}
+                      title="Instructions NFC"
+                    >
+                      <Smartphone className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => onCopyUrl(link.shortUrl)} title="Copier l'URL">
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="text-red-600" onClick={() => onDelete(link)} title="Supprimer">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+interface CreateShortlinkDialogProps {
+  open: boolean
+  newShortlink: Shortlink | null
+  createType: 'qr' | 'nfc'
+  newLabel: string
+  onNewLabelChange: (value: string) => void
+  newTargetUrl: string
+  onNewTargetUrlChange: (value: string) => void
+  googleReviewUrl: string
+  creating: boolean
+  copied: boolean
+  onOpenChange: (open: boolean) => void
+  onClose: () => void
+  onCreate: () => void
+  onCopyUrl: (url: string) => void
+  onDownloadQr: (code: string, format: 'png' | 'svg') => void
+}
+
+function CreateShortlinkDialog({
+  open, newShortlink, createType, newLabel, onNewLabelChange,
+  newTargetUrl, onNewTargetUrlChange, googleReviewUrl,
+  creating, copied, onOpenChange, onClose, onCreate, onCopyUrl, onDownloadQr,
+}: CreateShortlinkDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !newShortlink && onOpenChange(o)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {newShortlink 
+              ? `✅ ${createType === 'qr' ? 'QR Code' : 'Lien NFC'} créé !`
+              : `Nouveau ${createType === 'qr' ? 'QR Code' : 'lien NFC'}`}
+          </DialogTitle>
+          <DialogDescription>
+            {newShortlink 
+              ? 'Votre lien court est prêt à utiliser.'
+              : 'Configurez votre nouveau lien court.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {!newShortlink ? (
+          <>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Nom (optionnel)</label>
+                <Input
+                  value={newLabel}
+                  onChange={(e) => onNewLabelChange(e.target.value)}
+                  placeholder="Ex: Comptoir accueil, Salle d'attente..."
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">URL de destination *</label>
+                <Input
+                  type="url"
+                  value={newTargetUrl}
+                  onChange={(e) => onNewTargetUrlChange(e.target.value)}
+                  placeholder="https://g.page/r/votre-lien/review"
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {newTargetUrl && googleReviewUrl === newTargetUrl
+                    ? '✅ Pré-rempli avec votre URL Google Review'
+                    : "L'URL vers laquelle les utilisateurs seront redirigés"}
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Annuler
+              </Button>
+              <Button onClick={onCreate} disabled={creating || !newTargetUrl}>
+                {creating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Création...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Créer
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <div className="bg-slate-900 text-white rounded-lg p-4">
+                <p className="text-sm text-slate-400 mb-1">URL courte</p>
+                <p className="font-mono text-lg text-amber-300 break-all">
+                  {newShortlink.shortUrl}
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button 
+                  className="flex-1"
+                  variant={copied ? 'default' : 'outline'}
+                  onClick={() => onCopyUrl(newShortlink.shortUrl)}
+                >
+                  {copied ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copier l&apos;URL
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" asChild>
+                  <a href={newShortlink.shortUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Tester
+                  </a>
+                </Button>
+              </div>
+              
+              {createType === 'qr' && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground text-center">
+                    Téléchargez votre QR code :
+                  </p>
+                  <div className="flex gap-2 justify-center">
+                    <Button variant="outline" onClick={() => onDownloadQr(newShortlink.code, 'png')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      PNG
+                    </Button>
+                    <Button variant="outline" onClick={() => onDownloadQr(newShortlink.code, 'svg')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      SVG
+                    </Button>
+                  </div>
+                </div>
+              )}
+              
+              {createType === 'nfc' && (
+                <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                  <p className="text-sm font-medium text-purple-900 mb-2">Instructions NFC</p>
+                  <ol className="text-sm text-purple-800 space-y-1 list-decimal list-inside">
+                    <li>Téléchargez NFC Tools (iOS/Android)</li>
+                    <li>Choisissez &quot;Écrire&quot; → &quot;Ajouter un enregistrement&quot;</li>
+                    <li>Sélectionnez &quot;URL&quot;</li>
+                    <li>Collez : <code className="bg-purple-100 px-1 rounded">{newShortlink.shortUrl}</code></li>
+                    <li>Approchez votre tag NFC et écrivez</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button onClick={onClose}>
+                Fermer
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+interface DeleteShortlinkDialogProps {
+  target: Shortlink | null
+  deleting: boolean
+  onClose: () => void
+  onDelete: () => void
+}
+
+function DeleteShortlinkDialog({ target, deleting, onClose, onDelete }: DeleteShortlinkDialogProps) {
+  return (
+    <Dialog open={!!target} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Supprimer ce shortlink ?</DialogTitle>
+          <DialogDescription>
+            Cette action est irréversible. Le lien &quot;{target?.label}&quot; ne fonctionnera plus.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button variant="destructive" onClick={onDelete} disabled={deleting}>
+            {deleting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Suppression...
+              </>
+            ) : (
+              'Supprimer'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+interface NfcInstructionsDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  shortlink: Shortlink | null
+  onCopyUrl: (url: string) => void
+}
+
+function NfcInstructionsDialog({ open, onOpenChange, shortlink, onCopyUrl }: NfcInstructionsDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Comment programmer votre tag NFC</DialogTitle>
+          <DialogDescription>
+            Suivez ces étapes pour configurer votre tag NFC
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+            <p className="text-sm font-medium text-purple-900 mb-2">URL à programmer</p>
+            <code className="text-sm bg-purple-100 px-2 py-1 rounded block break-all">
+              {shortlink?.shortUrl}
+            </code>
+          </div>
+          <ol className="text-sm space-y-2 list-decimal list-inside">
+            <li>Téléchargez l&apos;app <strong>NFC Tools</strong> (gratuite sur iOS/Android)</li>
+            <li>Ouvrez l&apos;app et allez dans &quot;Écrire&quot;</li>
+            <li>Appuyez sur &quot;Ajouter un enregistrement&quot;</li>
+            <li>Sélectionnez &quot;URL/URI&quot;</li>
+            <li>Collez l&apos;URL ci-dessus</li>
+            <li>Appuyez sur &quot;Écrire&quot; et approchez votre tag NFC</li>
+          </ol>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => shortlink && onCopyUrl(shortlink.shortUrl)}>
+            <Copy className="h-4 w-4 mr-2" />
+            Copier l&apos;URL
+          </Button>
+          <Button onClick={() => onOpenChange(false)}>
+            Fermer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

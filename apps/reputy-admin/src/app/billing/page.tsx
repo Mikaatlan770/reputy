@@ -464,29 +464,6 @@ export default function BillingPage() {
     }
   }
 
-  // Quota percentage
-  const quotaPercent = (used: number, limit: number) => {
-    if (limit <= 0) return 0
-    return Math.min(100, Math.round((used / limit) * 100))
-  }
-
-  // Get status badge variant
-  const getStatusVariant = (state: string) => {
-    switch (state) {
-      case 'active':
-      case 'trial':
-        return 'success'
-      case 'past_due':
-        return 'warning'
-      case 'read_only':
-      case 'suspended':
-      case 'cancelled':
-        return 'destructive'
-      default:
-        return 'secondary'
-    }
-  }
-
   // Loading state
   if (loading) {
     return (
@@ -573,268 +550,25 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Warning/Block messages */}
-      {billing.warningMessage && !isReadOnly && (
-        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium text-yellow-800">Attention</p>
-            <p className="text-sm text-yellow-700 mt-1">{billing.warningMessage}</p>
-            {billing.daysPastDue !== null && (
-              <p className="text-sm text-yellow-700 mt-1">
-                Délai avant restriction : <strong>{7 - billing.daysPastDue} jour(s)</strong>
-              </p>
-            )}
-            <Button size="sm" variant="default" className="mt-2 bg-yellow-600 hover:bg-yellow-700" onClick={handlePortal}>
-              {portalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Mettre à jour le paiement'}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {isReadOnly && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium text-red-800">Compte restreint</p>
-            <p className="text-sm text-red-700 mt-1">
-              {billing.blockMessage || 'Votre compte est en lecture seule. Régularisez votre situation pour retrouver l\'accès complet.'}
-            </p>
-            <Button size="sm" variant="destructive" className="mt-2" onClick={handlePortal}>
-              {portalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Régulariser ma situation'}
-            </Button>
-          </div>
-        </div>
-      )}
+      <BillingWarnings
+        billing={billing}
+        isReadOnly={isReadOnly}
+        portalLoading={portalLoading}
+        handlePortal={handlePortal}
+      />
 
       {/* Plan actuel + Quotas */}
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Plan actuel */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Crown className="h-5 w-5 text-primary" />
-                  Plan actuel
-                </CardTitle>
-                <CardDescription>
-                  Votre abonnement Reputy
-                </CardDescription>
-              </div>
-              <Badge variant={getStatusVariant(billing.accessState) as "success" | "destructive" | "secondary" | "default" | "outline"} className="gap-1">
-                {isActive ? <CheckCircle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                {billing.accessStateLabel}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold">{billing.planLabel || billing.planName}</span>
-                  {currentPlan?.popular && (
-                    <Badge className="bg-primary">Populaire</Badge>
-                  )}
-                </div>
-                <p className="text-muted-foreground mt-1">{currentPlan?.description || 'Votre abonnement Reputy'}</p>
-                
-                {/* Prix effectif — masqué sur iOS (Guideline 3.1.1) */}
-                {!IS_IOS_CAPACITOR && (
-                <div className="mt-3">
-                  {billing.hasDiscount && billing.priceCatalogCents && billing.priceEffectiveCents ? (
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-lg text-muted-foreground line-through">
-                        {formatPriceHT(billing.priceCatalogCents)}
-                      </span>
-                      <span className="text-2xl font-bold text-green-600">
-                        {formatPriceHT(billing.priceEffectiveCents)}
-                      </span>
-                      <span className="text-sm font-normal text-muted-foreground">/mois</span>
-                      {billing.discount?.label && (
-                        <Badge variant="secondary" className="bg-green-100 text-green-700">
-                          {billing.discount.label}
-                        </Badge>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-2xl font-bold">
-                      {billing.priceEffectiveCents !== undefined 
-                        ? formatPriceHT(billing.priceEffectiveCents)
-                        : formatPriceHT(currentPlan?.priceMonthly || 0)}
-                      {(billing.priceEffectiveCents || currentPlan?.priceMonthly || 0) > 0 && (
-                        <span className="text-sm font-normal text-muted-foreground">/mois</span>
-                      )}
-                    </p>
-                  )}
-                </div>
-                )}
-                
-                {/* Info coupon */}
-                {billing.couponInfo && (
-                  <p className="text-sm text-green-600 mt-1">
-                    ✨ {billing.couponInfo.description}
-                  </p>
-                )}
-              </div>
-              <div className="text-right">
-                {billing.periodEnd && (
-                  <>
-                    <p className="text-sm text-muted-foreground">Prochain renouvellement</p>
-                    <p className="font-medium">
-                      {billing.periodEndFormatted || new Date(billing.periodEnd).toLocaleDateString('fr-FR')}
-                    </p>
-                  </>
-                )}
-                {billing.trialEnd && billing.accessState === 'trial' && (
-                  <>
-                    <p className="text-sm text-muted-foreground">Fin de l&apos;essai</p>
-                    <p className="font-medium">
-                      {new Date(billing.trialEnd).toLocaleDateString('fr-FR')}
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
+        <CurrentPlanCard
+          billing={billing}
+          currentPlan={currentPlan}
+          isActive={isActive}
+          portalLoading={portalLoading}
+          handlePortal={handlePortal}
+          onChangePlan={() => setChangePlanOpen(true)}
+        />
 
-            <div className="mt-6 flex gap-3">
-              {IS_IOS_CAPACITOR ? (
-                <p className="text-sm text-muted-foreground">
-                  Gérez votre abonnement sur{' '}
-                  <span className="font-medium text-foreground">admin.reputyapp.com</span>
-                </p>
-              ) : (
-                <>
-                  <Button onClick={() => setChangePlanOpen(true)}>
-                    Changer de plan
-                  </Button>
-                  {billing.hasPaymentMethod && (
-                    <Button variant="outline" onClick={handlePortal} disabled={portalLoading}>
-                      {portalLoading ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                      )}
-                      Portail Stripe
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Résumé quotas */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="h-5 w-5" />
-              Quotas du mois
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* SMS */}
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="flex items-center gap-1">
-                  <MessageSquare className="h-4 w-4 text-green-600" />
-                  SMS
-                </span>
-                <span className="font-medium">
-                  {billing.quotas.sms.used} / {billing.quotas.sms.included}
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-green-500 rounded-full transition-all"
-                  style={{ width: `${quotaPercent(billing.quotas.sms.used, billing.quotas.sms.included)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Email */}
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="flex items-center gap-1">
-                  <Mail className="h-4 w-4 text-orange-600" />
-                  Emails
-                </span>
-                <span className="font-medium">
-                  {billing.quotas.email.used} / {billing.quotas.email.included}
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-orange-500 rounded-full transition-all"
-                  style={{ width: `${quotaPercent(billing.quotas.email.used, billing.quotas.email.included)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* IA */}
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="flex items-center gap-1">
-                  <Sparkles className="h-4 w-4 text-violet-600" />
-                  Crédits IA
-                </span>
-                <span className="font-medium">
-                  {billing.quotas.ai.used} / {billing.quotas.ai.included}
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-violet-500 rounded-full transition-all"
-                  style={{ width: `${quotaPercent(billing.quotas.ai.used, billing.quotas.ai.included)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* QR */}
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="flex items-center gap-1">
-                  <QrCode className="h-4 w-4 text-blue-600" />
-                  QR Codes
-                </span>
-                <span className="font-medium">
-                  {billing.quotas.qr.used} / {billing.quotas.qr.included}
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full transition-all"
-                  style={{ width: `${quotaPercent(billing.quotas.qr.used, billing.quotas.qr.included)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* NFC */}
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="flex items-center gap-1">
-                  <Wifi className="h-4 w-4 text-cyan-600" />
-                  Tags NFC
-                </span>
-                <span className="font-medium">
-                  {billing.quotas.nfc.used} / {billing.quotas.nfc.included}
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-cyan-500 rounded-full transition-all"
-                  style={{ width: `${quotaPercent(billing.quotas.nfc.used, billing.quotas.nfc.included)}%` }}
-                />
-              </div>
-            </div>
-
-            {billing.periodEnd && (
-              <p className="text-xs text-muted-foreground pt-2">
-                Réinitialisation le {new Date(billing.periodEnd).toLocaleDateString('fr-FR')}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <QuotasSummary billing={billing} />
       </div>
 
       {/* Section Acheter des packs avec Panier — masqué sur iOS (Guideline 3.1.1) */}
@@ -951,241 +685,539 @@ export default function BillingPage() {
       </Card>
       )}
 
-      {/* Historique des factures */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Receipt className="h-5 w-5 text-primary" />
-                Historique des factures
-              </CardTitle>
-              <CardDescription>
-                Retrouvez et téléchargez toutes vos factures
-              </CardDescription>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={loadInvoices}
-              disabled={invoicesLoading}
-            >
-              <RefreshCw className={cn("h-4 w-4", invoicesLoading && "animate-spin")} />
+      <InvoiceHistory
+        invoices={invoices}
+        invoicesLoading={invoicesLoading}
+        invoicesError={invoicesError}
+        loadInvoices={loadInvoices}
+        hasPaymentMethod={billing.hasPaymentMethod}
+        portalLoading={portalLoading}
+        handlePortal={handlePortal}
+      />
+
+      {!IS_IOS_CAPACITOR && (
+        <ChangePlanDialog
+          open={changePlanOpen}
+          onOpenChange={setChangePlanOpen}
+          normalizedPlan={normalizedPlan}
+          checkoutLoading={checkoutLoading}
+          handleCheckout={handleCheckout}
+        />
+      )}
+    </div>
+  )
+}
+
+// ============================================================
+// Sub-components
+// ============================================================
+
+interface BillingWarningsProps {
+  billing: BillingStatus
+  isReadOnly: boolean
+  portalLoading: boolean
+  handlePortal: () => void
+}
+
+function BillingWarnings({ billing, isReadOnly, portalLoading, handlePortal }: BillingWarningsProps) {
+  return (
+    <>
+      {billing.warningMessage && !isReadOnly && (
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-yellow-800">Attention</p>
+            <p className="text-sm text-yellow-700 mt-1">{billing.warningMessage}</p>
+            {billing.daysPastDue !== null && (
+              <p className="text-sm text-yellow-700 mt-1">
+                Délai avant restriction : <strong>{7 - billing.daysPastDue} jour(s)</strong>
+              </p>
+            )}
+            <Button size="sm" variant="default" className="mt-2 bg-yellow-600 hover:bg-yellow-700" onClick={handlePortal}>
+              {portalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Mettre à jour le paiement'}
             </Button>
           </div>
-        </CardHeader>
-        <CardContent>
-          {invoicesLoading && invoices.length === 0 ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex items-center justify-between p-3">
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-3 w-24" />
-                  </div>
-                  <Skeleton className="h-8 w-24" />
+        </div>
+      )}
+
+      {isReadOnly && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-red-800">Compte restreint</p>
+            <p className="text-sm text-red-700 mt-1">
+              {billing.blockMessage || 'Votre compte est en lecture seule. Régularisez votre situation pour retrouver l\'accès complet.'}
+            </p>
+            <Button size="sm" variant="destructive" className="mt-2" onClick={handlePortal}>
+              {portalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Régulariser ma situation'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+interface CurrentPlanCardProps {
+  billing: BillingStatus
+  currentPlan: (typeof PLANS)[keyof typeof PLANS]
+  isActive: boolean
+  portalLoading: boolean
+  handlePortal: () => void
+  onChangePlan: () => void
+}
+
+function CurrentPlanCard({ billing, currentPlan, isActive, portalLoading, handlePortal, onChangePlan }: CurrentPlanCardProps) {
+  const statusVariant = (() => {
+    switch (billing.accessState) {
+      case 'active':
+      case 'trial':
+        return 'success'
+      case 'past_due':
+        return 'warning'
+      case 'read_only':
+      case 'suspended':
+      case 'cancelled':
+        return 'destructive'
+      default:
+        return 'secondary'
+    }
+  })()
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Crown className="h-5 w-5 text-primary" />
+              Plan actuel
+            </CardTitle>
+            <CardDescription>
+              Votre abonnement Reputy
+            </CardDescription>
+          </div>
+          <Badge variant={statusVariant as "success" | "destructive" | "secondary" | "default" | "outline"} className="gap-1">
+            {isActive ? <CheckCircle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+            {billing.accessStateLabel}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold">{billing.planLabel || billing.planName}</span>
+              {currentPlan?.popular && (
+                <Badge className="bg-primary">Populaire</Badge>
+              )}
+            </div>
+            <p className="text-muted-foreground mt-1">{currentPlan?.description || 'Votre abonnement Reputy'}</p>
+            
+            {!IS_IOS_CAPACITOR && (
+            <div className="mt-3">
+              {billing.hasDiscount && billing.priceCatalogCents && billing.priceEffectiveCents ? (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-lg text-muted-foreground line-through">
+                    {formatPriceHT(billing.priceCatalogCents)}
+                  </span>
+                  <span className="text-2xl font-bold text-green-600">
+                    {formatPriceHT(billing.priceEffectiveCents)}
+                  </span>
+                  <span className="text-sm font-normal text-muted-foreground">/mois</span>
+                  {billing.discount?.label && (
+                    <Badge variant="secondary" className="bg-green-100 text-green-700">
+                      {billing.discount.label}
+                    </Badge>
+                  )}
                 </div>
-              ))}
-            </div>
-          ) : invoicesError ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <AlertCircle className="h-8 w-8 text-destructive mb-2" />
-              <p className="text-sm text-muted-foreground mb-3">{invoicesError}</p>
-              <Button size="sm" variant="outline" onClick={loadInvoices}>
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Réessayer
-              </Button>
-            </div>
-          ) : invoices.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <FileText className="h-10 w-10 text-muted-foreground/50 mb-3" />
-              <p className="text-sm text-muted-foreground">
-                Aucune facture pour le moment
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Vos factures apparaîtront ici après votre premier paiement
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-0 divide-y">
-              {invoices.map((invoice) => {
-                const date = new Date(invoice.date).toLocaleDateString('fr-FR', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric',
-                })
-                const amount = invoice.total >= 0
-                  ? `${(invoice.total / 100).toFixed(2)} €`
-                  : `-${(Math.abs(invoice.total) / 100).toFixed(2)} €`
-
-                return (
-                  <div
-                    key={invoice.id}
-                    className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="p-2 rounded-lg bg-muted flex-shrink-0">
-                        <FileText className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate">
-                          {invoice.description}
-                        </p>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{date}</span>
-                          {invoice.number && (
-                            <>
-                              <span>•</span>
-                              <span>{invoice.number}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-                      <div className="text-right">
-                        <p className="font-semibold text-sm">{amount}</p>
-                        <Badge
-                          variant={invoice.status === 'paid' ? 'success' : 'secondary'}
-                          className="text-[10px] px-1.5"
-                        >
-                          {invoice.status === 'paid' ? 'Payée' : invoice.status === 'open' ? 'En attente' : invoice.status}
-                        </Badge>
-                      </div>
-                      <div className="flex gap-1">
-                        {invoice.pdfUrl && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            asChild
-                          >
-                            <a
-                              href={invoice.pdfUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title="Télécharger le PDF"
-                            >
-                              <Download className="h-4 w-4" />
-                            </a>
-                          </Button>
-                        )}
-                        {invoice.hostedUrl && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            asChild
-                          >
-                            <a
-                              href={invoice.hostedUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title="Voir la facture en ligne"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {invoices.length > 0 && billing?.hasPaymentMethod && (
-            <div className="mt-4 pt-4 border-t">
-              <p className="text-xs text-muted-foreground">
-                💡 Vous pouvez aussi accéder à toutes vos factures depuis le{' '}
-                <button
-                  className="text-primary underline hover:no-underline"
-                  onClick={handlePortal}
-                  disabled={portalLoading}
-                >
-                  portail Stripe
-                </button>
-                .
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Dialog Changer de plan — masqué sur iOS (Guideline 3.1.1) */}
-      {!IS_IOS_CAPACITOR && <Dialog open={changePlanOpen} onOpenChange={setChangePlanOpen}>
-        <DialogContent className="w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Changer de plan</DialogTitle>
-            <DialogDescription>
-              Choisissez le plan adapté à vos besoins. Le changement prendra effet au prochain cycle de facturation.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-4">
-            {Object.values(PLANS).map((plan) => (
-              <div
-                key={plan.id}
-                className={cn(
-                  'relative p-4 rounded-xl border-2 transition-all',
-                  plan.id === normalizedPlan
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50',
-                  plan.popular && 'ring-2 ring-primary ring-offset-2'
-                )}
-              >
-                {plan.popular && (
-                  <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-primary">
-                    Populaire
-                  </Badge>
-                )}
-                <h3 className="font-semibold text-lg">{plan.name}</h3>
-                <p className="text-sm text-muted-foreground">{plan.description}</p>
-                <p className="text-2xl font-bold mt-3">
-                  {formatPriceHT(plan.priceMonthly)}
-                  {plan.priceMonthly > 0 && (
+              ) : (
+                <p className="text-2xl font-bold">
+                  {billing.priceEffectiveCents !== undefined 
+                    ? formatPriceHT(billing.priceEffectiveCents)
+                    : formatPriceHT(currentPlan?.priceMonthly || 0)}
+                  {(billing.priceEffectiveCents || currentPlan?.priceMonthly || 0) > 0 && (
                     <span className="text-sm font-normal text-muted-foreground">/mois</span>
                   )}
                 </p>
-                <ul className="mt-4 space-y-2">
-                  {plan.features.slice(0, 6).map((feature, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <Check className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  className="w-full mt-4"
-                  variant={plan.id === normalizedPlan ? 'outline' : 'default'}
-                  disabled={plan.id === normalizedPlan || checkoutLoading || plan.id === 'bronze'}
-                  onClick={() => handleCheckout(plan.id)}
-                >
-                  {checkoutLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : plan.id === normalizedPlan ? (
-                    'Plan actuel'
-                  ) : plan.id === 'bronze' ? (
-                    'Plan gratuit'
+              )}
+            </div>
+            )}
+            
+            {billing.couponInfo && (
+              <p className="text-sm text-green-600 mt-1">
+                ✨ {billing.couponInfo.description}
+              </p>
+            )}
+          </div>
+          <div className="text-right">
+            {billing.periodEnd && (
+              <>
+                <p className="text-sm text-muted-foreground">Prochain renouvellement</p>
+                <p className="font-medium">
+                  {billing.periodEndFormatted || new Date(billing.periodEnd).toLocaleDateString('fr-FR')}
+                </p>
+              </>
+            )}
+            {billing.trialEnd && billing.accessState === 'trial' && (
+              <>
+                <p className="text-sm text-muted-foreground">Fin de l&apos;essai</p>
+                <p className="font-medium">
+                  {new Date(billing.trialEnd).toLocaleDateString('fr-FR')}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 flex gap-3">
+          {IS_IOS_CAPACITOR ? (
+            <p className="text-sm text-muted-foreground">
+              Gérez votre abonnement sur{' '}
+              <span className="font-medium text-foreground">admin.reputyapp.com</span>
+            </p>
+          ) : (
+            <>
+              <Button onClick={onChangePlan}>
+                Changer de plan
+              </Button>
+              {billing.hasPaymentMethod && (
+                <Button variant="outline" onClick={handlePortal} disabled={portalLoading}>
+                  {portalLoading ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
-                    'Sélectionner'
+                    <ExternalLink className="h-4 w-4 mr-2" />
                   )}
+                  Portail Stripe
                 </Button>
+              )}
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+interface QuotaBarProps {
+  icon: typeof MessageSquare
+  iconColor: string
+  label: string
+  used: number
+  included: number
+  barColor: string
+}
+
+function QuotaBar({ icon: Icon, iconColor, label, used, included, barColor }: QuotaBarProps) {
+  const percent = included <= 0 ? 0 : Math.min(100, Math.round((used / included) * 100))
+
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span className="flex items-center gap-1">
+          <Icon className={cn("h-4 w-4", iconColor)} />
+          {label}
+        </span>
+        <span className="font-medium">
+          {used} / {included}
+        </span>
+      </div>
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", barColor)}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+interface QuotasSummaryProps {
+  billing: BillingStatus
+}
+
+function QuotasSummary({ billing }: QuotasSummaryProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Zap className="h-5 w-5" />
+          Quotas du mois
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <QuotaBar icon={MessageSquare} iconColor="text-green-600" label="SMS" used={billing.quotas.sms.used} included={billing.quotas.sms.included} barColor="bg-green-500" />
+        <QuotaBar icon={Mail} iconColor="text-orange-600" label="Emails" used={billing.quotas.email.used} included={billing.quotas.email.included} barColor="bg-orange-500" />
+        <QuotaBar icon={Sparkles} iconColor="text-violet-600" label="Crédits IA" used={billing.quotas.ai.used} included={billing.quotas.ai.included} barColor="bg-violet-500" />
+        <QuotaBar icon={QrCode} iconColor="text-blue-600" label="QR Codes" used={billing.quotas.qr.used} included={billing.quotas.qr.included} barColor="bg-blue-500" />
+        <QuotaBar icon={Wifi} iconColor="text-cyan-600" label="Tags NFC" used={billing.quotas.nfc.used} included={billing.quotas.nfc.included} barColor="bg-cyan-500" />
+
+        {billing.periodEnd && (
+          <p className="text-xs text-muted-foreground pt-2">
+            Réinitialisation le {new Date(billing.periodEnd).toLocaleDateString('fr-FR')}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+interface InvoiceHistoryProps {
+  invoices: StripeInvoice[]
+  invoicesLoading: boolean
+  invoicesError: string | null
+  loadInvoices: () => void
+  hasPaymentMethod: boolean
+  portalLoading: boolean
+  handlePortal: () => void
+}
+
+function InvoiceHistory({ invoices, invoicesLoading, invoicesError, loadInvoices, hasPaymentMethod, portalLoading, handlePortal }: InvoiceHistoryProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-primary" />
+              Historique des factures
+            </CardTitle>
+            <CardDescription>
+              Retrouvez et téléchargez toutes vos factures
+            </CardDescription>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={loadInvoices}
+            disabled={invoicesLoading}
+          >
+            <RefreshCw className={cn("h-4 w-4", invoicesLoading && "animate-spin")} />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {invoicesLoading && invoices.length === 0 ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center justify-between p-3">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+                <Skeleton className="h-8 w-24" />
               </div>
             ))}
           </div>
-
-          <div className="text-center text-sm text-muted-foreground">
-            <p>
-              Paiement sécurisé par <CreditCard className="h-4 w-4 inline mx-1" /> Stripe
+        ) : invoicesError ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <AlertCircle className="h-8 w-8 text-destructive mb-2" />
+            <p className="text-sm text-muted-foreground mb-3">{invoicesError}</p>
+            <Button size="sm" variant="outline" onClick={loadInvoices}>
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Réessayer
+            </Button>
+          </div>
+        ) : invoices.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <FileText className="h-10 w-10 text-muted-foreground/50 mb-3" />
+            <p className="text-sm text-muted-foreground">
+              Aucune facture pour le moment
             </p>
-            <p className="mt-1">
-              Prélèvement SEPA disponible prochainement
+            <p className="text-xs text-muted-foreground mt-1">
+              Vos factures apparaîtront ici après votre premier paiement
             </p>
           </div>
-        </DialogContent>
-      </Dialog>}
-    </div>
+        ) : (
+          <div className="space-y-0 divide-y">
+            {invoices.map((invoice) => {
+              const date = new Date(invoice.date).toLocaleDateString('fr-FR', {
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric',
+              })
+              const amount = invoice.total >= 0
+                ? `${(invoice.total / 100).toFixed(2)} €`
+                : `-${(Math.abs(invoice.total) / 100).toFixed(2)} €`
+
+              return (
+                <div
+                  key={invoice.id}
+                  className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 rounded-lg bg-muted flex-shrink-0">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate">
+                        {invoice.description}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{date}</span>
+                        {invoice.number && (
+                          <>
+                            <span>•</span>
+                            <span>{invoice.number}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                    <div className="text-right">
+                      <p className="font-semibold text-sm">{amount}</p>
+                      <Badge
+                        variant={invoice.status === 'paid' ? 'success' : 'secondary'}
+                        className="text-[10px] px-1.5"
+                      >
+                        {invoice.status === 'paid' ? 'Payée' : invoice.status === 'open' ? 'En attente' : invoice.status}
+                      </Badge>
+                    </div>
+                    <div className="flex gap-1">
+                      {invoice.pdfUrl && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          asChild
+                        >
+                          <a
+                            href={invoice.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Télécharger le PDF"
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      )}
+                      {invoice.hostedUrl && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          asChild
+                        >
+                          <a
+                            href={invoice.hostedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Voir la facture en ligne"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {invoices.length > 0 && hasPaymentMethod && (
+          <div className="mt-4 pt-4 border-t">
+            <p className="text-xs text-muted-foreground">
+              💡 Vous pouvez aussi accéder à toutes vos factures depuis le{' '}
+              <button
+                className="text-primary underline hover:no-underline"
+                onClick={handlePortal}
+                disabled={portalLoading}
+              >
+                portail Stripe
+              </button>
+              .
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+interface ChangePlanDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  normalizedPlan: string
+  checkoutLoading: boolean
+  handleCheckout: (planId: string) => void
+}
+
+function ChangePlanDialog({ open, onOpenChange, normalizedPlan, checkoutLoading, handleCheckout }: ChangePlanDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Changer de plan</DialogTitle>
+          <DialogDescription>
+            Choisissez le plan adapté à vos besoins. Le changement prendra effet au prochain cycle de facturation.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-4">
+          {Object.values(PLANS).map((plan) => (
+            <div
+              key={plan.id}
+              className={cn(
+                'relative p-4 rounded-xl border-2 transition-all',
+                plan.id === normalizedPlan
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/50',
+                plan.popular && 'ring-2 ring-primary ring-offset-2'
+              )}
+            >
+              {plan.popular && (
+                <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-primary">
+                  Populaire
+                </Badge>
+              )}
+              <h3 className="font-semibold text-lg">{plan.name}</h3>
+              <p className="text-sm text-muted-foreground">{plan.description}</p>
+              <p className="text-2xl font-bold mt-3">
+                {formatPriceHT(plan.priceMonthly)}
+                {plan.priceMonthly > 0 && (
+                  <span className="text-sm font-normal text-muted-foreground">/mois</span>
+                )}
+              </p>
+              <ul className="mt-4 space-y-2">
+                {plan.features.slice(0, 6).map((feature, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <Check className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button
+                className="w-full mt-4"
+                variant={plan.id === normalizedPlan ? 'outline' : 'default'}
+                disabled={plan.id === normalizedPlan || checkoutLoading || plan.id === 'bronze'}
+                onClick={() => handleCheckout(plan.id)}
+              >
+                {checkoutLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : plan.id === normalizedPlan ? (
+                  'Plan actuel'
+                ) : plan.id === 'bronze' ? (
+                  'Plan gratuit'
+                ) : (
+                  'Sélectionner'
+                )}
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <div className="text-center text-sm text-muted-foreground">
+          <p>
+            Paiement sécurisé par <CreditCard className="h-4 w-4 inline mx-1" /> Stripe
+          </p>
+          <p className="mt-1">
+            Prélèvement SEPA disponible prochainement
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -43,14 +43,10 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<!--
-	  ATS: HTTPS obligatoire en prod.
-	  NSAllowsLocalNetworking = true autorise uniquement les connexions HTTP
-	  vers localhost / 192.168.x.x (dev local). Aucun HTTP distant n'est permis.
-	-->
+	<!-- DEV ONLY: permet HTTP vers localhost pour le simulateur. Retirer avant archive prod/TestFlight. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsLocalNetworking</key>
+		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
 </dict>

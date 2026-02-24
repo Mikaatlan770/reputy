@@ -41,40 +41,39 @@ function randomJitter() {
 }
 
 /**
+ * Check if an HTTP status code is circuit-relevant.
+ * @param {number} status
+ * @returns {boolean|null} true=relevant, false=ignore, null=inconclusive
+ */
+function classifyHttpStatus(status) {
+  if (typeof status !== 'number') return null;
+  if (status === 429) return true;
+  if (status >= 500) return true;
+  if (status >= 400) return false;
+  return null;
+}
+
+/**
  * Determine if an error should count toward the circuit breaker.
  *
  * Count:  5xx, 429 (rate limit), network errors, timeouts.
  * Ignore: 4xx validation (400, 401, 403, 404, 422).
  *
- * The error can carry:
- *   - err.status  (number)  — set by providers
- *   - err.message matching  "... (STATUS): ..." pattern
- *
  * @param {Error} err
  * @returns {boolean} true if this error should affect the circuit
  */
 function isCircuitRelevantError(err) {
-  if (!err) return true; // Unknown error → be safe, count it
+  if (!err) return true;
 
-  // 1) Explicit numeric status on error object
-  const status = err.status || err.statusCode;
-  if (typeof status === 'number') {
-    if (status === 429) return true;   // Rate limited
-    if (status >= 500) return true;     // Server error
-    if (status >= 400) return false;    // Client/validation → ignore
-  }
+  const explicitResult = classifyHttpStatus(err.status || err.statusCode);
+  if (explicitResult !== null) return explicitResult;
 
-  // 2) Extract HTTP status from error message "Brevo ... error (STATUS): ..."
   const msgMatch = err.message?.match(/\((\d{3})\)/);
   if (msgMatch) {
-    const s = parseInt(msgMatch[1], 10);
-    if (s === 429) return true;
-    if (s >= 500) return true;
-    if (s >= 400 && s < 500) return false;
+    const parsed = classifyHttpStatus(parseInt(msgMatch[1], 10));
+    if (parsed !== null) return parsed;
   }
 
-  // 3) Network/timeout errors (no HTTP status) → count them
-  //    e.g. ECONNREFUSED, ENOTFOUND, ETIMEDOUT, UND_ERR_CONNECT_TIMEOUT, AbortError
   return true;
 }
 

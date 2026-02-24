@@ -445,225 +445,294 @@ export default function QrNfcPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={(open) => !newShortlink && setCreateOpen(open)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {newShortlink 
-                ? `✅ ${createType === 'qr' ? 'QR Code' : 'Lien NFC'} créé !`
-                : `Nouveau ${createType === 'qr' ? 'QR Code' : 'lien NFC'}`}
-            </DialogTitle>
-            <DialogDescription>
-              {newShortlink 
-                ? 'Votre lien court est prêt à utiliser.'
-                : 'Configurez votre nouveau lien court.'}
-            </DialogDescription>
-          </DialogHeader>
+      <CreateShortlinkDialog
+        open={createOpen}
+        createType={createType}
+        newShortlink={newShortlink}
+        newLabel={newLabel}
+        setNewLabel={setNewLabel}
+        newTargetUrl={newTargetUrl}
+        setNewTargetUrl={setNewTargetUrl}
+        googleReviewUrl={(clientOrg as any)?.options?.googleReviewUrl || ''}
+        copied={copied}
+        creating={creating}
+        onClose={closeCreateDialog}
+        onCreate={handleCreate}
+        onCopyUrl={copyUrl}
+        getAuthToken={getAuthToken}
+      />
 
-          {!newShortlink ? (
-            <>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Nom (optionnel)</label>
-                  <input
-                    type="text"
-                    value={newLabel}
-                    onChange={(e) => setNewLabel(e.target.value)}
-                    placeholder="Ex: Comptoir accueil, Table 1..."
-                    className="w-full mt-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">URL de destination *</label>
-                  <input
-                    type="url"
-                    value={newTargetUrl}
-                    onChange={(e) => setNewTargetUrl(e.target.value)}
-                    placeholder="https://g.page/r/votre-lien/review"
-                    className="w-full mt-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {newTargetUrl && (clientOrg as any)?.options?.googleReviewUrl === newTargetUrl
-                      ? '✅ Pré-rempli avec votre URL Google Review'
-                      : "L'URL vers laquelle les utilisateurs seront redirigés"}
-                  </p>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={closeCreateDialog}>
-                  Annuler
-                </Button>
-                <Button onClick={handleCreate} disabled={creating || !newTargetUrl}>
-                  {creating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Création...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Créer
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <div className="space-y-4">
-                <div className="bg-slate-900 text-white rounded-lg p-4">
-                  <p className="text-sm text-slate-400 mb-1">URL courte</p>
-                  <p className="font-mono text-lg text-amber-300 break-all">
-                    {newShortlink.shortUrl}
-                  </p>
-                </div>
-                
-                <div className="flex gap-2">
-                  <Button 
-                    className="flex-1"
-                    variant={copied ? 'default' : 'outline'}
-                    onClick={() => copyUrl(newShortlink.shortUrl)}
-                  >
-                    {copied ? (
-                      <>
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Copié !
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-4 w-4 mr-2" />
-                        Copier l'URL
-                      </>
-                    )}
-                  </Button>
-                  <Button variant="outline" asChild>
-                    <a href={newShortlink.shortUrl} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Tester
-                    </a>
-                  </Button>
-                </div>
-                
-                {createType === 'qr' && (
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground text-center">
-                      Téléchargez votre QR code :
-                    </p>
-                    <div className="flex gap-2 justify-center">
-                      <Button variant="outline" asChild>
-                        <a 
-                          href={`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=png`}
-                          download={`qr-${newShortlink.code}.png`}
-                          onClick={async (e) => {
-                            e.preventDefault()
-                            const token = await getAuthToken()
-                            if (!token) return
-                            fetch(`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=png`, {
-                              headers: { 'Authorization': `Bearer ${token}` }
-                            })
-                              .then(res => res.blob())
-                              .then(blob => {
-                                const url = URL.createObjectURL(blob)
-                                const a = document.createElement('a')
-                                a.href = url
-                                a.download = `qr-${newShortlink.code}.png`
-                                a.click()
-                                URL.revokeObjectURL(url)
-                              })
-                          }}
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          PNG
-                        </a>
-                      </Button>
-                      <Button variant="outline" asChild>
-                        <a 
-                          href={`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=svg`}
-                          download={`qr-${newShortlink.code}.svg`}
-                          onClick={async (e) => {
-                            e.preventDefault()
-                            const token = await getAuthToken()
-                            if (!token) return
-                            fetch(`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=svg`, {
-                              headers: { 'Authorization': `Bearer ${token}` }
-                            })
-                              .then(res => res.blob())
-                              .then(blob => {
-                                const url = URL.createObjectURL(blob)
-                                const a = document.createElement('a')
-                                a.href = url
-                                a.download = `qr-${newShortlink.code}.svg`
-                                a.click()
-                                URL.revokeObjectURL(url)
-                              })
-                          }}
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          SVG
-                        </a>
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button onClick={closeCreateDialog}>
-                  Fermer
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Supprimer ce lien ?</DialogTitle>
-            <DialogDescription>
-              Cette action est irréversible. Les QR codes et tags NFC utilisant ce lien ne fonctionneront plus.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {deleteTarget && (
-            <div className="bg-muted rounded-lg p-4">
-              <p className="font-medium">{deleteTarget.label}</p>
-              <p className="text-sm text-muted-foreground font-mono">{deleteTarget.shortUrl}</p>
-              <p className="text-sm text-muted-foreground mt-1">{deleteTarget.clicks} clics</p>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              Annuler
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Suppression...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Supprimer
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteShortlinkDialog
+        target={deleteTarget}
+        deleting={deleting}
+        onClose={() => setDeleteTarget(null)}
+        onDelete={handleDelete}
+      />
     </div>
   )
 }
 
-// Shortlink List Component
+function CreateShortlinkDialog({
+  open,
+  createType,
+  newShortlink,
+  newLabel,
+  setNewLabel,
+  newTargetUrl,
+  setNewTargetUrl,
+  googleReviewUrl,
+  copied,
+  creating,
+  onClose,
+  onCreate,
+  onCopyUrl,
+  getAuthToken,
+}: {
+  open: boolean
+  createType: 'qr' | 'nfc'
+  newShortlink: Shortlink | null
+  newLabel: string
+  setNewLabel: (v: string) => void
+  newTargetUrl: string
+  setNewTargetUrl: (v: string) => void
+  googleReviewUrl: string
+  copied: boolean
+  creating: boolean
+  onClose: () => void
+  onCreate: () => void
+  onCopyUrl: (url: string) => void
+  getAuthToken: () => Promise<string | null>
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !newShortlink && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {newShortlink 
+              ? `✅ ${createType === 'qr' ? 'QR Code' : 'Lien NFC'} créé !`
+              : `Nouveau ${createType === 'qr' ? 'QR Code' : 'lien NFC'}`}
+          </DialogTitle>
+          <DialogDescription>
+            {newShortlink 
+              ? 'Votre lien court est prêt à utiliser.'
+              : 'Configurez votre nouveau lien court.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {!newShortlink ? (
+          <>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Nom (optionnel)</label>
+                <input
+                  type="text"
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  placeholder="Ex: Comptoir accueil, Table 1..."
+                  className="w-full mt-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">URL de destination *</label>
+                <input
+                  type="url"
+                  value={newTargetUrl}
+                  onChange={(e) => setNewTargetUrl(e.target.value)}
+                  placeholder="https://g.page/r/votre-lien/review"
+                  className="w-full mt-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {newTargetUrl && googleReviewUrl === newTargetUrl
+                    ? '✅ Pré-rempli avec votre URL Google Review'
+                    : "L'URL vers laquelle les utilisateurs seront redirigés"}
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Annuler
+              </Button>
+              <Button onClick={onCreate} disabled={creating || !newTargetUrl}>
+                {creating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Création...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Créer
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <div className="bg-slate-900 text-white rounded-lg p-4">
+                <p className="text-sm text-slate-400 mb-1">URL courte</p>
+                <p className="font-mono text-lg text-amber-300 break-all">
+                  {newShortlink.shortUrl}
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button 
+                  className="flex-1"
+                  variant={copied ? 'default' : 'outline'}
+                  onClick={() => onCopyUrl(newShortlink.shortUrl)}
+                >
+                  {copied ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copier l'URL
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" asChild>
+                  <a href={newShortlink.shortUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Tester
+                  </a>
+                </Button>
+              </div>
+              
+              {createType === 'qr' && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground text-center">
+                    Téléchargez votre QR code :
+                  </p>
+                  <div className="flex gap-2 justify-center">
+                    <Button variant="outline" asChild>
+                      <a 
+                        href={`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=png`}
+                        download={`qr-${newShortlink.code}.png`}
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          const token = await getAuthToken()
+                          if (!token) return
+                          fetch(`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=png`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                          })
+                            .then(res => res.blob())
+                            .then(blob => {
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `qr-${newShortlink.code}.png`
+                              a.click()
+                              URL.revokeObjectURL(url)
+                            })
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        PNG
+                      </a>
+                    </Button>
+                    <Button variant="outline" asChild>
+                      <a 
+                        href={`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=svg`}
+                        download={`qr-${newShortlink.code}.svg`}
+                        onClick={async (e) => {
+                          e.preventDefault()
+                          const token = await getAuthToken()
+                          if (!token) return
+                          fetch(`${BACKEND_URL}/client/shortlinks/${newShortlink.code}/qr?format=svg`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                          })
+                            .then(res => res.blob())
+                            .then(blob => {
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `qr-${newShortlink.code}.svg`
+                              a.click()
+                              URL.revokeObjectURL(url)
+                            })
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        SVG
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button onClick={onClose}>
+                Fermer
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DeleteShortlinkDialog({
+  target,
+  deleting,
+  onClose,
+  onDelete,
+}: {
+  target: Shortlink | null
+  deleting: boolean
+  onClose: () => void
+  onDelete: () => void
+}) {
+  return (
+    <Dialog open={!!target} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Supprimer ce lien ?</DialogTitle>
+          <DialogDescription>
+            Cette action est irréversible. Les QR codes et tags NFC utilisant ce lien ne fonctionneront plus.
+          </DialogDescription>
+        </DialogHeader>
+        
+        {target && (
+          <div className="bg-muted rounded-lg p-4">
+            <p className="font-medium">{target.label}</p>
+            <p className="text-sm text-muted-foreground font-mono">{target.shortUrl}</p>
+            <p className="text-sm text-muted-foreground mt-1">{target.clicks} clics</p>
+          </div>
+        )}
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button 
+            variant="destructive" 
+            onClick={onDelete}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Suppression...
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Supprimer
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ShortlinkList({ 
   shortlinks, 
   onCopy, 

@@ -89,108 +89,88 @@ async function getSettings() {
 }
 
 // ===== API CALLS =====
-async function sendReviewRequest(payload) {
-  const settings = await getSettings();
-  const backendUrl = normalizeUrl(settings.backendUrl);
-  const apiToken = settings.apiToken;
-  const publicKey = settings.publicKey;
-  
-  if (!apiToken) {
-    throw new Error('Token API non configuré. Allez dans les options de l\'extension.');
-  }
-  
-  // Générer un requestId unique pour l'idempotence
-  const requestId = generateRequestId();
-  const payloadWithRequestId = {
-    ...payload,
-    requestId // Ajout pour anti-doublon backend
-  };
-  
-  console.log('[REPUTY][BG] Sending review request:', { 
-    backendUrl, 
-    publicKey: publicKey ? 'set' : 'not set', 
-    requestId,
-    payload: payloadWithRequestId 
-  });
-  
-  // Essayer d'abord l'URL configurée, puis 127.0.0.1 si localhost échoue
-  const urlsToTry = [backendUrl];
-  if (backendUrl.includes('localhost')) {
-    urlsToTry.push(backendUrl.replace('localhost', '127.0.0.1'));
-  }
-  
-  // Construire les headers
-  // P1.3: x-api-token et x-public-key sont maintenant OBLIGATOIRES pour l'auth per-org
+function _buildRequestHeaders(apiToken, publicKey, requestId) {
   const headers = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${apiToken}`,  // Backward compat
-    'x-api-token': apiToken,                 // P1.3: Primary auth header
-    'X-Request-Id': requestId                // Header pour traçabilité
+    'Authorization': `Bearer ${apiToken}`,
+    'x-api-token': apiToken,
+    'X-Request-Id': requestId
   };
-  
-  // Ajouter x-public-key (OBLIGATOIRE pour identifier l'org)
   if (publicKey && publicKey.startsWith('pub_')) {
     headers['x-public-key'] = publicKey;
   } else {
     console.warn('[REPUTY][BG] ⚠️ Pas de publicKey configurée ! Les requêtes risquent d\'échouer en production.');
   }
-  
+  return headers;
+}
+
+function _throwStructuredError(code, data) {
+  const error = new Error(code);
+  if (code === 'SUBSCRIPTION_INACTIVE') error.subscriptionInactive = true;
+  else error.quotaExceeded = true;
+  error.details = data.details || {};
+  error.message = (code === 'QUOTA_EXCEEDED' ? data.details?.renewalMessage : null)
+    || data.message || code;
+  throw error;
+}
+
+async function _fetchAndParse(url, headers, body) {
+  const response = await fetch(`${url}/api/send-review-request`, {
+    method: 'POST', headers, body: JSON.stringify(body)
+  });
+  const ct = response.headers.get('content-type') || '';
+  const data = ct.includes('application/json')
+    ? await response.json()
+    : { error: (await response.text()) || `HTTP ${response.status}` };
+
+  if (response.status === 403 && data.error === 'SUBSCRIPTION_INACTIVE') {
+    _throwStructuredError('SUBSCRIPTION_INACTIVE', data);
+  }
+  if (response.status === 402 && data.error === 'QUOTA_EXCEEDED') {
+    _throwStructuredError('QUOTA_EXCEEDED', data);
+  }
+  if (!response.ok) {
+    throw new Error(data?.error || `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+async function sendReviewRequest(payload) {
+  const settings = await getSettings();
+  const backendUrl = normalizeUrl(settings.backendUrl);
+  const { apiToken, publicKey } = settings;
+
+  if (!apiToken) {
+    throw new Error('Token API non configuré. Allez dans les options de l\'extension.');
+  }
+
+  const requestId = generateRequestId();
+  const payloadWithRequestId = { ...payload, requestId };
+
+  console.log('[REPUTY][BG] Sending review request:', {
+    backendUrl, publicKey: publicKey ? 'set' : 'not set', requestId, payload: payloadWithRequestId
+  });
+
+  const urlsToTry = [backendUrl];
+  if (backendUrl.includes('localhost')) {
+    urlsToTry.push(backendUrl.replace('localhost', '127.0.0.1'));
+  }
+
+  const headers = _buildRequestHeaders(apiToken, publicKey, requestId);
+
   let lastError;
   for (const url of urlsToTry) {
     try {
-      const response = await fetch(`${url}/api/send-review-request`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payloadWithRequestId)
-      });
-      
-      // Traiter la réponse même en cas d'erreur HTTP (pour QUOTA_EXCEEDED)
-      const ct = response.headers.get('content-type') || '';
-      let data = {};
-      
-      if (ct.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const t = await response.text();
-        data = { error: t || `HTTP ${response.status}` };
-      }
-      
-      // Gérer SUBSCRIPTION_INACTIVE (403)
-      if (response.status === 403 && data.error === 'SUBSCRIPTION_INACTIVE') {
-        console.warn('[REPUTY][BG] SUBSCRIPTION_INACTIVE:', data);
-        const error = new Error('SUBSCRIPTION_INACTIVE');
-        error.subscriptionInactive = true;
-        error.details = data.details || {};
-        error.message = data.message || 'Abonnement inactif';
-        throw error;
-      }
-      
-      // Gérer QUOTA_EXCEEDED spécifiquement (402)
-      if (response.status === 402 && data.error === 'QUOTA_EXCEEDED') {
-        console.warn('[REPUTY][BG] QUOTA_EXCEEDED:', data);
-        // Retourner une erreur structurée pour le content script
-        const error = new Error('QUOTA_EXCEEDED');
-        error.quotaExceeded = true;
-        error.details = data.details || {};
-        error.message = data.details?.renewalMessage || data.message || 'Crédits épuisés';
-        throw error;
-      }
-      
-      if (!response.ok) {
-        throw new Error(data?.error || `HTTP ${response.status}`);
-      }
-      
+      const data = await _fetchAndParse(url, headers, payloadWithRequestId);
       console.log('[REPUTY][BG] Response:', data);
       return { ...data, requestId };
-      
     } catch (error) {
       console.warn(`[REPUTY][BG] Fetch failed for ${url}:`, error);
       lastError = error;
-      // Si c'est une erreur QUOTA_EXCEEDED, on ne réessaie pas
-      if (error.quotaExceeded) break;
+      if (error.quotaExceeded || error.subscriptionInactive) break;
     }
   }
-  
+
   throw lastError || new Error('Impossible de contacter le backend');
 }
 

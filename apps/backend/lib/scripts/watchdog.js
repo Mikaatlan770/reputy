@@ -42,6 +42,106 @@ if (!JSON_MODE) {
   console.log();
 }
 
+// ============ LOGGING HELPERS ============
+
+function log(msg) {
+  if (!JSON_MODE) console.log(msg);
+}
+
+function logError(msg) {
+  if (!JSON_MODE) console.error(msg);
+}
+
+// ============ ICON / SEVERITY HELPERS ============
+
+const WORKER_ICONS = { ok: '✅', stale: '⚠️ ' };
+const CB_STATE_ICONS = { closed: '✅', half: '⚠️ ' };
+const SEVERITY_ICONS = { critical: '🔴', error: '🟠' };
+const STATUS_ICONS = { healthy: '✅', degraded: '⚠️ ' };
+
+function getWorkerIcon(status) {
+  return WORKER_ICONS[status] || '❌';
+}
+
+function getCbIcon(state) {
+  return CB_STATE_ICONS[state] || '❌';
+}
+
+function getSeverityIcon(severity) {
+  return SEVERITY_ICONS[severity] || '🟡';
+}
+
+function getWorkerSeverity(status) {
+  return (status === 'down' || status === 'never_seen') ? 'error' : 'warning';
+}
+
+// ============ DIRECT DB MODE — HELPERS ============
+
+function checkDbConnection(db) {
+  try {
+    db.get('SELECT 1 AS ok');
+    log('✅ Database: OK');
+    return { check: true, issue: null };
+  } catch (e) {
+    logError(`❌ Database: ${e.message}`);
+    return { check: false, issue: { severity: 'critical', component: 'database', error: e.message } };
+  }
+}
+
+function formatWorkerCheck(w) {
+  return {
+    name: w.workerName,
+    status: w.status,
+    lastOkAt: w.lastOkAt,
+    lastError: w.lastError,
+    itemsProcessed: w.itemsProcessed,
+    durationMs: w.runDurationMs,
+  };
+}
+
+function logWorker(w) {
+  log(`${getWorkerIcon(w.status)} Worker ${w.workerName}: ${w.status} (last OK: ${w.lastOkAt || 'never'})`);
+  if (w.lastError) log(`   └─ Last error: ${w.lastError}`);
+}
+
+function buildUnhealthyWorkerIssue(uw) {
+  return {
+    severity: getWorkerSeverity(uw.status),
+    component: `worker:${uw.workerName}`,
+    error: uw.status,
+    lastOkAt: uw.lastOkAt,
+    lastError: uw.lastError,
+  };
+}
+
+function checkWorkerHeartbeats(heartbeatRepo) {
+  const workers = [];
+  const issues = [];
+
+  try {
+    const unhealthy = heartbeatRepo.getUnhealthy();
+    const all = heartbeatRepo.getAll();
+
+    if (all.length === 0) {
+      log('⚠️  Workers: No heartbeats recorded yet');
+      issues.push({ severity: 'warning', component: 'workers', error: 'no_heartbeats' });
+      return { workers, issues };
+    }
+
+    for (const w of all) {
+      workers.push(formatWorkerCheck(w));
+      logWorker(w);
+    }
+    for (const uw of unhealthy) {
+      issues.push(buildUnhealthyWorkerIssue(uw));
+    }
+  } catch (e) {
+    logError(`⚠️  Worker heartbeats: ${e.message}`);
+  }
+
+  return { workers, issues };
+}
+
 // ============ DIRECT DB MODE ============
 
 async function checkViaDb() {
@@ -51,156 +151,128 @@ async function checkViaDb() {
   const issues = [];
   const checks = {};
 
-  // 1) DB check
-  try {
-    db.get('SELECT 1 AS ok');
-    checks.database = true;
-    if (!JSON_MODE) console.log('✅ Database: OK');
-  } catch (e) {
-    checks.database = false;
-    if (!JSON_MODE) console.error(`❌ Database: ${e.message}`);
-    issues.push({ severity: 'critical', component: 'database', error: e.message });
-  }
+  const dbResult = checkDbConnection(db);
+  checks.database = dbResult.check;
+  if (dbResult.issue) issues.push(dbResult.issue);
 
-  // 2) Worker heartbeats
-  checks.workers = [];
-  try {
-    const unhealthy = heartbeatRepo.getUnhealthy();
-    const all = heartbeatRepo.getAll();
+  const workerResult = checkWorkerHeartbeats(heartbeatRepo);
+  checks.workers = workerResult.workers;
+  issues.push(...workerResult.issues);
 
-    if (all.length === 0) {
-      if (!JSON_MODE) console.log('⚠️  Workers: No heartbeats recorded yet');
-      issues.push({ severity: 'warning', component: 'workers', error: 'no_heartbeats' });
-    } else {
-      for (const w of all) {
-        checks.workers.push({
-          name: w.workerName,
-          status: w.status,
-          lastOkAt: w.lastOkAt,
-          lastError: w.lastError,
-          itemsProcessed: w.itemsProcessed,
-          durationMs: w.runDurationMs,
-        });
-        if (!JSON_MODE) {
-          const icon = w.status === 'ok' ? '✅' : w.status === 'stale' ? '⚠️ ' : '❌';
-          console.log(`${icon} Worker ${w.workerName}: ${w.status} (last OK: ${w.lastOkAt || 'never'})`);
-          if (w.lastError) console.log(`   └─ Last error: ${w.lastError}`);
-        }
-      }
-      for (const uw of unhealthy) {
-        issues.push({
-          severity: uw.status === 'down' || uw.status === 'never_seen' ? 'error' : 'warning',
-          component: `worker:${uw.workerName}`,
-          error: uw.status,
-          lastOkAt: uw.lastOkAt,
-          lastError: uw.lastError,
-        });
-      }
-    }
-  } catch (e) {
-    if (!JSON_MODE) console.error(`⚠️  Worker heartbeats: ${e.message}`);
-  }
-
-  // 3) Circuit breakers (in-process — always clean for a standalone script)
   checks.circuitBreakers = {};
-  if (!JSON_MODE) console.log('ℹ️  Circuit breakers: N/A in standalone DB mode (check /health HTTP)');
+  log('ℹ️  Circuit breakers: N/A in standalone DB mode (check /health HTTP)');
 
   db.closeDb();
+  return { issues, checks };
+}
+
+// ============ HTTP MODE — HELPERS ============
+
+async function fetchHealthData(healthUrl) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  const response = await fetch(healthUrl, {
+    signal: controller.signal,
+    headers: { 'Accept': 'application/json' },
+  });
+  clearTimeout(timeout);
+  return response.json();
+}
+
+function logOverallStatus(data) {
+  const icon = STATUS_ICONS[data.status] || '❌';
+  log(`${icon} Overall: ${data.status} (v${data.version})`);
+  log(`   Uptime: ${data.uptime}s | Storage: ${data.storage}`);
+}
+
+function checkHttpDatabase(data) {
+  const dbOk = !!data.checks?.database;
+  if (dbOk) {
+    log('✅ Database: OK');
+  } else {
+    logError('❌ Database: DOWN');
+  }
+  return { check: dbOk, issue: dbOk ? null : { severity: 'critical', component: 'database' } };
+}
+
+function logHttpWorkers(workers) {
+  if (workers.length === 0) {
+    log('⚠️  Workers: No data');
+    return;
+  }
+  for (const w of workers) {
+    log(`${getWorkerIcon(w.status)} Worker ${w.name}: ${w.status} (last OK: ${w.lastOkAt || 'never'})`);
+    if (w.lastError) log(`   └─ Error: ${w.lastError}`);
+  }
+}
+
+function collectWorkerIssues(workers) {
+  return workers
+    .filter(w => w.status !== 'ok')
+    .map(w => ({
+      severity: getWorkerSeverity(w.status),
+      component: `worker:${w.name}`,
+      error: w.status,
+    }));
+}
+
+function logHttpCircuitBreakers(circuitBreakers) {
+  const cbNames = Object.keys(circuitBreakers);
+  if (cbNames.length === 0) {
+    log('✅ Circuit breakers: All closed (no activity yet)');
+    return;
+  }
+  for (const name of cbNames) {
+    const cb = circuitBreakers[name];
+    log(`${getCbIcon(cb.state)} Circuit ${name}: ${cb.state} (${cb.failures} failures)`);
+  }
+}
+
+function collectCbIssues(circuitBreakers) {
+  return Object.entries(circuitBreakers)
+    .filter(([, cb]) => cb.state !== 'closed')
+    .map(([name, cb]) => ({
+      severity: cb.state === 'open' ? 'error' : 'warning',
+      component: `circuit:${name}`,
+      error: `${cb.state} (${cb.failures} failures)`,
+    }));
+}
+
+function processHealthData(data) {
+  const issues = [];
+  const checks = {};
+
+  logOverallStatus(data);
+
+  const dbResult = checkHttpDatabase(data);
+  checks.database = dbResult.check;
+  if (dbResult.issue) issues.push(dbResult.issue);
+
+  checks.workers = data.checks?.workers || [];
+  logHttpWorkers(checks.workers);
+  issues.push(...collectWorkerIssues(checks.workers));
+
+  checks.circuitBreakers = data.checks?.circuitBreakers || {};
+  logHttpCircuitBreakers(checks.circuitBreakers);
+  issues.push(...collectCbIssues(checks.circuitBreakers));
+
   return { issues, checks };
 }
 
 // ============ HTTP MODE ============
 
 async function checkViaHttp() {
-  const issues = [];
-  const checks = {};
   const healthUrl = `${BASE_URL}/health`;
-
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(healthUrl, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/json' },
-    });
-    clearTimeout(timeout);
-
-    const data = await response.json();
-
-    // Overall
-    if (!JSON_MODE) {
-      const statusIcon = data.status === 'healthy' ? '✅' : data.status === 'degraded' ? '⚠️ ' : '❌';
-      console.log(`${statusIcon} Overall: ${data.status} (v${data.version})`);
-      console.log(`   Uptime: ${data.uptime}s | Storage: ${data.storage}`);
-    }
-
-    // Database
-    checks.database = !!data.checks?.database;
-    if (!JSON_MODE) {
-      if (checks.database) {
-        console.log('✅ Database: OK');
-      } else {
-        console.error('❌ Database: DOWN');
-      }
-    }
-    if (!checks.database) {
-      issues.push({ severity: 'critical', component: 'database' });
-    }
-
-    // Workers
-    checks.workers = data.checks?.workers || [];
-    if (!JSON_MODE) {
-      if (checks.workers.length > 0) {
-        for (const w of checks.workers) {
-          const icon = w.status === 'ok' ? '✅' : w.status === 'stale' ? '⚠️ ' : '❌';
-          console.log(`${icon} Worker ${w.name}: ${w.status} (last OK: ${w.lastOkAt || 'never'})`);
-          if (w.lastError) console.log(`   └─ Error: ${w.lastError}`);
-        }
-      } else {
-        console.log('⚠️  Workers: No data');
-      }
-    }
-    for (const w of checks.workers) {
-      if (w.status !== 'ok') {
-        issues.push({
-          severity: w.status === 'down' || w.status === 'never_seen' ? 'error' : 'warning',
-          component: `worker:${w.name}`,
-          error: w.status,
-        });
-      }
-    }
-
-    // Circuit breakers
-    checks.circuitBreakers = data.checks?.circuitBreakers || {};
-    if (!JSON_MODE) {
-      const cbNames = Object.keys(checks.circuitBreakers);
-      if (cbNames.length === 0) {
-        console.log('✅ Circuit breakers: All closed (no activity yet)');
-      } else {
-        for (const name of cbNames) {
-          const cb = checks.circuitBreakers[name];
-          const icon = cb.state === 'closed' ? '✅' : cb.state === 'half' ? '⚠️ ' : '❌';
-          console.log(`${icon} Circuit ${name}: ${cb.state} (${cb.failures} failures)`);
-        }
-      }
-    }
-    for (const [name, cb] of Object.entries(checks.circuitBreakers)) {
-      if (cb.state !== 'closed') {
-        issues.push({
-          severity: cb.state === 'open' ? 'error' : 'warning',
-          component: `circuit:${name}`,
-          error: `${cb.state} (${cb.failures} failures)`,
-        });
-      }
-    }
-
+    const data = await fetchHealthData(healthUrl);
+    return processHealthData(data);
   } catch (err) {
-    if (!JSON_MODE) console.error(`❌ Cannot reach ${healthUrl}: ${err.message}`);
-    issues.push({ severity: 'critical', component: 'server', error: err.message });
+    logError(`❌ Cannot reach ${healthUrl}: ${err.message}`);
+    return {
+      issues: [{ severity: 'critical', component: 'server', error: err.message }],
+      checks: {},
+    };
   }
-
-  return { issues, checks };
 }
 
 // ============ ALERT (stub — plug in Slack/email/PagerDuty) ============
@@ -214,11 +286,54 @@ function alertIfNeeded(issues) {
   console.log('='.repeat(60));
 
   for (const issue of issues) {
-    const icon = issue.severity === 'critical' ? '🔴'
-      : issue.severity === 'error' ? '🟠'
-      : '🟡';
+    const icon = getSeverityIcon(issue.severity);
     console.log(`${icon} [${issue.severity.toUpperCase()}] ${issue.component}: ${issue.error || 'unknown'}`);
   }
+}
+
+// ============ MAIN — HELPERS ============
+
+function computeExitStatus(issues) {
+  const hasCritical = issues.some(i => i.severity === 'critical');
+  const hasErrors = issues.some(i => i.severity === 'error');
+  const exitCode = hasCritical ? 2 : hasErrors ? 1 : 0;
+  const status = hasCritical ? 'critical'
+    : hasErrors ? 'degraded'
+    : issues.length > 0 ? 'warning'
+    : 'healthy';
+  return { hasCritical, hasErrors, exitCode, status };
+}
+
+function outputJsonResult(status, exitCode, issues, checks) {
+  console.log(JSON.stringify({
+    status,
+    exitCode,
+    ts: new Date().toISOString(),
+    issueCount: issues.length,
+    issues,
+    checks,
+  }, null, 2));
+}
+
+function logHumanExitStatus(issues, hasCritical, hasErrors) {
+  if (hasCritical) {
+    console.log('\n🔴 CRITICAL — exit 2');
+  } else if (hasErrors) {
+    console.log('\n🟠 DEGRADED — exit 1');
+  } else if (issues.length > 0) {
+    console.log('\n🟡 WARNINGS — exit 0');
+  } else {
+    console.log('\n✅ ALL HEALTHY — exit 0');
+  }
+}
+
+function handleFatalError(err) {
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ status: 'fatal', error: err.message, exitCode: 2, ts: new Date().toISOString() }));
+  } else {
+    console.error(`\n❌ Watchdog fatal: ${err.message}`);
+  }
+  process.exit(2);
 }
 
 // ============ MAIN ============
@@ -226,51 +341,19 @@ function alertIfNeeded(issues) {
 (async () => {
   try {
     const { issues, checks } = DB_MODE ? await checkViaDb() : await checkViaHttp();
+    const { hasCritical, hasErrors, exitCode, status } = computeExitStatus(issues);
 
-    const hasCritical = issues.some(i => i.severity === 'critical');
-    const hasErrors = issues.some(i => i.severity === 'error');
-    const exitCode = hasCritical ? 2 : hasErrors ? 1 : 0;
-    const overallStatus = hasCritical ? 'critical'
-      : hasErrors ? 'degraded'
-      : issues.length > 0 ? 'warning'
-      : 'healthy';
-
-    // ── JSON mode: single JSON object, no extra output ──
     if (JSON_MODE) {
-      const output = {
-        status: overallStatus,
-        exitCode,
-        ts: new Date().toISOString(),
-        issueCount: issues.length,
-        issues,
-        checks,
-      };
-      console.log(JSON.stringify(output, null, 2));
+      outputJsonResult(status, exitCode, issues, checks);
       process.exit(exitCode);
       return;
     }
 
-    // ── Human-readable mode ──
     console.log();
     alertIfNeeded(issues);
-
-    if (hasCritical) {
-      console.log('\n🔴 CRITICAL — exit 2');
-    } else if (hasErrors) {
-      console.log('\n🟠 DEGRADED — exit 1');
-    } else if (issues.length > 0) {
-      console.log('\n🟡 WARNINGS — exit 0');
-    } else {
-      console.log('\n✅ ALL HEALTHY — exit 0');
-    }
+    logHumanExitStatus(issues, hasCritical, hasErrors);
     process.exit(exitCode);
-
   } catch (err) {
-    if (JSON_MODE) {
-      console.log(JSON.stringify({ status: 'fatal', error: err.message, exitCode: 2, ts: new Date().toISOString() }));
-    } else {
-      console.error(`\n❌ Watchdog fatal: ${err.message}`);
-    }
-    process.exit(2);
+    handleFatalError(err);
   }
 })();

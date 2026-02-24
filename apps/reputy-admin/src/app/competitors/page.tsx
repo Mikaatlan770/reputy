@@ -316,6 +316,450 @@ function generateDemoCompetitors(
   }
 }
 
+// ============================================================
+// EXTRACTED HELPERS & SUB-COMPONENTS
+// ============================================================
+
+function getOwnStatsInsight(
+  myRating: number, myReviews: number, responseRate: number, last30d: number,
+): string {
+  if (myRating === 0 && myReviews === 0) {
+    return 'Aucun avis détecté. Lancez une campagne de collecte pour démarrer.'
+  }
+  if (myRating < 4.2) {
+    return `Votre note (${myRating.toFixed(1)}) est proche d'un seuil critique. Répondez en priorité aux avis 1–3★ pour remonter rapidement.`
+  }
+  if (responseRate < 80) {
+    return `Votre taux de réponse (${Math.round(responseRate)}%) est perfectible. Objectif : répondre à 100% des avis négatifs sous 24–48h.`
+  }
+  if (last30d === 0) {
+    return 'Aucun nouvel avis sur 30 jours. Activez une campagne SMS/email post-consultation pour relancer la collecte.'
+  }
+  return `Bonne dynamique : ${myRating.toFixed(1)}★ avec ${myReviews} avis au total et ${Math.round(responseRate)}% de taux de réponse. Continuez !`
+}
+
+function getComparisonInsight(
+  myRating: number, myReviews: number,
+  avgRating: number, avgReviews: number,
+  radius: number,
+): string {
+  let ratingPart: string
+  if (myRating > avgRating) {
+    ratingPart = `Votre note (${myRating.toFixed(1)}) est supérieure à la moyenne locale (${avgRating})`
+  } else if (myRating < avgRating) {
+    ratingPart = `Votre note (${myRating.toFixed(1)}) est inférieure à la moyenne locale (${avgRating})`
+  } else {
+    ratingPart = `Votre note est dans la moyenne locale (${avgRating})`
+  }
+
+  let reviewsPart: string
+  if (myReviews > avgReviews) {
+    reviewsPart = `et vous avez plus d'avis que la moyenne.`
+  } else if (myReviews < avgReviews) {
+    reviewsPart = `mais vous avez moins d'avis que la moyenne dans un rayon de ${radius} km.`
+  } else {
+    reviewsPart = `avec un volume d'avis comparable.`
+  }
+
+  return `${ratingPart} ${reviewsPart}`
+}
+
+function computeInsight(params: {
+  myRating: number; myReviews: number; responseRate: number; last30d: number
+  hasStats: boolean
+  activeAutoStats: { avgRating: number; avgReviews: number; totalCompetitors: number } | null
+  autoCompetitorCount: number; radius: number
+}): string {
+  const { myRating, myReviews, responseRate, last30d, hasStats, activeAutoStats, autoCompetitorCount, radius } = params
+  if (hasStats && !activeAutoStats) {
+    return getOwnStatsInsight(myRating, myReviews, responseRate, last30d)
+  }
+  if (!activeAutoStats || autoCompetitorCount === 0) return ''
+  return getComparisonInsight(myRating, myReviews, activeAutoStats.avgRating, activeAutoStats.avgReviews, radius)
+}
+
+function TrendBadge({ value, isPercentage = false }: { value: number | null; isPercentage?: boolean }) {
+  if (value === null) return <span className="text-muted-foreground text-sm">—</span>
+  const trend: 'up' | 'down' | 'stable' = value > 0 ? 'up' : value < 0 ? 'down' : 'stable'
+  const variantMap = { up: 'success', down: 'destructive', stable: 'secondary' } as const
+  const Icon = { up: TrendingUp, down: TrendingDown, stable: Minus }[trend]
+  const label = isPercentage
+    ? `${value > 0 ? '+' : ''}${Math.round(value)}%`
+    : `${value > 0 ? '+' : value < 0 ? '-' : ''}${Math.abs(value)}`
+  return (
+    <Badge variant={variantMap[trend]} className="gap-1">
+      <Icon className="h-3 w-3" />
+      {label}
+    </Badge>
+  )
+}
+
+function computeCompetitorReviewData(
+  competitor: Record<string, unknown>,
+): { reviewsLast30d: number | null; trend: 'up' | 'stable' | 'down' } {
+  if (competitor.isReal && 'estimated30d' in competitor) {
+    const val = competitor.estimated30d as number | null
+    if (val === null) return { reviewsLast30d: null, trend: 'stable' }
+    return { reviewsLast30d: val, trend: val > 0 ? 'up' : val < 0 ? 'down' : 'stable' }
+  }
+  if ('trend' in competitor && 'reviewsLast30d' in competitor) {
+    return { trend: competitor.trend as 'up' | 'stable' | 'down', reviewsLast30d: competitor.reviewsLast30d as number }
+  }
+  if ('trend30d' in competitor) {
+    const t30d = competitor.trend30d as number
+    return { reviewsLast30d: t30d, trend: t30d >= 0 ? 'up' : 'down' }
+  }
+  return { reviewsLast30d: null, trend: 'stable' }
+}
+
+function getCompetitorSubtitle(competitor: Record<string, unknown>): string {
+  if (competitor.isReal && Array.isArray(competitor.types) && competitor.types.length > 0) {
+    const typeLabel = getCompetitorTypeLabel(competitor.types)
+    return competitor.distanceKm ? `${typeLabel} · ${competitor.distanceKm} km` : typeLabel
+  }
+  if (typeof competitor.address === 'string' && competitor.address) return competitor.address
+  return competitor.distanceKm ? `${competitor.distanceKm} km` : '-'
+}
+
+interface CompetitorRowData {
+  id: string; name: string; rating?: number | null
+  reviewsCount: number; distanceKm?: number | null; isAuto: boolean
+  [key: string]: unknown
+}
+
+function CompetitorRow({
+  competitor, isPinned, isEstimated30d, onTogglePin, onToggleHide, onSelectCompetitor,
+}: {
+  competitor: CompetitorRowData; isPinned: boolean; isEstimated30d: boolean
+  onTogglePin: (id: string) => void; onToggleHide: (id: string) => void
+  onSelectCompetitor: (placeId: string, name: string) => void
+}) {
+  const { isAuto } = competitor
+  const isReal = !!competitor.isReal
+  const { reviewsLast30d } = computeCompetitorReviewData(competitor)
+  const placeId = competitor.placeId as string | undefined
+  const subtitle = getCompetitorSubtitle(competitor)
+  const sourceType = isReal ? 'real' : isAuto ? 'auto' : 'manual'
+  const iconBgMap: Record<string, string> = {
+    real: 'bg-green-50 group-hover:bg-green-100', auto: 'bg-slate-100', manual: 'bg-muted',
+  }
+  const iconColorMap: Record<string, string> = {
+    real: 'text-green-500', auto: 'text-slate-400', manual: 'text-muted-foreground',
+  }
+
+  return (
+    <tr className={`border-b hover:bg-muted/50 ${isPinned ? 'bg-amber-50/50' : ''}`}>
+      <td className="py-4 px-4">
+        <div
+          className={`flex items-center gap-3 ${isReal ? 'cursor-pointer group' : ''}`}
+          onClick={() => { if (isReal && placeId) onSelectCompetitor(placeId, competitor.name) }}
+        >
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${iconBgMap[sourceType]}`}>
+            <MapPin className={`h-5 w-5 ${iconColorMap[sourceType]}`} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className={`font-medium ${isReal ? 'group-hover:text-primary' : ''}`}>
+                {competitor.name}
+              </p>
+              {isPinned && <Pin className="h-3 w-3 text-amber-500" />}
+              {isReal && (
+                <Info className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          </div>
+        </div>
+      </td>
+      <td className="text-center py-4 px-4">
+        <div className="flex items-center justify-center gap-1">
+          <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+          <span className="font-medium">{competitor.rating ?? '—'}</span>
+        </div>
+      </td>
+      <td className="text-center py-4 px-4">{competitor.reviewsCount}</td>
+      <td className="text-center py-4 px-4">
+        <div className="flex items-center justify-center gap-1">
+          {reviewsLast30d !== null ? reviewsLast30d : '—'}
+          {isReal && reviewsLast30d !== null && !isEstimated30d && (
+            <Badge variant="outline" className="text-[9px] px-1 py-0 text-amber-600 border-amber-300 ml-1">
+              estimé
+            </Badge>
+          )}
+        </div>
+      </td>
+      <td className="text-center py-4 px-4">
+        <TrendBadge value={reviewsLast30d} />
+      </td>
+      <td className="text-center py-4 px-4 text-muted-foreground">{competitor.distanceKm} km</td>
+      <td className="text-center py-4 px-4">
+        <SourceBadges isAuto={isAuto} isReal={isReal} />
+      </td>
+      <td className="text-right py-4 px-4">
+        <CompetitorRowActions
+          id={competitor.id} name={competitor.name} isAuto={isAuto} isReal={isReal}
+          isPinned={isPinned} placeId={placeId}
+          onTogglePin={onTogglePin} onToggleHide={onToggleHide} onSelectCompetitor={onSelectCompetitor}
+        />
+      </td>
+    </tr>
+  )
+}
+
+function SourceBadges({ isAuto, isReal }: { isAuto: boolean; isReal: boolean }) {
+  return (
+    <div className="flex items-center justify-center gap-1">
+      <Badge variant={isAuto ? 'outline' : 'secondary'} className={isAuto ? 'text-slate-500' : ''}>
+        {isAuto ? 'Auto' : 'Manuel'}
+      </Badge>
+      <Badge
+        variant="outline"
+        className={`text-[10px] px-1 py-0 ${isReal ? 'text-green-600 border-green-300' : 'text-amber-600 border-amber-300'}`}
+      >
+        {isReal ? 'Google' : 'Démo'}
+      </Badge>
+    </div>
+  )
+}
+
+function CompetitorRowActions({
+  id, name, isAuto, isReal, isPinned, placeId, onTogglePin, onToggleHide, onSelectCompetitor,
+}: {
+  id: string; name: string; isAuto: boolean; isReal: boolean; isPinned: boolean; placeId?: string
+  onTogglePin: (id: string) => void; onToggleHide: (id: string) => void
+  onSelectCompetitor: (placeId: string, name: string) => void
+}) {
+  return (
+    <div className="flex items-center justify-end gap-1">
+      {isAuto && (
+        <>
+          <Button variant="ghost" size="sm" onClick={() => onTogglePin(id)} title={isPinned ? 'Désépingler' : 'Épingler'}>
+            {isPinned ? <PinOff className="h-4 w-4 text-amber-500" /> : <Pin className="h-4 w-4" />}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => onToggleHide(id)} title="Masquer">
+            <EyeOff className="h-4 w-4" />
+          </Button>
+        </>
+      )}
+      {isReal && placeId ? (
+        <Button variant="ghost" size="sm" onClick={() => onSelectCompetitor(placeId, name)} title="Voir les détails">
+          <ExternalLink className="h-4 w-4" />
+        </Button>
+      ) : (
+        <Button variant="ghost" size="sm">
+          <ExternalLink className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function YourEstablishmentRow({ location, data, loading }: {
+  location: { name: string; address: string }
+  data: { rating: number; reviewsCount: number; reviewsLast30d: number; reviewsDeltaPct: number | null }
+  loading: boolean
+}) {
+  return (
+    <tr className="border-b bg-primary/5">
+      <td className="py-4 px-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold">V</span>
+          </div>
+          <div>
+            <p className="font-medium">Vous ({location.name})</p>
+            <p className="text-xs text-muted-foreground">{location.address}</p>
+          </div>
+        </div>
+      </td>
+      <td className="text-center py-4 px-4">
+        {loading ? (
+          <Skeleton className="h-5 w-12 mx-auto" />
+        ) : (
+          <div className="flex items-center justify-center gap-1">
+            <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+            <span className="font-bold">{data.rating.toFixed(1)}</span>
+          </div>
+        )}
+      </td>
+      <td className="text-center py-4 px-4 font-medium">
+        {loading ? <Skeleton className="h-5 w-10 mx-auto" /> : data.reviewsCount}
+      </td>
+      <td className="text-center py-4 px-4">
+        {loading ? <Skeleton className="h-5 w-8 mx-auto" /> : data.reviewsLast30d}
+      </td>
+      <td className="text-center py-4 px-4">
+        <TrendBadge value={data.reviewsDeltaPct} isPercentage />
+      </td>
+      <td className="text-center py-4 px-4">-</td>
+      <td className="text-center py-4 px-4">
+        <Badge variant="default">Vous</Badge>
+      </td>
+      <td className="text-right py-4 px-4"></td>
+    </tr>
+  )
+}
+
+function DisclaimerSection({
+  hasRealData, competitorsUpdatedAt, isEstimated30d, disclaimer,
+  competitorsError, syncError, syncMessage,
+}: {
+  hasRealData: boolean; competitorsUpdatedAt?: string | null; isEstimated30d: boolean
+  disclaimer: string; competitorsError?: string | null; syncError?: string | null; syncMessage: string | null
+}) {
+  return (
+    <>
+      <div className="mt-4 flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
+        <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+        <span>
+          {hasRealData ? (
+            <>
+              Données mises à jour hebdomadairement via Google Places.
+              {competitorsUpdatedAt && ` Dernière maj : ${new Date(competitorsUpdatedAt).toLocaleDateString('fr-FR')}.`}
+              {isEstimated30d
+                ? ' Les "Avis 30j" sont estimés à partir des snapshots hebdomadaires.'
+                : ' Les "Avis 30j" nécessitent 4 semaines de données (badge "estimé" affiché sinon).'}
+            </>
+          ) : (
+            disclaimer || 'Les concurrents affichés sont des données de démonstration. La connexion Google Places (données réelles) sera disponible prochainement.'
+          )}
+        </span>
+      </div>
+      {competitorsError && (
+        <div className="mt-2 text-xs text-red-500">Erreur chargement concurrents : {competitorsError}</div>
+      )}
+      {syncError && (
+        <div className="mt-2 text-xs text-red-500">Erreur synchronisation : {syncError}</div>
+      )}
+      {syncMessage && (
+        <div className="mt-2 text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2 font-medium">{syncMessage}</div>
+      )}
+    </>
+  )
+}
+
+function ConfigurationCTAs({
+  isConfigured, competitorsLoading, hasRealData, placesApiConfigured,
+}: {
+  isConfigured: boolean; competitorsLoading: boolean; hasRealData: boolean; placesApiConfigured: boolean
+}) {
+  if (competitorsLoading) return null
+
+  if (!isConfigured) {
+    return (
+      <div className="mt-4 flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50/50 p-4">
+        <MapPin className="h-5 w-5 text-orange-500 flex-shrink-0" />
+        <div className="flex-1">
+          <p className="font-medium text-sm text-foreground">Coordonnées GPS non configurées</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Pour afficher vos vrais concurrents via Google Places, configurez l&apos;adresse de votre établissement dans les paramètres.
+          </p>
+        </div>
+        <Button
+          variant="outline" size="sm"
+          className="text-orange-600 border-orange-300 hover:bg-orange-100 flex-shrink-0"
+          onClick={() => window.location.href = '/settings'}
+        >
+          <Settings2 className="h-4 w-4 mr-1" />
+          Configurer
+        </Button>
+      </div>
+    )
+  }
+
+  if (!hasRealData && placesApiConfigured) {
+    return (
+      <div className="mt-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+        <MapPin className="h-5 w-5 text-blue-500 flex-shrink-0" />
+        <div className="flex-1">
+          <p className="font-medium text-sm text-foreground">Aucune donnée Google Places</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Vos coordonnées sont configurées. Les données de concurrence seront récupérées automatiquement lors du prochain cycle hebdomadaire.
+          </p>
+        </div>
+        <Badge variant="outline" className="text-blue-600 border-blue-300">En attente</Badge>
+      </div>
+    )
+  }
+
+  return null
+}
+
+function AddCompetitorDialog({
+  open, onOpenChange, searchInput, onSearchChange, searchLoading,
+  suggestions, addingPlaceId, addCompetitorLoading, onAddCompetitor,
+}: {
+  open: boolean; onOpenChange: (open: boolean) => void
+  searchInput: string; onSearchChange: (input: string) => void; searchLoading: boolean
+  suggestions: { placeId: string; mainText: string; secondaryText: string }[]
+  addingPlaceId: string | null; addCompetitorLoading: boolean
+  onAddCompetitor: (placeId: string, name: string) => void
+}) {
+  const showEmpty = searchInput.length >= 3 && !searchLoading && suggestions.length === 0
+  const showHint = searchInput.length < 3
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Ajouter un concurrent</DialogTitle>
+          <DialogDescription>
+            Recherchez un établissement par nom ou adresse pour l&apos;ajouter à votre liste de concurrents.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="text" value={searchInput} onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Nom ou adresse de l'établissement..."
+              className="h-10 w-full pl-9 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+              autoFocus
+            />
+            {searchLoading && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+          {suggestions.length > 0 && (
+            <div className="max-h-[250px] overflow-y-auto border rounded-lg divide-y">
+              {suggestions.map((s) => (
+                <button
+                  key={s.placeId}
+                  onClick={() => onAddCompetitor(s.placeId, s.mainText)}
+                  disabled={addingPlaceId === s.placeId || addCompetitorLoading}
+                  className="w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors flex items-center gap-3 disabled:opacity-50"
+                >
+                  <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{s.mainText}</p>
+                    <p className="text-xs text-muted-foreground truncate">{s.secondaryText}</p>
+                  </div>
+                  {addingPlaceId === s.placeId ? (
+                    <RefreshCw className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
+                  ) : (
+                    <Plus className="h-4 w-4 text-primary flex-shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          {showEmpty && (
+            <div className="text-center py-6 text-sm text-muted-foreground">
+              Aucun résultat pour &quot;{searchInput}&quot;
+            </div>
+          )}
+          {showHint && (
+            <div className="text-center py-6 text-sm text-muted-foreground">
+              Saisissez au moins 3 caractères pour lancer la recherche
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function CompetitorsPage() {
   const { currentLocation, setCurrentLocation } = useAppStore()
 
@@ -609,64 +1053,16 @@ export default function CompetitorsPage() {
     })),
   ]
 
-  // Générer insight automatique (basé sur vraies stats + concurrents)
-  const generateInsight = (): string => {
-    const myRating = currentEstablishmentData.rating
-    const myReviews = currentEstablishmentData.reviewsCount
-    const responseRate = currentEstablishmentData.responseRate
-    const last30d = currentEstablishmentData.reviewsLast30d
-
-    // Insight basé sur les vraies stats d'abord
-    if (stats && !activeAutoStats) {
-      // Pas encore de concurrents chargés, insight basé sur ses propres stats
-      if (myRating === 0 && myReviews === 0) {
-        return 'Aucun avis détecté. Lancez une campagne de collecte pour démarrer.'
-      }
-      if (myRating < 4.2) {
-        return `Votre note (${myRating.toFixed(1)}) est proche d'un seuil critique. Répondez en priorité aux avis 1–3★ pour remonter rapidement.`
-      }
-      if (responseRate < 80) {
-        return `Votre taux de réponse (${Math.round(responseRate)}%) est perfectible. Objectif : répondre à 100% des avis négatifs sous 24–48h.`
-      }
-      if (last30d === 0) {
-        return 'Aucun nouvel avis sur 30 jours. Activez une campagne SMS/email post-consultation pour relancer la collecte.'
-      }
-      return `Bonne dynamique : ${myRating.toFixed(1)}★ avec ${myReviews} avis au total et ${Math.round(responseRate)}% de taux de réponse. Continuez !`
-    }
-
-    // Insight comparatif avec les concurrents
-    if (!activeAutoStats || allCompetitors.filter(c => c.isAuto).length === 0) {
-      return ''
-    }
-
-    const avgRating = activeAutoStats.avgRating
-    const avgReviews = activeAutoStats.avgReviews
-    const parts: string[] = []
-
-    if (myRating > avgRating) {
-      parts.push(
-        `Votre note (${myRating.toFixed(1)}) est supérieure à la moyenne locale (${avgRating})`
-      )
-    } else if (myRating < avgRating) {
-      parts.push(
-        `Votre note (${myRating.toFixed(1)}) est inférieure à la moyenne locale (${avgRating})`
-      )
-    } else {
-      parts.push(`Votre note est dans la moyenne locale (${avgRating})`)
-    }
-
-    if (myReviews > avgReviews) {
-      parts.push(`et vous avez plus d'avis que la moyenne.`)
-    } else if (myReviews < avgReviews) {
-      parts.push(
-        `mais vous avez moins d'avis que la moyenne dans un rayon de ${radius} km.`
-      )
-    } else {
-      parts.push(`avec un volume d'avis comparable.`)
-    }
-
-    return parts.join(' ')
-  }
+  const insightText = computeInsight({
+    myRating: currentEstablishmentData.rating,
+    myReviews: currentEstablishmentData.reviewsCount,
+    responseRate: currentEstablishmentData.responseRate,
+    last30d: currentEstablishmentData.reviewsLast30d,
+    hasStats: !!stats,
+    activeAutoStats,
+    autoCompetitorCount: allCompetitors.filter(c => c.isAuto).length,
+    radius,
+  })
 
   // Évolution des avis (réel depuis /client/reviews/analytics)
   const monthLabels: Record<string, string> = {
@@ -907,76 +1303,21 @@ export default function CompetitorsPage() {
             )}
           </div>
 
-          {/* Disclaimer */}
-            <div className="mt-4 flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
-              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-            <span>
-              {hasRealData ? (
-                <>
-                  Données mises à jour hebdomadairement via Google Places.
-                  {competitorsUpdatedAt && ` Dernière maj : ${new Date(competitorsUpdatedAt).toLocaleDateString('fr-FR')}.`}
-                  {isEstimated30d
-                    ? ' Les "Avis 30j" sont estimés à partir des snapshots hebdomadaires.'
-                    : ' Les "Avis 30j" nécessitent 4 semaines de données (badge "estimé" affiché sinon).'}
-                </>
-              ) : (
-                disclaimer || 'Les concurrents affichés sont des données de démonstration. La connexion Google Places (données réelles) sera disponible prochainement.'
-              )}
-            </span>
-          </div>
-          {competitorsError && (
-            <div className="mt-2 text-xs text-red-500">
-              Erreur chargement concurrents : {competitorsError}
-            </div>
-          )}
-          {syncError && (
-            <div className="mt-2 text-xs text-red-500">
-              Erreur synchronisation : {syncError}
-            </div>
-          )}
-          {syncMessage && (
-            <div className="mt-2 text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2 font-medium">
-              {syncMessage}
-            </div>
-          )}
-
-          {/* CTA : Configurer l'adresse si org non configurée */}
-          {!isConfigured && !competitorsLoading && (
-            <div className="mt-4 flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50/50 p-4">
-              <MapPin className="h-5 w-5 text-orange-500 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="font-medium text-sm text-foreground">Coordonnées GPS non configurées</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Pour afficher vos vrais concurrents via Google Places, configurez l&apos;adresse de votre établissement dans les paramètres.
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-orange-600 border-orange-300 hover:bg-orange-100 flex-shrink-0"
-                onClick={() => window.location.href = '/settings'}
-              >
-                <Settings2 className="h-4 w-4 mr-1" />
-                Configurer
-              </Button>
-            </div>
-          )}
-
-          {/* CTA : Activer Google Places si pas de données réelles mais org configurée */}
-          {isConfigured && !hasRealData && !competitorsLoading && placesApiConfigured && (
-            <div className="mt-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4">
-              <MapPin className="h-5 w-5 text-blue-500 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="font-medium text-sm text-foreground">Aucune donnée Google Places</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Vos coordonnées sont configurées. Les données de concurrence seront récupérées automatiquement lors du prochain cycle hebdomadaire.
-                </p>
-              </div>
-              <Badge variant="outline" className="text-blue-600 border-blue-300">
-                En attente
-              </Badge>
-            </div>
-          )}
+          <DisclaimerSection
+            hasRealData={hasRealData}
+            competitorsUpdatedAt={competitorsUpdatedAt}
+            isEstimated30d={isEstimated30d}
+            disclaimer={disclaimer}
+            competitorsError={competitorsError}
+            syncError={syncError}
+            syncMessage={syncMessage}
+          />
+          <ConfigurationCTAs
+            isConfigured={isConfigured}
+            competitorsLoading={competitorsLoading}
+            hasRealData={hasRealData}
+            placesApiConfigured={placesApiConfigured}
+          />
         </CardContent>
       </Card>
 
@@ -1063,291 +1404,27 @@ export default function CompetitorsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Your establishment */}
                   {currentLocation && (
-                    <tr className="border-b bg-primary/5">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                            <span className="text-white font-bold">V</span>
-                          </div>
-                          <div>
-                            <p className="font-medium">
-                              Vous ({currentLocation.name})
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {currentLocation.address}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="text-center py-4 px-4">
-                        {statsLoading ? (
-                          <Skeleton className="h-5 w-12 mx-auto" />
-                        ) : (
-                        <div className="flex items-center justify-center gap-1">
-                          <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                          <span className="font-bold">
-                              {currentEstablishmentData.rating.toFixed(1)}
-                          </span>
-                        </div>
-                        )}
-                      </td>
-                      <td className="text-center py-4 px-4 font-medium">
-                        {statsLoading ? (
-                          <Skeleton className="h-5 w-10 mx-auto" />
-                        ) : (
-                          currentEstablishmentData.reviewsCount
-                        )}
-                      </td>
-                      <td className="text-center py-4 px-4">
-                        {statsLoading ? (
-                          <Skeleton className="h-5 w-8 mx-auto" />
-                        ) : (
-                          currentEstablishmentData.reviewsLast30d
-                        )}
-                      </td>
-                      <td className="text-center py-4 px-4">
-                        {currentEstablishmentData.reviewsDeltaPct !== null ? (
-                          <Badge
-                            variant={
-                              currentEstablishmentData.reviewsDeltaPct > 0
-                                ? 'success'
-                                : currentEstablishmentData.reviewsDeltaPct < 0
-                                ? 'destructive'
-                                : 'secondary'
-                            }
-                            className="gap-1"
-                          >
-                            {currentEstablishmentData.reviewsDeltaPct > 0 ? (
-                          <TrendingUp className="h-3 w-3" />
-                            ) : currentEstablishmentData.reviewsDeltaPct < 0 ? (
-                              <TrendingDown className="h-3 w-3" />
-                            ) : (
-                              <Minus className="h-3 w-3" />
-                            )}
-                            {currentEstablishmentData.reviewsDeltaPct > 0 ? '+' : ''}
-                            {Math.round(currentEstablishmentData.reviewsDeltaPct)}%
-                        </Badge>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">—</span>
-                        )}
-                      </td>
-                      <td className="text-center py-4 px-4">-</td>
-                      <td className="text-center py-4 px-4">
-                        <Badge variant="default">Vous</Badge>
-                      </td>
-                      <td className="text-right py-4 px-4"></td>
-                    </tr>
+                    <YourEstablishmentRow
+                      location={currentLocation}
+                      data={currentEstablishmentData}
+                      loading={statsLoading}
+                    />
                   )}
-                  {/* Competitors */}
-                  {allCompetitors.map((competitor) => {
-                    const isAuto = competitor.isAuto
-                    const isReal = 'isReal' in competitor && competitor.isReal
-                    const isPinned = pinnedAutoIds.has(competitor.id)
-
-                    // Compute 30d reviews and trend based on data source
-                    let reviewsLast30d: number | null = null
-                    let trend: 'up' | 'stable' | 'down' = 'stable'
-
-                    if (isReal && 'estimated30d' in competitor) {
-                      // Real data from Google Places snapshots
-                      reviewsLast30d = (competitor as CompetitorEntry).estimated30d
-                      if (reviewsLast30d !== null) {
-                        trend = reviewsLast30d > 0 ? 'up' : reviewsLast30d < 0 ? 'down' : 'stable'
-                      }
-                    } else if ('trend' in competitor) {
-                      // Mock AutoCompetitor
-                      trend = (competitor as AutoCompetitor).trend
-                      reviewsLast30d = (competitor as AutoCompetitor).reviewsLast30d
-                    } else if ('trend30d' in competitor) {
-                      // Manual Competitor
-                      const t30d = (competitor as unknown as { trend30d: number }).trend30d
-                      trend = t30d >= 0 ? 'up' : 'down'
-                      reviewsLast30d = t30d
-                    }
-
-                    return (
-                      <tr
-                        key={competitor.id}
-                        className={`border-b hover:bg-muted/50 ${
-                          isPinned ? 'bg-amber-50/50' : ''
-                        }`}
-                      >
-                        <td className="py-4 px-4">
-                          <div
-                            className={`flex items-center gap-3 ${isReal ? 'cursor-pointer group' : ''}`}
-                            onClick={() => {
-                              if (isReal && 'placeId' in competitor && competitor.placeId) {
-                                setSelectedPlaceId(competitor.placeId)
-                                setSelectedCompetitorName(competitor.name)
-                              }
-                            }}
-                          >
-                            <div
-                              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                                isReal ? 'bg-green-50 group-hover:bg-green-100' : isAuto ? 'bg-slate-100' : 'bg-muted'
-                              }`}
-                            >
-                              <MapPin
-                                className={`h-5 w-5 ${
-                                  isReal
-                                    ? 'text-green-500'
-                                    : isAuto
-                                    ? 'text-slate-400'
-                                    : 'text-muted-foreground'
-                                }`}
-                              />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className={`font-medium ${isReal ? 'group-hover:text-primary' : ''}`}>
-                                  {competitor.name}
-                                </p>
-                                {isPinned && (
-                                  <Pin className="h-3 w-3 text-amber-500" />
-                                )}
-                                {isReal && (
-                                  <Info className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-                                )}
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                {isReal && 'types' in competitor && competitor.types?.length > 0
-                                  ? `${getCompetitorTypeLabel(competitor.types)}${competitor.distanceKm ? ` · ${competitor.distanceKm} km` : ''}`
-                                  : 'address' in competitor && competitor.address
-                                    ? competitor.address
-                                    : competitor.distanceKm ? `${competitor.distanceKm} km` : '-'}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="text-center py-4 px-4">
-                          <div className="flex items-center justify-center gap-1">
-                            <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                            <span className="font-medium">
-                              {competitor.rating ?? '—'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="text-center py-4 px-4">
-                          {competitor.reviewsCount}
-                        </td>
-                        <td className="text-center py-4 px-4">
-                          <div className="flex items-center justify-center gap-1">
-                            {reviewsLast30d !== null ? reviewsLast30d : '—'}
-                            {isReal && reviewsLast30d !== null && !isEstimated30d && (
-                              <Badge variant="outline" className="text-[9px] px-1 py-0 text-amber-600 border-amber-300 ml-1">
-                                estimé
-                              </Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="text-center py-4 px-4">
-                          {reviewsLast30d !== null ? (
-                          <Badge
-                            variant={
-                              trend === 'up'
-                                ? 'success'
-                                : trend === 'down'
-                                ? 'destructive'
-                                : 'secondary'
-                            }
-                            className="gap-1"
-                          >
-                            {trend === 'up' ? (
-                              <TrendingUp className="h-3 w-3" />
-                            ) : trend === 'down' ? (
-                              <TrendingDown className="h-3 w-3" />
-                            ) : (
-                              <Minus className="h-3 w-3" />
-                            )}
-                            {trend === 'up'
-                              ? '+'
-                              : trend === 'down'
-                              ? '-'
-                              : ''}
-                            {Math.abs(
-                              typeof reviewsLast30d === 'number'
-                                ? reviewsLast30d
-                                : 0
-                            )}
-                          </Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">—</span>
-                          )}
-                        </td>
-                        <td className="text-center py-4 px-4 text-muted-foreground">
-                          {competitor.distanceKm} km
-                        </td>
-                        <td className="text-center py-4 px-4">
-                          <div className="flex items-center justify-center gap-1">
-                          <Badge
-                            variant={isAuto ? 'outline' : 'secondary'}
-                            className={isAuto ? 'text-slate-500' : ''}
-                          >
-                            {isAuto ? 'Auto' : 'Manuel'}
-                          </Badge>
-                            {isReal ? (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 text-green-600 border-green-300">
-                                Google
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 text-amber-600 border-amber-300">
-                                Démo
-                              </Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="text-right py-4 px-4">
-                          <div className="flex items-center justify-end gap-1">
-                            {isAuto && (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => togglePin(competitor.id)}
-                                  title={
-                                    isPinned ? 'Désépingler' : 'Épingler'
-                                  }
-                                >
-                                  {isPinned ? (
-                                    <PinOff className="h-4 w-4 text-amber-500" />
-                                  ) : (
-                                    <Pin className="h-4 w-4" />
-                                  )}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => toggleHide(competitor.id)}
-                                  title="Masquer"
-                                >
-                                  <EyeOff className="h-4 w-4" />
-                                </Button>
-                              </>
-                            )}
-                            {isReal && 'placeId' in competitor && competitor.placeId ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedPlaceId(competitor.placeId)
-                                  setSelectedCompetitorName(competitor.name)
-                                }}
-                                title="Voir les détails"
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            ) : (
-                            <Button variant="ghost" size="sm">
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {allCompetitors.map((competitor) => (
+                    <CompetitorRow
+                      key={competitor.id}
+                      competitor={competitor as CompetitorRowData}
+                      isPinned={pinnedAutoIds.has(competitor.id)}
+                      isEstimated30d={isEstimated30d}
+                      onTogglePin={togglePin}
+                      onToggleHide={toggleHide}
+                      onSelectCompetitor={(pid, name) => {
+                        setSelectedPlaceId(pid)
+                        setSelectedCompetitorName(name)
+                      }}
+                    />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1428,8 +1505,7 @@ export default function CompetitorsPage() {
         </Card>
       </div>
 
-      {/* Insight automatique */}
-      {(stats || activeAutoStats) && generateInsight() && (
+      {insightText && (
         <Card className="bg-blue-50/50 border-blue-100">
           <CardContent className="py-4">
             <div className="flex items-start gap-3">
@@ -1441,7 +1517,7 @@ export default function CompetitorsPage() {
                   Insight automatique
                 </h4>
                 <p className="text-sm text-muted-foreground">
-                  {generateInsight()}
+                  {insightText}
                 </p>
               </div>
             </div>
@@ -1459,75 +1535,17 @@ export default function CompetitorsPage() {
         }}
       />
 
-      {/* Dialog "Ajouter un concurrent" */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Ajouter un concurrent</DialogTitle>
-            <DialogDescription>
-              Recherchez un établissement par nom ou adresse pour l&apos;ajouter à votre liste de concurrents.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {/* Champ de recherche */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                value={addSearchInput}
-                onChange={(e) => handleAddSearch(e.target.value)}
-                placeholder="Nom ou adresse de l'établissement..."
-                className="h-10 w-full pl-9 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-                autoFocus
-              />
-              {addSearchLoading && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                </div>
-              )}
-            </div>
-
-            {/* Résultats */}
-            {addSuggestions.length > 0 && (
-              <div className="max-h-[250px] overflow-y-auto border rounded-lg divide-y">
-                {addSuggestions.map((s) => (
-                  <button
-                    key={s.placeId}
-                    onClick={() => handleAddCompetitor(s.placeId, s.mainText)}
-                    disabled={addingPlaceId === s.placeId || addCompetitorLoading}
-                    className="w-full text-left px-3 py-2.5 hover:bg-muted/50 transition-colors flex items-center gap-3 disabled:opacity-50"
-                  >
-                    <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{s.mainText}</p>
-                      <p className="text-xs text-muted-foreground truncate">{s.secondaryText}</p>
-                    </div>
-                    {addingPlaceId === s.placeId ? (
-                      <RefreshCw className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
-                    ) : (
-                      <Plus className="h-4 w-4 text-primary flex-shrink-0" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Empty state */}
-            {addSearchInput.length >= 3 && !addSearchLoading && addSuggestions.length === 0 && (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Aucun résultat pour &quot;{addSearchInput}&quot;
-              </div>
-            )}
-
-            {addSearchInput.length < 3 && (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Saisissez au moins 3 caractères pour lancer la recherche
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <AddCompetitorDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        searchInput={addSearchInput}
+        onSearchChange={handleAddSearch}
+        searchLoading={addSearchLoading}
+        suggestions={addSuggestions}
+        addingPlaceId={addingPlaceId}
+        addCompetitorLoading={addCompetitorLoading}
+        onAddCompetitor={handleAddCompetitor}
+      />
     </div>
   )
 }

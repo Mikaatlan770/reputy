@@ -34,6 +34,41 @@ function KpiCard({ label, value, icon, color = 'text-slate-300', subtitle, alert
   )
 }
 
+function formatRate(rate: number): string {
+  return `${(rate * 100).toFixed(3)}%`
+}
+
+function formatTimeAgo(hours: number | null): string {
+  if (hours === null) return 'N/A'
+  if (hours < 1) return '< 1h'
+  if (hours < 24) return `${Math.round(hours)}h`
+  return `${Math.round(hours / 24)}d`
+}
+
+function getBounceColor(rate: number): string {
+  if (rate >= 0.05) return 'text-red-400'
+  if (rate >= 0.02) return 'text-amber-400'
+  return 'text-green-400'
+}
+
+function getBounceSubtitle(rate: number): string {
+  if (rate >= 0.05) return '⚠️ SES Danger'
+  if (rate >= 0.02) return '⚠️ Élevé'
+  return '✅ OK'
+}
+
+function getComplaintColor(rate: number): string {
+  if (rate >= 0.001) return 'text-red-400'
+  if (rate >= 0.0005) return 'text-amber-400'
+  return 'text-green-400'
+}
+
+function getComplaintSubtitle(rate: number): string {
+  if (rate >= 0.001) return '🔴 SES Danger'
+  if (rate >= 0.0005) return '🟠 Attention'
+  return '✅ OK'
+}
+
 interface GlobalHealthKpiProps {
   sent: number
   bounceRate: number
@@ -51,14 +86,6 @@ export function GlobalHealthKpi({
   lastWebhookAt,
   warmingOrgCount = 0,
 }: GlobalHealthKpiProps) {
-  const formatRate = (rate: number) => `${(rate * 100).toFixed(3)}%`
-  const formatTimeAgo = (hours: number | null): string => {
-    if (hours === null) return 'N/A'
-    if (hours < 1) return '< 1h'
-    if (hours < 24) return `${Math.round(hours)}h`
-    return `${Math.round(hours / 24)}d`
-  }
-
   const bounceAlert = bounceRate >= 0.05
   const complaintAlert = complaintRate >= 0.001
   const webhookAlert = lastWebhookHoursSince !== null && lastWebhookHoursSince > 24
@@ -75,17 +102,17 @@ export function GlobalHealthKpi({
         label="Bounce rate"
         value={formatRate(bounceRate)}
         icon={<AlertTriangle className="h-4 w-4" />}
-        color={bounceAlert ? 'text-red-400' : bounceRate >= 0.02 ? 'text-amber-400' : 'text-green-400'}
+        color={getBounceColor(bounceRate)}
         alert={bounceAlert}
-        subtitle={bounceRate >= 0.05 ? '⚠️ SES Danger' : bounceRate >= 0.02 ? '⚠️ Élevé' : '✅ OK'}
+        subtitle={getBounceSubtitle(bounceRate)}
       />
       <KpiCard
         label="Complaint rate"
         value={formatRate(complaintRate)}
         icon={<ShieldAlert className="h-4 w-4" />}
-        color={complaintAlert ? 'text-red-400' : complaintRate >= 0.0005 ? 'text-amber-400' : 'text-green-400'}
+        color={getComplaintColor(complaintRate)}
         alert={complaintAlert}
-        subtitle={complaintRate >= 0.001 ? '🔴 SES Danger' : complaintRate >= 0.0005 ? '🟠 Attention' : '✅ OK'}
+        subtitle={getComplaintSubtitle(complaintRate)}
       />
       <KpiCard
         label="Last webhook SES"

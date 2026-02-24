@@ -58,50 +58,41 @@ if (!db.isInitialized()) {
   process.exit(1);
 }
 
-// ============ MAIN ============
-async function main() {
-  // --dry mode: compute & display alerts without sending
-  if (DRY_RUN) {
-    const monitoring = require('../email/monitoring');
-    const allAlerts = monitoring.computeAlerts(window);
+// ============ HELPERS ============
 
-    const filtered = allAlerts.filter(a => {
-      if (a.severity === 'red') return true;
-      if (a.severity === 'orange' && includeOrange) return true;
-      return false;
-    });
+function printAlertLine(a) {
+  console.log(`  [${a.severity.toUpperCase()}] ${a.type}${a.orgId ? ` (org: ${a.orgId})` : ''}`);
+  console.log(`    ${a.message}`);
+  if (a.meta) {
+    const metaStr = Object.entries(a.meta).map(([k, v]) => `${k}=${v}`).join(', ');
+    console.log(`    Meta: ${metaStr}`);
+  }
+}
 
-    console.log('🔍 DRY-RUN MODE — no notifications will be sent\n');
-    console.log(`Total alerts computed: ${allAlerts.length}`);
-    console.log(`Would send:           ${filtered.length}`);
-    console.log();
+function runDryMode() {
+  const monitoring = require('../email/monitoring');
+  const allAlerts = monitoring.computeAlerts(window);
 
-    if (filtered.length > 0) {
-      console.log('Alerts that WOULD be sent:');
-      for (const a of filtered) {
-        console.log(`  [${a.severity.toUpperCase()}] ${a.type}${a.orgId ? ` (org: ${a.orgId})` : ''}`);
-        console.log(`    ${a.message}`);
-        if (a.meta) {
-          const metaStr = Object.entries(a.meta).map(([k, v]) => `${k}=${v}`).join(', ');
-          console.log(`    Meta: ${metaStr}`);
-        }
-      }
-    } else {
-      console.log('✅ No actionable alerts — nothing to send.');
-    }
+  const filtered = allAlerts.filter(a =>
+    a.severity === 'red' || (a.severity === 'orange' && includeOrange)
+  );
 
-    return { total: allAlerts.length, filtered: filtered.length, sent: 0, skipped: 0, errors: 0, details: [] };
+  console.log('🔍 DRY-RUN MODE — no notifications will be sent\n');
+  console.log(`Total alerts computed: ${allAlerts.length}`);
+  console.log(`Would send:           ${filtered.length}\n`);
+
+  if (filtered.length > 0) {
+    console.log('Alerts that WOULD be sent:');
+    filtered.forEach(printAlertLine);
+  } else {
+    console.log('✅ No actionable alerts — nothing to send.');
   }
 
-  // Normal mode: compute + send via provider
-  const result = await alerting.runAlerting({
-    window,
-    includeOrange,
-    cooldownHours,
-  });
+  return { total: allAlerts.length, filtered: filtered.length, sent: 0, skipped: 0, errors: 0, details: [] };
+}
 
-  console.log();
-  console.log('='.repeat(60));
+function printSummary(result) {
+  console.log('\n' + '='.repeat(60));
   console.log('SUMMARY');
   console.log('='.repeat(60));
   console.log(`Total alerts computed: ${result.total}`);
@@ -116,7 +107,14 @@ async function main() {
       console.log(`  ${d.key}: ${d.status}${d.error ? ` (${d.error})` : ''}${d.nextEligibleAt ? ` (next: ${d.nextEligibleAt})` : ''}`);
     }
   }
+}
 
+// ============ MAIN ============
+async function main() {
+  if (DRY_RUN) return runDryMode();
+
+  const result = await alerting.runAlerting({ window, includeOrange, cooldownHours });
+  printSummary(result);
   return result;
 }
 

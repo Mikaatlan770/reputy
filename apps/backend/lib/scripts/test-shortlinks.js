@@ -46,7 +46,6 @@ async function request(method, path, body = null, customHeaders = null) {
     const res = await fetch(`${BACKEND_URL}${path}`, options);
     const contentType = res.headers.get('content-type') || '';
     
-    // Handle binary/image responses
     if (contentType.includes('image/')) {
       const buffer = await res.arrayBuffer();
       return { 
@@ -64,6 +63,209 @@ async function request(method, path, body = null, customHeaders = null) {
   }
 }
 
+// ============ TEST RESULT HELPERS ============
+
+function tally(result, counters) {
+  if (result.pass === true) counters.passed++;
+  else if (result.pass === false) counters.failed++;
+}
+
+// ============ INDIVIDUAL TESTS ============
+
+async function testListShortlinks() {
+  console.log('📋 TEST 1: Lister les shortlinks');
+  const res = await request('GET', '/client/shortlinks');
+  console.log(`   Status: ${res.status}`);
+  if (res.status !== 200) {
+    console.log(`   Error: ${res.data.message || res.data.error}`);
+    console.log('   ❌ FAIL');
+    return { pass: false };
+  }
+  console.log(`   Count: ${res.data.shortlinks?.length || 0}`);
+  console.log(`   Stats: QR=${res.data.stats?.totalQr || 0}, NFC=${res.data.stats?.totalNfc || 0}, Clicks=${res.data.stats?.totalClicks || 0}`);
+  console.log('   ✅ PASS');
+  return { pass: true };
+}
+
+async function testCreateQrShortlink() {
+  console.log('\n📦 TEST 2: Créer un shortlink QR');
+  const res = await request('POST', '/client/shortlinks', { 
+    type: 'qr',
+    label: 'Test QR - ' + Date.now(),
+    targetUrl: 'https://www.google.com/maps/place/?q=test'
+  });
+  console.log(`   Status: ${res.status}`);
+  if (res.status === 201 && res.data.shortlink) {
+    console.log(`   Code: ${res.data.shortlink.code}`);
+    console.log(`   Short URL: ${res.data.shortlink.shortUrl}`);
+    console.log('   ✅ PASS');
+    return { pass: true, data: res.data.shortlink.code };
+  }
+  if (res.status === 402) {
+    console.log(`   ⚠️ Quota QR atteint: ${res.data.message}`);
+    console.log('   ⏭️ SKIP (quota)');
+    return { pass: null, data: null };
+  }
+  console.log(`   Error: ${res.data.message || res.data.error}`);
+  console.log('   ❌ FAIL');
+  return { pass: false, data: null };
+}
+
+async function testVerifyCreation(code) {
+  console.log('\n📋 TEST 3: Vérifier la création dans la liste');
+  const res = await request('GET', '/client/shortlinks');
+  const found = res.data.shortlinks?.find(s => s.code === code);
+  if (found) {
+    console.log(`   Trouvé: ${found.label}`);
+    console.log(`   Clicks: ${found.clicks}`);
+    console.log('   ✅ PASS');
+    return { pass: true };
+  }
+  console.log('   Shortlink non trouvé dans la liste');
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+async function testPublicRedirect(code) {
+  console.log('\n🔗 TEST 4: Redirection publique /r/:code');
+  try {
+    const res = await fetch(`${BACKEND_URL}/r/${code}`, { 
+      redirect: 'manual',
+      headers: {}
+    });
+    console.log(`   Status: ${res.status}`);
+    const location = res.headers.get('location');
+    console.log(`   Location: ${location || 'N/A'}`);
+    if (res.status === 302 && location) {
+      console.log('   ✅ PASS');
+      return { pass: true };
+    }
+    console.log('   ❌ FAIL (attendu 302 redirect)');
+    return { pass: false };
+  } catch (err) {
+    console.log(`   Error: ${err.message}`);
+    console.log('   ❌ FAIL');
+    return { pass: false };
+  }
+}
+
+async function testVerifyClicks(code) {
+  console.log('\n📊 TEST 5: Vérifier l\'incrémentation des clics');
+  const res = await request('GET', '/client/shortlinks');
+  const found = res.data.shortlinks?.find(s => s.code === code);
+  if (found && found.clicks >= 1) {
+    console.log(`   Clicks: ${found.clicks}`);
+    console.log(`   Last clicked: ${found.lastClickedAt || 'N/A'}`);
+    console.log('   ✅ PASS');
+    return { pass: true };
+  }
+  console.log(`   Clicks: ${found?.clicks || 0}`);
+  console.log('   ❌ FAIL (clics non incrémentés)');
+  return { pass: false };
+}
+
+async function testQrCodeFormat(code, format, testNum) {
+  const label = format.toUpperCase();
+  console.log(`\n🖼️  TEST ${testNum}: Télécharger QR code (${label})`);
+  const res = await request('GET', `/client/shortlinks/${code}/qr?format=${format}`);
+  console.log(`   Status: ${res.status}`);
+  if (res.status === 200 && res.isImage) {
+    console.log(`   Content-Type: ${res.contentType}`);
+    console.log(`   Size: ${res.data.size} bytes`);
+    console.log('   ✅ PASS');
+    return { pass: true };
+  }
+  console.log(`   Error: ${res.data?.message || 'Unexpected response'}`);
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+async function testInvalidQrFormat(code) {
+  console.log('\n❌ TEST 8: Format QR invalide (doit échouer)');
+  const res = await request('GET', `/client/shortlinks/${code}/qr?format=webp`);
+  console.log(`   Status: ${res.status}`);
+  if (res.status === 400) {
+    console.log('   ✅ PASS (correctement rejeté)');
+    return { pass: true };
+  }
+  console.log(`   Attendu 400, reçu ${res.status}`);
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+async function testDeleteShortlink(code) {
+  console.log('\n🗑️  TEST 9: Supprimer le shortlink');
+  const res = await request('DELETE', `/client/shortlinks/${code}`);
+  console.log(`   Status: ${res.status}`);
+  if (res.status === 200) {
+    console.log('   ✅ PASS');
+    return { pass: true };
+  }
+  console.log(`   Error: ${res.data.message}`);
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+async function testVerifyDeletion(code) {
+  console.log('\n📋 TEST 10: Vérifier la suppression');
+  const res = await request('GET', '/client/shortlinks');
+  const found = res.data.shortlinks?.find(s => s.code === code);
+  if (!found) {
+    console.log('   Shortlink non trouvé (comme attendu)');
+    console.log('   ✅ PASS');
+    return { pass: true };
+  }
+  console.log('   Shortlink encore présent!');
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+async function testQuotaConsumption() {
+  console.log('\n💰 TEST 11: Test consommation quota');
+  console.log('   (Note: Bronze = 1 QR max)');
+  
+  const initialList = await request('GET', '/client/shortlinks');
+  const initialQrCount = initialList.data.stats?.totalQr || 0;
+  console.log(`   QR existants: ${initialQrCount}`);
+  
+  const res = await request('POST', '/client/shortlinks', {
+    type: 'qr', label: 'Quota Test', targetUrl: 'https://test.com'
+  });
+  
+  if (res.status === 201) {
+    console.log('   Création réussie, quota pas encore atteint');
+    if (res.data.shortlink?.code) {
+      await request('DELETE', `/client/shortlinks/${res.data.shortlink.code}`);
+    }
+    console.log('   ✅ PASS');
+    return { pass: true };
+  }
+  if (res.status === 402) {
+    console.log(`   Quota atteint: ${res.data.message}`);
+    console.log(`   Action suggérée: ${res.data.action}`);
+    console.log('   ✅ PASS (quota correctement vérifié)');
+    return { pass: true };
+  }
+  console.log(`   Status inattendu: ${res.status}`);
+  console.log('   ❌ FAIL');
+  return { pass: false };
+}
+
+// ============ TEST GROUPS ============
+
+async function runCreatedCodeTests(code, c) {
+  tally(await testVerifyCreation(code), c);
+  tally(await testPublicRedirect(code), c);
+  tally(await testVerifyClicks(code), c);
+  tally(await testQrCodeFormat(code, 'png', 6), c);
+  tally(await testQrCodeFormat(code, 'svg', 7), c);
+  tally(await testInvalidQrFormat(code), c);
+  tally(await testDeleteShortlink(code), c);
+  tally(await testVerifyDeletion(code), c);
+}
+
+// ============ MAIN ============
+
 async function runTests() {
   console.log('='.repeat(60));
   console.log('SHORTLINKS API TESTS (QR/NFC)');
@@ -72,235 +274,30 @@ async function runTests() {
   console.log(`Auth: Bearer ${AUTH_TOKEN.substring(0, 8)}...`);
   console.log('');
   
-  let createdCode = null;
-  let passed = 0;
-  let failed = 0;
+  const c = { passed: 0, failed: 0 };
   
-  // TEST 1: List shortlinks
-  console.log('📋 TEST 1: Lister les shortlinks');
-  const listRes = await request('GET', '/client/shortlinks');
-  console.log(`   Status: ${listRes.status}`);
-  if (listRes.status === 200) {
-    console.log(`   Count: ${listRes.data.shortlinks?.length || 0}`);
-    console.log(`   Stats: QR=${listRes.data.stats?.totalQr || 0}, NFC=${listRes.data.stats?.totalNfc || 0}, Clicks=${listRes.data.stats?.totalClicks || 0}`);
-    console.log('   ✅ PASS');
-    passed++;
-  } else {
-    console.log(`   Error: ${listRes.data.message || listRes.data.error}`);
-    console.log('   ❌ FAIL');
-    failed++;
+  tally(await testListShortlinks(), c);
+  
+  const createResult = await testCreateQrShortlink();
+  tally(createResult, c);
+  
+  if (createResult.data) {
+    await runCreatedCodeTests(createResult.data, c);
   }
   
-  // TEST 2: Create QR shortlink
-  console.log('\n📦 TEST 2: Créer un shortlink QR');
-  const createRes = await request('POST', '/client/shortlinks', { 
-    type: 'qr',
-    label: 'Test QR - ' + Date.now(),
-    targetUrl: 'https://www.google.com/maps/place/?q=test'
-  });
-  console.log(`   Status: ${createRes.status}`);
-  if (createRes.status === 201 && createRes.data.shortlink) {
-    createdCode = createRes.data.shortlink.code;
-    console.log(`   Code: ${createdCode}`);
-    console.log(`   Short URL: ${createRes.data.shortlink.shortUrl}`);
-    console.log('   ✅ PASS');
-    passed++;
-  } else if (createRes.status === 402) {
-    console.log(`   ⚠️ Quota QR atteint: ${createRes.data.message}`);
-    console.log('   ⏭️ SKIP (quota)');
-  } else {
-    console.log(`   Error: ${createRes.data.message || createRes.data.error}`);
-    console.log('   ❌ FAIL');
-    failed++;
-  }
+  tally(await testQuotaConsumption(), c);
   
-  // TEST 3: Verify creation in list
-  if (createdCode) {
-    console.log('\n📋 TEST 3: Vérifier la création dans la liste');
-    const listRes2 = await request('GET', '/client/shortlinks');
-    const found = listRes2.data.shortlinks?.find(s => s.code === createdCode);
-    if (found) {
-      console.log(`   Trouvé: ${found.label}`);
-      console.log(`   Clicks: ${found.clicks}`);
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log('   Shortlink non trouvé dans la liste');
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 4: Public redirect (GET /r/:code)
-  if (createdCode) {
-    console.log('\n🔗 TEST 4: Redirection publique /r/:code');
-    try {
-      // Don't follow redirects
-      const res = await fetch(`${BACKEND_URL}/r/${createdCode}`, { 
-        redirect: 'manual',
-        headers: {} // No auth for public route
-      });
-      console.log(`   Status: ${res.status}`);
-      const location = res.headers.get('location');
-      console.log(`   Location: ${location || 'N/A'}`);
-      if (res.status === 302 && location) {
-        console.log('   ✅ PASS');
-        passed++;
-      } else {
-        console.log('   ❌ FAIL (attendu 302 redirect)');
-        failed++;
-      }
-    } catch (err) {
-      console.log(`   Error: ${err.message}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 5: Verify click increment
-  if (createdCode) {
-    console.log('\n📊 TEST 5: Vérifier l\'incrémentation des clics');
-    const listRes3 = await request('GET', '/client/shortlinks');
-    const found = listRes3.data.shortlinks?.find(s => s.code === createdCode);
-    if (found && found.clicks >= 1) {
-      console.log(`   Clicks: ${found.clicks}`);
-      console.log(`   Last clicked: ${found.lastClickedAt || 'N/A'}`);
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log(`   Clicks: ${found?.clicks || 0}`);
-      console.log('   ❌ FAIL (clics non incrémentés)');
-      failed++;
-    }
-  }
-  
-  // TEST 6: Get QR code PNG
-  if (createdCode) {
-    console.log('\n🖼️  TEST 6: Télécharger QR code (PNG)');
-    const qrPngRes = await request('GET', `/client/shortlinks/${createdCode}/qr?format=png`);
-    console.log(`   Status: ${qrPngRes.status}`);
-    if (qrPngRes.status === 200 && qrPngRes.isImage) {
-      console.log(`   Content-Type: ${qrPngRes.contentType}`);
-      console.log(`   Size: ${qrPngRes.data.size} bytes`);
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log(`   Error: ${qrPngRes.data?.message || 'Unexpected response'}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 7: Get QR code SVG
-  if (createdCode) {
-    console.log('\n🖼️  TEST 7: Télécharger QR code (SVG)');
-    const qrSvgRes = await request('GET', `/client/shortlinks/${createdCode}/qr?format=svg`);
-    console.log(`   Status: ${qrSvgRes.status}`);
-    if (qrSvgRes.status === 200 && qrSvgRes.isImage) {
-      console.log(`   Content-Type: ${qrSvgRes.contentType}`);
-      console.log(`   Size: ${qrSvgRes.data.size} bytes`);
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log(`   Error: ${qrSvgRes.data?.message || 'Unexpected response'}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 8: Invalid QR format
-  if (createdCode) {
-    console.log('\n❌ TEST 8: Format QR invalide (doit échouer)');
-    const invalidRes = await request('GET', `/client/shortlinks/${createdCode}/qr?format=webp`);
-    console.log(`   Status: ${invalidRes.status}`);
-    if (invalidRes.status === 400) {
-      console.log('   ✅ PASS (correctement rejeté)');
-      passed++;
-    } else {
-      console.log(`   Attendu 400, reçu ${invalidRes.status}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 9: Delete shortlink
-  if (createdCode) {
-    console.log('\n🗑️  TEST 9: Supprimer le shortlink');
-    const deleteRes = await request('DELETE', `/client/shortlinks/${createdCode}`);
-    console.log(`   Status: ${deleteRes.status}`);
-    if (deleteRes.status === 200) {
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log(`   Error: ${deleteRes.data.message}`);
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 10: Verify deletion
-  if (createdCode) {
-    console.log('\n📋 TEST 10: Vérifier la suppression');
-    const listRes4 = await request('GET', '/client/shortlinks');
-    const found = listRes4.data.shortlinks?.find(s => s.code === createdCode);
-    if (!found) {
-      console.log('   Shortlink non trouvé (comme attendu)');
-      console.log('   ✅ PASS');
-      passed++;
-    } else {
-      console.log('   Shortlink encore présent!');
-      console.log('   ❌ FAIL');
-      failed++;
-    }
-  }
-  
-  // TEST 11: Test quota consumption (create multiple)
-  console.log('\n💰 TEST 11: Test consommation quota');
-  console.log('   (Note: Bronze = 1 QR max)');
-  
-  // First, check current quota
-  const initialList = await request('GET', '/client/shortlinks');
-  const initialQrCount = initialList.data.stats?.totalQr || 0;
-  console.log(`   QR existants: ${initialQrCount}`);
-  
-  // Try to create one more QR
-  const quotaTestRes = await request('POST', '/client/shortlinks', {
-    type: 'qr',
-    label: 'Quota Test',
-    targetUrl: 'https://test.com'
-  });
-  
-  if (quotaTestRes.status === 201) {
-    console.log('   Création réussie, quota pas encore atteint');
-    // Clean up
-    if (quotaTestRes.data.shortlink?.code) {
-      await request('DELETE', `/client/shortlinks/${quotaTestRes.data.shortlink.code}`);
-    }
-    console.log('   ✅ PASS');
-    passed++;
-  } else if (quotaTestRes.status === 402) {
-    console.log(`   Quota atteint: ${quotaTestRes.data.message}`);
-    console.log(`   Action suggérée: ${quotaTestRes.data.action}`);
-    console.log('   ✅ PASS (quota correctement vérifié)');
-    passed++;
-  } else {
-    console.log(`   Status inattendu: ${quotaTestRes.status}`);
-    console.log('   ❌ FAIL');
-    failed++;
-  }
-  
-  // Summary
   console.log('\n' + '='.repeat(60));
-  console.log(`RÉSULTAT: ${passed} passés, ${failed} échoués`);
+  console.log(`RÉSULTAT: ${c.passed} passés, ${c.failed} échoués`);
   console.log('='.repeat(60));
   
-  if (failed === 0) {
+  if (c.failed === 0) {
     console.log('✅ Tous les tests sont passés!');
   } else {
     console.log('⚠️ Certains tests ont échoué.');
   }
   
-  process.exit(failed > 0 ? 1 : 0);
+  process.exit(c.failed > 0 ? 1 : 0);
 }
 
 runTests().catch(err => {

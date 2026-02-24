@@ -301,203 +301,22 @@ export default function InstallationPage() {
         </CardContent>
       </Card>
 
-      {/* API Token Card */}
-      <Card className="bg-gradient-to-br from-amber-900 to-amber-800 text-white border-0">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-white">
-            <Lock className="h-5 w-5" />
-            Token API (Extension)
-          </CardTitle>
-          <CardDescription className="text-amber-200">
-            Ce token secret est nécessaire pour connecter l&apos;extension Chrome à votre compte.
-            Collez-le dans le champ &quot;Token API&quot; des paramètres de l&apos;extension.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {apiToken ? (
-            <div className="space-y-3">
-              <div className="bg-white/10 backdrop-blur rounded-xl p-4 flex items-center justify-between gap-4">
-                <code className="font-mono text-sm text-green-300 break-all">
-                  {tokenRevealed ? apiToken : '••••••••••••••••••••••••••••••••'}
-                </code>
-                <div className="flex items-center gap-2">
-                  <Button
-                    onClick={() => setTokenRevealed(!tokenRevealed)}
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:text-white hover:bg-white/10"
-                    title={tokenRevealed ? 'Masquer' : 'Afficher'}
-                  >
-                    {tokenRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    onClick={handleCopyToken}
-                    variant={copiedToken ? 'default' : 'secondary'}
-                    className={copiedToken ? 'bg-green-500 hover:bg-green-600' : ''}
-                  >
-                    {copiedToken ? (
-                      <>
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Copié !
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-4 w-4 mr-2" />
-                        Copier
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-              <div className="flex items-start gap-2 text-sm text-amber-200">
-                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                <span>
-                  ⚠️ Copiez ce token maintenant ! Il ne sera plus affiché après avoir quitté cette page.
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {hasToken && (
-                <div className="bg-white/10 backdrop-blur rounded-xl p-4">
-                  <p className="text-sm text-amber-200">
-                    Un token API existe déjà pour votre organisation.
-                    {tokenMeta.apiTokenLastRotatedAt && (
-                      <span className="block mt-1 text-xs text-amber-300">
-                        Dernière rotation : {new Date(tokenMeta.apiTokenLastRotatedAt).toLocaleString('fr-FR')}
-                      </span>
-                    )}
-                  </p>
-                </div>
-              )}
-              <Button
-                onClick={handleRotateToken}
-                disabled={tokenLoading}
-                variant="secondary"
-                className="w-full"
-              >
-                {tokenLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Génération...
-                  </>
-                ) : (
-                  <>
-                    <RotateCw className="h-4 w-4 mr-2" />
-                    {hasToken ? 'Régénérer le Token API' : 'Générer le Token API'}
-                  </>
-                )}
-              </Button>
-              <p className="text-xs text-amber-300">
-                {hasToken 
-                  ? "L'ancien token restera valide 24h après la rotation."
-                  : "Vous devrez copier ce token dans les paramètres de l'extension Chrome."
-                }
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <ApiTokenCard
+        apiToken={apiToken}
+        tokenRevealed={tokenRevealed}
+        setTokenRevealed={setTokenRevealed}
+        copiedToken={copiedToken}
+        hasToken={hasToken}
+        tokenMeta={tokenMeta}
+        tokenLoading={tokenLoading}
+        onCopyToken={handleCopyToken}
+        onRotateToken={handleRotateToken}
+      />
 
-      {/* Setup Instructions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            Configurer Reputy
-          </CardTitle>
-          <CardDescription>
-            Suivez ces étapes pour commencer à collecter des avis
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Step 1 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-              <span className="text-primary font-bold text-sm">1</span>
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold mb-1">Installez l'extension Chrome</h3>
-              <p className="text-muted-foreground text-sm mb-3">
-                L'extension Reputy s'intègre directement à Doctolib Pro pour vous permettre d'envoyer des demandes d'avis.
-              </p>
-              <Button asChild variant="outline">
-                <a
-                  href={CHROME_EXTENSION_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Chrome className="h-4 w-4 mr-2" />
-                  Installer l'extension
-                  <ExternalLink className="h-3 w-3 ml-2" />
-                </a>
-              </Button>
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-              <span className="text-primary font-bold text-sm">2</span>
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold mb-1">Ouvrez les paramètres de l'extension</h3>
-              <p className="text-muted-foreground text-sm">
-                Cliquez sur l'icône Reputy dans la barre d'outils Chrome, puis sur "Options" ou faites clic-droit → "Options".
-              </p>
-            </div>
-          </div>
-
-          {/* Step 3 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-              <span className="text-primary font-bold text-sm">3</span>
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold mb-1">Configurez l&apos;extension</h3>
-              <p className="text-muted-foreground text-sm mb-3">
-                Renseignez les 3 champs dans les paramètres de l&apos;extension :
-              </p>
-              <ul className="text-sm text-muted-foreground space-y-2 mb-3">
-                <li className="flex items-start gap-2">
-                  <span className="font-medium text-foreground min-w-[130px]">URL Backend :</span>
-                  <code className="px-2 py-0.5 bg-muted rounded text-xs">https://api.reputyapp.com</code>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-medium text-foreground min-w-[130px]">Token API :</span>
-                  <span>Générez-le ci-dessus puis collez-le</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="font-medium text-foreground min-w-[130px]">Clé publique :</span>
-                  <code className="px-2 py-0.5 bg-muted rounded text-xs font-mono">{clientOrg.publicKey}</code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={handleCopyKey}
-                    title="Copier"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Step 4 */}
-          <div className="flex gap-4">
-            <div className="flex-shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold mb-1">C'est prêt !</h3>
-              <p className="text-muted-foreground text-sm">
-                Rendez-vous sur Doctolib Pro. Un bouton "Envoyer une demande d'avis" apparaîtra sur les fiches patients.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <SetupInstructions
+        publicKey={clientOrg.publicKey}
+        onCopyKey={handleCopyKey}
+      />
 
       {/* Help */}
       <Card className="bg-blue-50 border-blue-200">
@@ -517,5 +336,231 @@ export default function InstallationPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function ApiTokenCard({
+  apiToken,
+  tokenRevealed,
+  setTokenRevealed,
+  copiedToken,
+  hasToken,
+  tokenMeta,
+  tokenLoading,
+  onCopyToken,
+  onRotateToken,
+}: {
+  apiToken: string | null
+  tokenRevealed: boolean
+  setTokenRevealed: (v: boolean) => void
+  copiedToken: boolean
+  hasToken: boolean
+  tokenMeta: { apiTokenCreatedAt: string | null; apiTokenLastRotatedAt: string | null }
+  tokenLoading: boolean
+  onCopyToken: () => void
+  onRotateToken: () => void
+}) {
+  return (
+    <Card className="bg-gradient-to-br from-amber-900 to-amber-800 text-white border-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-white">
+          <Lock className="h-5 w-5" />
+          Token API (Extension)
+        </CardTitle>
+        <CardDescription className="text-amber-200">
+          Ce token secret est nécessaire pour connecter l&apos;extension Chrome à votre compte.
+          Collez-le dans le champ &quot;Token API&quot; des paramètres de l&apos;extension.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {apiToken ? (
+          <div className="space-y-3">
+            <div className="bg-white/10 backdrop-blur rounded-xl p-4 flex items-center justify-between gap-4">
+              <code className="font-mono text-sm text-green-300 break-all">
+                {tokenRevealed ? apiToken : '••••••••••••••••••••••••••••••••'}
+              </code>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => setTokenRevealed(!tokenRevealed)}
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:text-white hover:bg-white/10"
+                  title={tokenRevealed ? 'Masquer' : 'Afficher'}
+                >
+                  {tokenRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  onClick={onCopyToken}
+                  variant={copiedToken ? 'default' : 'secondary'}
+                  className={copiedToken ? 'bg-green-500 hover:bg-green-600' : ''}
+                >
+                  {copiedToken ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copier
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 text-sm text-amber-200">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <span>
+                ⚠️ Copiez ce token maintenant ! Il ne sera plus affiché après avoir quitté cette page.
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {hasToken && (
+              <div className="bg-white/10 backdrop-blur rounded-xl p-4">
+                <p className="text-sm text-amber-200">
+                  Un token API existe déjà pour votre organisation.
+                  {tokenMeta.apiTokenLastRotatedAt && (
+                    <span className="block mt-1 text-xs text-amber-300">
+                      Dernière rotation : {new Date(tokenMeta.apiTokenLastRotatedAt).toLocaleString('fr-FR')}
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+            <Button
+              onClick={onRotateToken}
+              disabled={tokenLoading}
+              variant="secondary"
+              className="w-full"
+            >
+              {tokenLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Génération...
+                </>
+              ) : (
+                <>
+                  <RotateCw className="h-4 w-4 mr-2" />
+                  {hasToken ? 'Régénérer le Token API' : 'Générer le Token API'}
+                </>
+              )}
+            </Button>
+            <p className="text-xs text-amber-300">
+              {hasToken 
+                ? "L'ancien token restera valide 24h après la rotation."
+                : "Vous devrez copier ce token dans les paramètres de l'extension Chrome."
+              }
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function SetupInstructions({
+  publicKey,
+  onCopyKey,
+}: {
+  publicKey: string
+  onCopyKey: () => void
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <TrendingUp className="h-5 w-5 text-primary" />
+          Configurer Reputy
+        </CardTitle>
+        <CardDescription>
+          Suivez ces étapes pour commencer à collecter des avis
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex gap-4">
+          <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+            <span className="text-primary font-bold text-sm">1</span>
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold mb-1">Installez l'extension Chrome</h3>
+            <p className="text-muted-foreground text-sm mb-3">
+              L'extension Reputy s'intègre directement à Doctolib Pro pour vous permettre d'envoyer des demandes d'avis.
+            </p>
+            <Button asChild variant="outline">
+              <a
+                href={CHROME_EXTENSION_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Chrome className="h-4 w-4 mr-2" />
+                Installer l'extension
+                <ExternalLink className="h-3 w-3 ml-2" />
+              </a>
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+            <span className="text-primary font-bold text-sm">2</span>
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold mb-1">Ouvrez les paramètres de l'extension</h3>
+            <p className="text-muted-foreground text-sm">
+              Cliquez sur l'icône Reputy dans la barre d'outils Chrome, puis sur "Options" ou faites clic-droit → "Options".
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+            <span className="text-primary font-bold text-sm">3</span>
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold mb-1">Configurez l&apos;extension</h3>
+            <p className="text-muted-foreground text-sm mb-3">
+              Renseignez les 3 champs dans les paramètres de l&apos;extension :
+            </p>
+            <ul className="text-sm text-muted-foreground space-y-2 mb-3">
+              <li className="flex items-start gap-2">
+                <span className="font-medium text-foreground min-w-[130px]">URL Backend :</span>
+                <code className="px-2 py-0.5 bg-muted rounded text-xs">https://api.reputyapp.com</code>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-medium text-foreground min-w-[130px]">Token API :</span>
+                <span>Générez-le ci-dessus puis collez-le</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-medium text-foreground min-w-[130px]">Clé publique :</span>
+                <code className="px-2 py-0.5 bg-muted rounded text-xs font-mono">{publicKey}</code>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={onCopyKey}
+                  title="Copier"
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          <div className="flex-shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold mb-1">C'est prêt !</h3>
+            <p className="text-muted-foreground text-sm">
+              Rendez-vous sur Doctolib Pro. Un bouton "Envoyer une demande d'avis" apparaîtra sur les fiches patients.
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

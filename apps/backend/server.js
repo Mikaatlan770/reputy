@@ -1464,82 +1464,20 @@ function getPeriodAllocations(data, org) {
  * @param {number} qty - quantity to debit (default 1)
  * @returns {{ success: boolean, debitedFrom?: 'subscription'|'pack', reason?: string, smsRemaining?: number, emailRemaining?: number, aiRemaining?: number, periodEnd?: string }}
  */
-function debitCredits(data, org, type, qty = 1) {
-  ensureCurrentPeriod(data, org, true);
-  
-  // Check if subscription is active
-  if (org.status !== 'active') {
-    return {
-      success: false,
-      reason: 'SUBSCRIPTION_INACTIVE',
-      smsRemaining: 0,
-      emailRemaining: 0,
-      aiRemaining: 0,
-      periodEnd: org.billing?.periodEnd
-    };
-  }
-  
-  const sub = getSubscriptionRemaining(org);
-  const pack = getPackRemaining(org);
-  
-  // Determine which type we're debiting
-  let subRemaining, packRemaining;
-  if (type === 'sms') {
-    subRemaining = sub.sms;
-    packRemaining = pack.sms;
-  } else if (type === 'email') {
-    subRemaining = sub.email;
-    packRemaining = pack.email;
-  } else if (type === 'ai') {
-    subRemaining = sub.ai;
-    packRemaining = pack.ai;
-  } else if (type === 'qr') {
-    subRemaining = sub.qr;
-    packRemaining = pack.qr;
-  } else if (type === 'nfc') {
-    subRemaining = sub.nfc;
-    packRemaining = pack.nfc;
-  } else {
-    return { success: false, reason: 'INVALID_TYPE' };
-  }
-  
-  // Step 1: Try to debit from subscription credits
-  if (subRemaining >= qty) {
-    if (type === 'sms') {
-      org.subscriptionCredits.smsUsedThisPeriod += qty;
-    } else if (type === 'email') {
-      org.subscriptionCredits.emailUsedThisPeriod += qty;
-    } else if (type === 'ai') {
-      org.subscriptionCredits.aiUsedThisPeriod = (org.subscriptionCredits.aiUsedThisPeriod || 0) + qty;
-    } else if (type === 'qr') {
-      org.subscriptionCredits.qrUsedThisPeriod = (org.subscriptionCredits.qrUsedThisPeriod || 0) + qty;
-    } else if (type === 'nfc') {
-      org.subscriptionCredits.nfcUsedThisPeriod = (org.subscriptionCredits.nfcUsedThisPeriod || 0) + qty;
-    }
-    return { success: true, debitedFrom: 'subscription' };
-  }
-  
-  // Step 2: Try to debit from pack wallet
-  if (packRemaining >= qty) {
-    if (type === 'sms') {
-      org.packWallet.smsRemaining -= qty;
-    } else if (type === 'email') {
-      org.packWallet.emailRemaining -= qty;
-    } else if (type === 'ai') {
-      org.packWallet.aiRemaining = (org.packWallet.aiRemaining || 0) - qty;
-    } else if (type === 'qr') {
-      org.packWallet.qrRemaining = (org.packWallet.qrRemaining || 0) - qty;
-    } else if (type === 'nfc') {
-      org.packWallet.nfcRemaining = (org.packWallet.nfcRemaining || 0) - qty;
-    }
-    return { success: true, debitedFrom: 'pack' };
-  }
-  
-  // No credits remaining - return structured error for UI
+const CREDIT_FIELD_MAP = {
+  sms: { subUsed: 'smsUsedThisPeriod', packField: 'smsRemaining' },
+  email: { subUsed: 'emailUsedThisPeriod', packField: 'emailRemaining' },
+  ai: { subUsed: 'aiUsedThisPeriod', packField: 'aiRemaining' },
+  qr: { subUsed: 'qrUsedThisPeriod', packField: 'qrRemaining' },
+  nfc: { subUsed: 'nfcUsedThisPeriod', packField: 'nfcRemaining' },
+};
+const QUOTA_LABELS = { qr: 'QR', nfc: 'NFC' };
+
+function buildQuotaExceededResponse(org, type, sub, pack) {
   const total = getTotalRemaining(org);
-  const quotaTypeLabel = type === 'qr' ? 'QR' : type === 'nfc' ? 'NFC' : type.toUpperCase();
-  return { 
-    success: false, 
+  const quotaTypeLabel = QUOTA_LABELS[type] || type.toUpperCase();
+  return {
+    success: false,
     reason: 'QUOTA_EXCEEDED',
     errorCategory: `QUOTA_${type.toUpperCase()}_EXCEEDED`,
     message: `Quota ${quotaTypeLabel} atteint. Veuillez acheter des crédits supplémentaires.`,
@@ -1553,6 +1491,39 @@ function debitCredits(data, org, type, qty = 1) {
     packRemaining: { sms: pack.sms, email: pack.email, ai: pack.ai, qr: pack.qr, nfc: pack.nfc },
     periodEnd: org.billing?.periodEnd
   };
+}
+
+function debitCredits(data, org, type, qty = 1) {
+  ensureCurrentPeriod(data, org, true);
+
+  if (org.status !== 'active') {
+    return {
+      success: false,
+      reason: 'SUBSCRIPTION_INACTIVE',
+      smsRemaining: 0,
+      emailRemaining: 0,
+      aiRemaining: 0,
+      periodEnd: org.billing?.periodEnd
+    };
+  }
+
+  const fields = CREDIT_FIELD_MAP[type];
+  if (!fields) return { success: false, reason: 'INVALID_TYPE' };
+
+  const sub = getSubscriptionRemaining(org);
+  const pack = getPackRemaining(org);
+
+  if (sub[type] >= qty) {
+    org.subscriptionCredits[fields.subUsed] = (org.subscriptionCredits[fields.subUsed] || 0) + qty;
+    return { success: true, debitedFrom: 'subscription' };
+  }
+
+  if (pack[type] >= qty) {
+    org.packWallet[fields.packField] = (org.packWallet[fields.packField] || 0) - qty;
+    return { success: true, debitedFrom: 'pack' };
+  }
+
+  return buildQuotaExceededResponse(org, type, sub, pack);
 }
 
 // Legacy: kept for backward compatibility with old allocations
@@ -2584,101 +2555,89 @@ function validateAuth(req) {
  * @param {string} publicKey - Public key from header/body
  * @returns {{ ok: boolean, org?: object, error?: string }}
  */
-function validateExtensionAuth(req, publicKey) {
-  // 1) publicKey is REQUIRED
-  if (!publicKey) {
-    return { ok: false, error: 'PUBLIC_KEY_REQUIRED', message: 'publicKey manquante' };
-  }
-  
-  // 2) Resolve org — SQLite repos first, fallback to data.json
-  let org;
+function resolveOrgByPublicKey(publicKey) {
   if (storage.USE_SQLITE) {
     const repos = storage.getRepos();
-    org = repos.org.getByPublicKey(publicKey);
-  } else {
-    const data = loadData();
-    org = getOrgByPublicKey(data, publicKey);
+    return repos.org.getByPublicKey(publicKey);
   }
-  if (!org) {
-    return { ok: false, error: 'ORG_NOT_FOUND', message: 'Organisation non trouvée' };
-  }
-  
-  // 3) Extract token from headers (x-api-token priority, then Authorization Bearer)
-  let token = req.headers['x-api-token'] || '';
-  if (!token) {
-    const authHeader = req.headers['authorization'] || '';
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    }
-  }
-  
-  if (!token) {
-    return { ok: false, error: 'TOKEN_REQUIRED', message: 'API token manquant' };
-  }
-  
-  // 4) DEV MODE: Accept dev-token as fallback (with warning)
-  if (!IS_PRODUCTION && token === DEV_FALLBACKS.CABINET_API_TOKEN) {
-    console.warn(`[SECURITY] ⚠️  DEV: Accepting dev-token for org ${org.id} (${org.name})`);
-    return { ok: true, org };
-  }
-  
-  // 5) PRODUCTION: dev-token is NEVER accepted
-  if (IS_PRODUCTION && token === DEV_FALLBACKS.CABINET_API_TOKEN) {
-    console.error(`[SECURITY] 🚫 PROD: Rejected dev-token for org ${org.id}`);
-    return { ok: false, error: 'UNAUTHORIZED', message: 'Token invalide en production' };
-  }
-  
-  // 6) Verify token
-  const now = Date.now();
-  
-  // SQLite mode: compare hashes (timing-safe)
-  if (storage.USE_SQLITE && org.apiTokenHash) {
-    const tokenHash = createHash('sha256').update(token).digest('hex');
-    
-    // Check current token (timing-safe comparison)
-    const isCurrentToken = org.apiTokenHash && 
-      tokenHash.length === org.apiTokenHash.length &&
-      require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenHash));
-    
-    if (isCurrentToken) {
+  const data = loadData();
+  return getOrgByPublicKey(data, publicKey);
+}
+
+function extractApiToken(req) {
+  const token = req.headers['x-api-token'] || '';
+  if (token) return token;
+  const authHeader = req.headers['authorization'] || '';
+  return authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+}
+
+function verifyTokenSqlite(token, org) {
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+
+  const isCurrentToken = org.apiTokenHash &&
+    tokenHash.length === org.apiTokenHash.length &&
+    require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenHash));
+  if (isCurrentToken) return { ok: true, org };
+
+  const hasPrevious = org.apiTokenPreviousHash &&
+    org.apiTokenPreviousExpiresAt &&
+    Date.now() < new Date(org.apiTokenPreviousExpiresAt).getTime();
+  if (hasPrevious) {
+    const isPrev = tokenHash.length === org.apiTokenPreviousHash.length &&
+      require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenPreviousHash));
+    if (isPrev) {
+      console.log(`[SECURITY] ℹ️  Using previous token (grace period) for org ${org.id}`);
       return { ok: true, org };
     }
-    
-    // Check previous token (grace period)
-    if (org.apiTokenPreviousHash && 
-        org.apiTokenPreviousExpiresAt &&
-        now < new Date(org.apiTokenPreviousExpiresAt).getTime()) {
-      const isPreviousToken = tokenHash.length === org.apiTokenPreviousHash.length &&
-        require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenPreviousHash));
-      
-      if (isPreviousToken) {
-        console.log(`[SECURITY] ℹ️  Using previous token (grace period) for org ${org.id}`);
-        return { ok: true, org };
-      }
-    }
-    
-    // Token doesn't match
-    console.warn(`[SECURITY] 🚫 Invalid token for org ${org.id} (publicKey: ${publicKey})`);
-    return { ok: false, error: 'UNAUTHORIZED', message: 'Token invalide' };
   }
-  
-  // JSON mode: direct comparison (legacy)
-  const isCurrentToken = token === org.apiToken;
-  const isPreviousTokenValid = org.apiTokenPrevious && 
-    token === org.apiTokenPrevious && 
-    org.apiTokenPreviousExpiresAt && 
-    now < new Date(org.apiTokenPreviousExpiresAt).getTime();
-  
-  if (isCurrentToken) {
-    return { ok: true, org };
-  }
-  
-  if (isPreviousTokenValid) {
+
+  return null;
+}
+
+function verifyTokenLegacy(token, org) {
+  if (token === org.apiToken) return { ok: true, org };
+
+  const isPreviousValid = org.apiTokenPrevious &&
+    token === org.apiTokenPrevious &&
+    org.apiTokenPreviousExpiresAt &&
+    Date.now() < new Date(org.apiTokenPreviousExpiresAt).getTime();
+  if (isPreviousValid) {
     console.log(`[SECURITY] ℹ️  Using previous token (grace period) for org ${org.id}`);
     return { ok: true, org };
   }
-  
-  // Token doesn't match
+
+  return null;
+}
+
+function validateExtensionAuth(req, publicKey) {
+  if (!publicKey) {
+    return { ok: false, error: 'PUBLIC_KEY_REQUIRED', message: 'publicKey manquante' };
+  }
+
+  const org = resolveOrgByPublicKey(publicKey);
+  if (!org) {
+    return { ok: false, error: 'ORG_NOT_FOUND', message: 'Organisation non trouvée' };
+  }
+
+  const token = extractApiToken(req);
+  if (!token) {
+    return { ok: false, error: 'TOKEN_REQUIRED', message: 'API token manquant' };
+  }
+
+  if (token === DEV_FALLBACKS.CABINET_API_TOKEN) {
+    if (!IS_PRODUCTION) {
+      console.warn(`[SECURITY] ⚠️  DEV: Accepting dev-token for org ${org.id} (${org.name})`);
+      return { ok: true, org };
+    }
+    console.error(`[SECURITY] 🚫 PROD: Rejected dev-token for org ${org.id}`);
+    return { ok: false, error: 'UNAUTHORIZED', message: 'Token invalide en production' };
+  }
+
+  const result = (storage.USE_SQLITE && org.apiTokenHash)
+    ? verifyTokenSqlite(token, org)
+    : verifyTokenLegacy(token, org);
+  if (result) return result;
+
   console.warn(`[SECURITY] 🚫 Invalid token for org ${org.id} (publicKey: ${publicKey})`);
   return { ok: false, error: 'UNAUTHORIZED', message: 'Token invalide' };
 }
@@ -2911,9 +2870,29 @@ p { color: #1f2937; font-size: 16px; line-height: 1.6; }
 <div class="rating-display">${starsHtml}</div></div></body></html>`;
 }
 
+function _buildRatingScript(requestId, threshold, routingEnabled, firstName) { // NOSONAR - client-side JS assembled as string
+  const rid = JSON.stringify(requestId);
+  const gurl = JSON.stringify(requestId);
+  const fn = JSON.stringify(firstName);
+  return `const requestId=${rid};const STORAGE_KEY='reputy_submitted_'+requestId;`
+    + `const ROUTING_THRESHOLD=${threshold};const ROUTING_ENABLED=${routingEnabled};`
+    + `const GOOGLE_URL=document.getElementById('googleBtn').href;`
+    + `let selectedRating=0;let isSubmitting=false;`
+    + `if(localStorage.getItem(STORAGE_KEY)==='true'){showAlreadySubmitted();}`
+    + `const stars=document.querySelectorAll('.star');const commentSection=document.getElementById('commentSection');`
+    + `const submitBtn=document.getElementById('submitBtn');const googleBtn=document.getElementById('googleBtn');`
+    + `googleBtn.addEventListener('click',function(){try{navigator.sendBeacon('/r/'+requestId+'/redirected');}catch(e){console.debug(e);}});`
+    + `stars.forEach(star=>{star.addEventListener('click',()=>{if(isSubmitting)return;selectedRating=parseInt(star.dataset.value);updateStars();commentSection.classList.add('visible');if(ROUTING_ENABLED&&selectedRating>=ROUTING_THRESHOLD){submitBtn.classList.remove('visible');googleBtn.style.display='flex';submitFeedbackSilent();}else{submitBtn.classList.add('visible');googleBtn.style.display='none';}});star.addEventListener('mouseenter',()=>{const val=parseInt(star.dataset.value);stars.forEach((s,i)=>{s.classList.toggle('hover',i<val);});});star.addEventListener('mouseleave',()=>{stars.forEach(s=>s.classList.remove('hover'));});});`
+    + `function updateStars(){stars.forEach((star,i)=>{star.classList.toggle('active',i<selectedRating);});}`
+    + `function showAlreadySubmitted(){document.getElementById('stars').style.display='none';document.getElementById('commentSection').style.display='none';document.getElementById('submitBtn').style.display='none';document.querySelector('.question').style.display='none';const msg=document.getElementById('successMessage');msg.textContent='\\u2713 Merci, votre avis a d\\u00e9j\\u00e0 \\u00e9t\\u00e9 enregistr\\u00e9.';msg.classList.add('visible');document.querySelector('.greeting').textContent='Merci !';}`
+    + `async function submitFeedbackSilent(){if(isSubmitting)return;isSubmitting=true;try{const comment=document.getElementById('comment').value;const response=await fetch('/r/'+requestId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:selectedRating,comment})});if(response.ok||response.status===409){localStorage.setItem(STORAGE_KEY,'true');}}catch(e){console.error('Silent submit error:',e);}isSubmitting=false;}`
+    + `async function submitFeedback(){if(isSubmitting)return;const card=document.getElementById('card');const comment=document.getElementById('comment').value;if(!selectedRating){alert('Veuillez s\\u00e9lectionner une note');return;}isSubmitting=true;card.classList.add('loading');submitBtn.disabled=true;submitBtn.textContent='Envoi...';try{const response=await fetch('/r/'+requestId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:selectedRating,comment})});const result=await response.json();if(response.status===409){localStorage.setItem(STORAGE_KEY,'true');showAlreadySubmitted();card.classList.remove('loading');return;}if(result.success||result.ok){localStorage.setItem(STORAGE_KEY,'true');document.getElementById('stars').style.display='none';commentSection.style.display='none';submitBtn.style.display='none';document.querySelector('.question').style.display='none';const routing=result.routing||{};if(routing.mode==='PUBLIC_REVIEW'&&routing.redirectUrl){googleBtn.href=routing.redirectUrl;googleBtn.style.display='flex';document.getElementById('successMessage').innerHTML='\\u2713 Merci ! Partagez votre exp\\u00e9rience sur Google ?';document.getElementById('successMessage').classList.add('visible');}else{document.getElementById('successMessage').innerHTML='\\u2713 Merci pour votre retour !';document.getElementById('successMessage').classList.add('visible');}document.querySelector('.greeting').textContent='Merci '+${fn}+' !';}else{alert(result.error||'Une erreur est survenue');submitBtn.disabled=false;submitBtn.textContent='Envoyer mon avis';isSubmitting=false;}}catch(e){console.error('Submit error:',e);alert('Erreur de connexion');submitBtn.disabled=false;submitBtn.textContent='Envoyer mon avis';isSubmitting=false;}card.classList.remove('loading');}`;
+}
+
 function _generateRatingFormPage(requestId, data, settings) {
   const threshold = settings?.reviewRouting?.threshold ?? 4;
   const routingEnabled = settings?.reviewRouting?.enabled !== false;
+  const clientScript = _buildRatingScript(requestId, threshold, routingEnabled, data.firstName);
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Donnez votre avis - ${data.cabinetNameSafe}</title>${_RATING_FONTS}
 <style>${_RATING_BASE_CSS} .slogan { margin-bottom: 28px; }
@@ -2967,21 +2946,7 @@ textarea:focus { outline: none; border-color: #667eea; }
 <div class="success-message" id="successMessage">✓ Merci pour votre retour !</div>
 <p class="privacy">Vos données sont traitées de manière confidentielle.</p>
 </div>
-<script>
-const requestId=${JSON.stringify(requestId)};const STORAGE_KEY='reputy_submitted_'+requestId;
-const ROUTING_THRESHOLD=${threshold};const ROUTING_ENABLED=${routingEnabled};
-const GOOGLE_URL=${JSON.stringify(data.googleUrlSafe)};
-let selectedRating=0;let isSubmitting=false;
-if(localStorage.getItem(STORAGE_KEY)==='true'){showAlreadySubmitted();}
-const stars=document.querySelectorAll('.star');const commentSection=document.getElementById('commentSection');
-const submitBtn=document.getElementById('submitBtn');const googleBtn=document.getElementById('googleBtn');
-googleBtn.addEventListener('click',function(){try{navigator.sendBeacon('/r/'+requestId+'/redirected');}catch(e){console.debug(e);}});
-stars.forEach(star=>{star.addEventListener('click',()=>{if(isSubmitting)return;selectedRating=parseInt(star.dataset.value);updateStars();commentSection.classList.add('visible');if(ROUTING_ENABLED&&selectedRating>=ROUTING_THRESHOLD){submitBtn.classList.remove('visible');googleBtn.href=GOOGLE_URL;googleBtn.style.display='flex';submitFeedbackSilent();}else{submitBtn.classList.add('visible');googleBtn.style.display='none';}});star.addEventListener('mouseenter',()=>{const val=parseInt(star.dataset.value);stars.forEach((s,i)=>{s.classList.toggle('hover',i<val);});});star.addEventListener('mouseleave',()=>{stars.forEach(s=>s.classList.remove('hover'));});});
-function updateStars(){stars.forEach((star,i)=>{star.classList.toggle('active',i<selectedRating);});}
-function showAlreadySubmitted(){document.getElementById('stars').style.display='none';document.getElementById('commentSection').style.display='none';document.getElementById('submitBtn').style.display='none';document.querySelector('.question').style.display='none';const msg=document.getElementById('successMessage');msg.textContent='✓ Merci, votre avis a déjà été enregistré.';msg.classList.add('visible');document.querySelector('.greeting').textContent='Merci !';}
-async function submitFeedbackSilent(){if(isSubmitting)return;isSubmitting=true;try{const comment=document.getElementById('comment').value;const response=await fetch('/r/'+requestId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:selectedRating,comment})});if(response.ok||response.status===409){localStorage.setItem(STORAGE_KEY,'true');}}catch(e){console.error('Silent submit error:',e);}isSubmitting=false;}
-async function submitFeedback(){if(isSubmitting)return;const card=document.getElementById('card');const comment=document.getElementById('comment').value;if(!selectedRating){alert('Veuillez sélectionner une note');return;}isSubmitting=true;card.classList.add('loading');submitBtn.disabled=true;submitBtn.textContent='Envoi...';try{const response=await fetch('/r/'+requestId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rating:selectedRating,comment})});const result=await response.json();if(response.status===409){localStorage.setItem(STORAGE_KEY,'true');showAlreadySubmitted();card.classList.remove('loading');return;}if(result.success||result.ok){localStorage.setItem(STORAGE_KEY,'true');document.getElementById('stars').style.display='none';commentSection.style.display='none';submitBtn.style.display='none';document.querySelector('.question').style.display='none';const routing=result.routing||{};if(routing.mode==='PUBLIC_REVIEW'&&routing.redirectUrl){googleBtn.href=routing.redirectUrl;googleBtn.style.display='flex';document.getElementById('successMessage').innerHTML='✓ Merci ! Partagez votre expérience sur Google ?';document.getElementById('successMessage').classList.add('visible');}else{document.getElementById('successMessage').innerHTML='✓ Merci pour votre retour !';document.getElementById('successMessage').classList.add('visible');}document.querySelector('.greeting').textContent='Merci '+${JSON.stringify(data.firstName)}+' !';}else{alert(result.error||'Une erreur est survenue');submitBtn.disabled=false;submitBtn.textContent='Envoyer mon avis';isSubmitting=false;}}catch(e){console.error('Submit error:',e);alert('Erreur de connexion');submitBtn.disabled=false;submitBtn.textContent='Envoyer mon avis';isSubmitting=false;}card.classList.remove('loading');}
-</script></body></html>`;
+<script>${clientScript}</script></body></html>`;
 }
 
 function generateRatingPage(requestId, request, existingFeedback, settings) {
@@ -3610,145 +3575,110 @@ function handleGetRatingPage(requestId, res) {
   return sendHtml(res, 200, generateRatingPage(requestId, request, existingFeedback, settings));
 }
 
-async function handleSubmitFeedback(requestId, req, res) {
-  // ============ SQLITE MODE: full DB-driven flow ============
-  if (storage.USE_SQLITE) {
-    const repos = storage.getRepos();
-    const dbModule = storage.getDb();
-    const dbRequest = repos.request.getByIdempotencyKey(requestId);
-    
-    if (!dbRequest) {
-      // Fall through to JSON legacy check below
-    } else {
-      // Validation: expiry
-      if (isRequestExpired(dbRequest)) {
-        return sendJson(res, 410, { ok: false, error: 'REQUEST_EXPIRED' });
-      }
-      
-      // Anti-doublon SQLite
-      const existingFb = repos.feedback.getByRequestDbId(dbRequest.id);
-      if (existingFb) {
-        return sendJson(res, 409, { ok: false, error: 'ALREADY_SUBMITTED' });
-      }
-      
-      let body;
-      try {
-        body = await parseBody(req);
-      } catch (err) {
-        return sendJson(res, 400, { ok: false, error: 'INVALID_BODY' });
-      }
-      
-      const rating = parseInt(body.rating);
-      if (!rating || rating < 1 || rating > 5) {
-        return sendJson(res, 400, { ok: false, error: 'INVALID_RATING' });
-      }
-      
-      // Transaction: insert feedback + update lifecycle
-      dbModule.transaction(() => {
-        repos.feedback.create({
-          requestDbId: dbRequest.id,
-          orgId: dbRequest.orgId,
-          rating: rating,
-          comment: (body.comment || '').trim(),
-          source: dbRequest.channel || 'web',
-        });
-        repos.request.setLifecycleStatus(dbRequest.id, 'feedback_received');
-      });
+function buildFeedbackRoutingResponse(rating) {
+  const routing = determineReviewRouting(rating);
+  const settings = getSettings();
+  return {
+    ok: true,
+    success: true,
+    routing: routing,
+    redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
+    googleUrl: routing.redirectUrl || settings.googleReviewUrl
+  };
+}
 
-      console.log('[REPUTY][FEEDBACK] Nouveau feedback (SQLite)', {
-        requestId, dbId: dbRequest.id, rating, hasComment: !!body.comment
-      });
+async function parseFeedbackBody(req) {
+  const body = await parseBody(req);
+  const rating = parseInt(body.rating);
+  if (!rating || rating < 1 || rating > 5) return null;
+  return { rating, comment: (body.comment || '').trim() };
+}
 
-      const routing = determineReviewRouting(rating);
-      const settings = getSettings();
+async function handleSubmitFeedbackSqlite(requestId, req, res) {
+  const repos = storage.getRepos();
+  const dbModule = storage.getDb();
+  const dbRequest = repos.request.getByIdempotencyKey(requestId);
 
-      return sendJson(res, 200, {
-        ok: true,
-        success: true,
-        routing: routing,
-        redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
-        googleUrl: routing.redirectUrl || settings.googleReviewUrl
-      });
-    }
-  }
-  
-  // ============ JSON MODE (legacy fallback) ============
-  const data = loadData();
-  const request = data.requests[requestId];
-  
-  // ============ VALIDATION: Request existe? ============
-  if (!request) {
-    return sendJson(res, 404, { ok: false, error: 'REQUEST_NOT_FOUND' });
-  }
-  
-  // ============ VALIDATION: Request expirée? ============
-  if (isRequestExpired(request)) {
+  if (!dbRequest) return null;
+
+  if (isRequestExpired(dbRequest)) {
     return sendJson(res, 410, { ok: false, error: 'REQUEST_EXPIRED' });
   }
-  
-  // ============ ANTI-DOUBLON: Feedback déjà soumis? (409 Conflict) ============
+
+  const existingFb = repos.feedback.getByRequestDbId(dbRequest.id);
+  if (existingFb) {
+    return sendJson(res, 409, { ok: false, error: 'ALREADY_SUBMITTED' });
+  }
+
+  let parsed;
+  try { parsed = await parseFeedbackBody(req); } catch (err) {
+    return sendJson(res, 400, { ok: false, error: 'INVALID_BODY' });
+  }
+  if (!parsed) return sendJson(res, 400, { ok: false, error: 'INVALID_RATING' });
+
+  dbModule.transaction(() => {
+    repos.feedback.create({
+      requestDbId: dbRequest.id,
+      orgId: dbRequest.orgId,
+      rating: parsed.rating,
+      comment: parsed.comment,
+      source: dbRequest.channel || 'web',
+    });
+    repos.request.setLifecycleStatus(dbRequest.id, 'feedback_received');
+  });
+
+  console.log('[REPUTY][FEEDBACK] Nouveau feedback (SQLite)', {
+    requestId, dbId: dbRequest.id, rating: parsed.rating, hasComment: !!parsed.comment
+  });
+
+  return sendJson(res, 200, buildFeedbackRoutingResponse(parsed.rating));
+}
+
+async function handleSubmitFeedback(requestId, req, res) {
+  if (storage.USE_SQLITE) {
+    const sqliteResult = await handleSubmitFeedbackSqlite(requestId, req, res);
+    if (sqliteResult !== null) return sqliteResult;
+  }
+
+  const data = loadData();
+  const request = data.requests[requestId];
+
+  if (!request) return sendJson(res, 404, { ok: false, error: 'REQUEST_NOT_FOUND' });
+  if (isRequestExpired(request)) return sendJson(res, 410, { ok: false, error: 'REQUEST_EXPIRED' });
+
   if (data.feedbacks[requestId]) {
     console.log('[REPUTY][FEEDBACK] Tentative de double soumission bloquée', { requestId });
     return sendJson(res, 409, { ok: false, error: 'ALREADY_SUBMITTED' });
   }
-  
-  let body;
-  try {
-    body = await parseBody(req);
-  } catch (err) {
+
+  let parsed;
+  try { parsed = await parseFeedbackBody(req); } catch (err) {
     return sendJson(res, 400, { ok: false, error: 'INVALID_BODY' });
   }
-  
-  const rating = parseInt(body.rating);
-  if (!rating || rating < 1 || rating > 5) {
-    return sendJson(res, 400, { ok: false, error: 'INVALID_RATING' });
-  }
+  if (!parsed) return sendJson(res, 400, { ok: false, error: 'INVALID_RATING' });
 
-  // ============ JSON MODE (legacy): ENREGISTRER LE FEEDBACK ============
-  // NOTE: Pour migration DB, créer UNIQUE INDEX sur requestId dans feedbacks
   const now = new Date().toISOString();
-  
   data.feedbacks[requestId] = {
     requestId,
     submittedAt: now,
-    createdAt: now,  // Backward compat
-    rating,
-    comment: (body.comment || '').trim(),
+    createdAt: now,
+    rating: parsed.rating,
+    comment: parsed.comment,
     channel: request.channel,
     patient: request.patient,
-    // Metadata anti-abus (optionnel)
-    meta: {
-      userAgent: req.headers['user-agent'] || '',
-      // Note: Pour ipHash, utiliser req.connection.remoteAddress avec hash
-    }
+    meta: { userAgent: req.headers['user-agent'] || '' }
   };
   saveData(data);
-  
+
   console.log('[REPUTY][FEEDBACK] Nouveau feedback', {
-    requestId,
-    rating,
-    hasComment: !!body.comment
+    requestId, rating: parsed.rating, hasComment: !!parsed.comment
   });
-  
-  // ============ APPLY REVIEW ROUTING LOGIC ============
-  const routing = determineReviewRouting(rating);
-  
-  // Store routing decision in feedback for analytics
+
+  const routing = determineReviewRouting(parsed.rating);
   data.feedbacks[requestId].routing = routing;
   saveData(data);
-  
-  const settings = getSettings();
-  
-  // Response with routing decision
-  return sendJson(res, 200, { 
-    ok: true,
-    success: true,  // Backward compat
-    // New routing response
-    routing: routing,
-    // Backward compat fields
-    redirectToGoogle: routing.mode === 'PUBLIC_REVIEW',
-    googleUrl: routing.redirectUrl || settings.googleReviewUrl
-  });
+
+  return sendJson(res, 200, buildFeedbackRoutingResponse(parsed.rating));
 }
 
 /**
@@ -4015,94 +3945,81 @@ function handleGetSettings(req, res) {
   return sendJson(res, 200, settings);
 }
 
+function buildSettingsOptionsUpdate(body) {
+  const optionsUpdate = {};
+  if (body.googleReviewUrl !== undefined) {
+    optionsUpdate.googleReviewUrl = body.googleReviewUrl.trim();
+  }
+  if (body.smsTemplate !== undefined) {
+    const tpl = body.smsTemplate.trim();
+    if (tpl && tpl.length <= 300) {
+      optionsUpdate.smsTemplate = tpl;
+    }
+  }
+  return optionsUpdate;
+}
+
+function saveSettingsSqlite(sessionAuth, body) {
+  const org = sessionAuth.org;
+  const repos = storage.getRepos();
+  if (!repos || !repos.org) return null;
+
+  const optionsUpdate = buildSettingsOptionsUpdate(body);
+  repos.org.updateOptions(org.id, optionsUpdate);
+
+  if (body.cabinetName !== undefined && body.cabinetName.trim()) {
+    repos.org.update(org.id, { name: body.cabinetName.trim() });
+  }
+
+  const updatedOrg = repos.org.getById(org.id);
+
+  logger.logAudit('SETTINGS_UPDATED', {
+    orgId: org.id,
+    userId: sessionAuth.user.id,
+    changes: { googleReviewUrl: optionsUpdate.googleReviewUrl, cabinetName: body.cabinetName, smsTemplate: optionsUpdate.smsTemplate }
+  });
+
+  return {
+    success: true,
+    settings: {
+      googleReviewUrl: updatedOrg.options?.googleReviewUrl || '',
+      cabinetName: updatedOrg.name || '',
+      smsTemplate: updatedOrg.options?.smsTemplate || ''
+    }
+  };
+}
+
 async function handleSaveSettings(req, res) {
   const data = loadData();
-  
-  // Try session auth first (for dashboard users)
   const sessionAuth = getAuthUser(req, data);
-  
+
   let body;
-  try {
-    body = await parseBody(req);
-  } catch (err) {
+  try { body = await parseBody(req); } catch (err) {
     return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
-  
-  if (sessionAuth && sessionAuth.org) {
-    // RBAC Tier 1: settings write — owner/admin only (session branch only, legacy fallback untouched)
-    if (!checkRole(sessionAuth, ['owner', 'admin'], res)) return;
 
-    // Zod validation — session branch only (PR-5)
+  if (sessionAuth && sessionAuth.org) {
+    if (!checkRole(sessionAuth, ['owner', 'admin'], res)) return;
     const v = validateBody(schemas.settingsUpdate, body);
     if (!v.ok) return sendJson(res, 400, v.payload);
 
-    // User is authenticated via session - save to org-specific options
-    const org = sessionAuth.org;
-    const repos = storage.getRepos();
-    
-    if (repos && repos.org) {
-      // Update org options in SQLite
-      const optionsUpdate = {};
-      if (body.googleReviewUrl !== undefined) {
-        optionsUpdate.googleReviewUrl = body.googleReviewUrl.trim();
-      }
-      if (body.smsTemplate !== undefined) {
-        // Validate SMS template: non-empty, max 300 chars, must contain {lien}
-        const tpl = body.smsTemplate.trim();
-        if (tpl && tpl.length <= 300) {
-          optionsUpdate.smsTemplate = tpl;
-        }
-      }
-      
-      // Update options
-      repos.org.updateOptions(org.id, optionsUpdate);
-      
-      // Update org name if provided
-      if (body.cabinetName !== undefined && body.cabinetName.trim()) {
-        repos.org.update(org.id, { name: body.cabinetName.trim() });
-      }
-      
-      // Reload org to get updated data
-      const updatedOrg = repos.org.getById(org.id);
-      
-      logger.logAudit('SETTINGS_UPDATED', {
-        orgId: org.id,
-        userId: sessionAuth.user.id,
-        changes: { googleReviewUrl: optionsUpdate.googleReviewUrl, cabinetName: body.cabinetName, smsTemplate: optionsUpdate.smsTemplate }
-      });
-      
-      return sendJson(res, 200, { 
-        success: true, 
-        settings: {
-          googleReviewUrl: updatedOrg.options?.googleReviewUrl || '',
-          cabinetName: updatedOrg.name || '',
-          smsTemplate: updatedOrg.options?.smsTemplate || ''
-        }
-      });
-    }
-    
-    return sendJson(res, 500, { error: 'Base de données non disponible' });
+    const result = saveSettingsSqlite(sessionAuth, body);
+    if (!result) return sendJson(res, 500, { error: 'Base de données non disponible' });
+    return sendJson(res, 200, result);
   }
-  
-  // P5: Legacy fallback with instrumentation + kill-switch
+
   const auth = legacyAuth(req, '/api/settings:POST');
-  if (!auth.ok) {
-    return sendJson(res, 401, { error: auth.error });
-  }
-  
+  if (!auth.ok) return sendJson(res, 401, { error: auth.error });
+
   const currentSettings = data.settings || {};
-  
-  // Update settings (merge with existing, especially reviewRouting)
   data.settings = {
     googleReviewUrl: (body.googleReviewUrl || '').trim() || currentSettings.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl,
     cabinetName: (body.cabinetName || '').trim() || currentSettings.cabinetName || DEFAULT_SETTINGS.cabinetName,
     reviewRouting: currentSettings.reviewRouting || DEFAULT_SETTINGS.reviewRouting
   };
-  
   saveData(data);
-  
+
   logger.logAudit('SETTINGS_UPDATED_LEGACY', { settings: data.settings });
-  
   return sendJson(res, 200, { success: true, settings: data.settings });
 }
 
@@ -5260,69 +5177,64 @@ function handleGetOrg(req, res, orgId, urlParams = new URLSearchParams()) {
 /**
  * PUT /internal/orgs/:orgId - Modifier un client
  */
+function patchOrgFields(org, body) {
+  if (body.name) org.name = body.name.trim();
+  if (body.vertical) org.vertical = body.vertical;
+}
+
+function patchOrgPlan(org, plan) {
+  if (!plan) return;
+  if (plan.code) org.plan.code = plan.code;
+  if (plan.basePriceCents !== undefined) org.plan.basePriceCents = plan.basePriceCents;
+  if (plan.billingCycle) org.plan.billingCycle = plan.billingCycle;
+}
+
+function patchOrgNegotiated(org, negotiated) {
+  if (!negotiated) return;
+  const fields = ['enabled', 'customPriceCents', 'discountPercent', 'notes', 'contractRef'];
+  for (const key of fields) {
+    if (negotiated[key] !== undefined) org.negotiated[key] = negotiated[key];
+  }
+}
+
+function patchOrgQuotas(org, quotas) {
+  if (!quotas) return;
+  const quotaFields = ['smsIncluded', 'emailIncluded', 'aiIncluded', 'qrIncluded', 'nfcIncluded'];
+  const patch = {};
+  for (const key of quotaFields) {
+    if (quotas[key] !== undefined) patch[key] = quotas[key];
+  }
+  org.quotas = { ...org.quotas, ...patch };
+}
+
 async function handleUpdateOrg(req, res, orgId) {
   const auth = requireAdmin(req);
-  if (!auth.ok) {
-    return sendJson(res, auth.status || 401, { error: auth.error });
-  }
-  
+  if (!auth.ok) return sendJson(res, auth.status || 401, { error: auth.error });
+
   let body;
-  try {
-    body = await parseBody(req);
-  } catch (err) {
+  try { body = await parseBody(req); } catch (err) {
     return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
-  
+
   const data = loadData();
-  
+
   try {
     const org = getOrgOrThrow(data, orgId);
-    
-    // Mise à jour partielle (patch)
-    if (body.name) org.name = body.name.trim();
-    if (body.vertical) org.vertical = body.vertical;
-    
-    // Plan
-    if (body.plan) {
-      if (body.plan.code) org.plan.code = body.plan.code;
-      if (body.plan.basePriceCents !== undefined) org.plan.basePriceCents = body.plan.basePriceCents;
-      if (body.plan.billingCycle) org.plan.billingCycle = body.plan.billingCycle;
-    }
-    
-    // Négociation commerciale
-    if (body.negotiated) {
-      if (body.negotiated.enabled !== undefined) org.negotiated.enabled = body.negotiated.enabled;
-      if (body.negotiated.customPriceCents !== undefined) org.negotiated.customPriceCents = body.negotiated.customPriceCents;
-      if (body.negotiated.discountPercent !== undefined) org.negotiated.discountPercent = body.negotiated.discountPercent;
-      if (body.negotiated.notes !== undefined) org.negotiated.notes = body.negotiated.notes;
-      if (body.negotiated.contractRef !== undefined) org.negotiated.contractRef = body.negotiated.contractRef;
-    }
-    
-    // Options
+
+    patchOrgFields(org, body);
+    patchOrgPlan(org, body.plan);
+    patchOrgNegotiated(org, body.negotiated);
+
     if (body.options) {
-      Object.keys(body.options).forEach(key => {
-        org.options[key] = body.options[key];
-      });
+      Object.assign(org.options, body.options);
     }
-    
-    // Quotas - merge with existing
-    if (body.quotas) {
-      org.quotas = {
-        ...org.quotas,
-        ...(body.quotas.smsIncluded !== undefined && { smsIncluded: body.quotas.smsIncluded }),
-        ...(body.quotas.emailIncluded !== undefined && { emailIncluded: body.quotas.emailIncluded }),
-        ...(body.quotas.aiIncluded !== undefined && { aiIncluded: body.quotas.aiIncluded }),
-        ...(body.quotas.qrIncluded !== undefined && { qrIncluded: body.quotas.qrIncluded }),
-        ...(body.quotas.nfcIncluded !== undefined && { nfcIncluded: body.quotas.nfcIncluded }),
-      };
-    }
-    
+
+    patchOrgQuotas(org, body.quotas);
     org.updatedAt = nowISO();
-    
-    // Save via repository in SQLite mode
+
     const repos = storage.getRepos();
     if (repos && repos.org) {
-      repos.org.update(orgId, { 
+      repos.org.update(orgId, {
         name: org.name,
         vertical: org.vertical,
         plan: org.plan,
@@ -5333,9 +5245,8 @@ async function handleUpdateOrg(req, res, orgId) {
     } else {
       saveData(data);
     }
-    
+
     console.log('[REPUTY][INTERNAL] Org updated:', orgId);
-    
     return sendJson(res, 200, { org: sanitizeOrg(org) });
   } catch (err) {
     return sendJson(res, err.status || 500, { error: err.message });
@@ -5373,140 +5284,96 @@ function handleGetPacks(req, res) {
  * - type="pack" => Crédits pack persistants (ajoutés à packWallet.smsRemaining/emailRemaining/aiRemaining)
  *   => Persiste jusqu'à consommation mais nécessite abonnement actif
  */
-async function handleAddCredits(req, res, orgId) {
-  const auth = requireAdmin(req);
-  if (!auth.ok) {
-    return sendJson(res, auth.status || 401, { error: auth.error });
-  }
-  
-  let body;
-  try {
-    body = await parseBody(req);
-  } catch (err) {
-    return sendJson(res, 400, { error: 'Corps JSON invalide' });
-  }
-  
-  // Support both 'source' and 'type' for backward compatibility
-  const { sms = 0, email = 0, ai = 0, type, source, label = '', packCode = null } = body;
-  const creditType = type || source || 'gift';
-  
-  // Validate packCode if provided
-  if (creditType === 'pack' && packCode && !PACK_CATALOG[packCode]) {
-    const validCodes = Object.keys(PACK_CATALOG).join(', ');
-    return sendJson(res, 400, { 
-      error: `Pack inconnu: ${packCode}. Packs valides: ${validCodes}` 
-    });
-  }
-  
-  // Determine SMS/Email/AI amounts
-  let finalSms = sms;
-  let finalEmail = email;
-  let finalAi = ai;
-  
+function buildCreditParts(sms, email, ai) {
+  const parts = [];
+  if (sms > 0) parts.push(`+${sms} SMS`);
+  if (email > 0) parts.push(`+${email} Email`);
+  if (ai > 0) parts.push(`+${ai} IA`);
+  return parts;
+}
+
+function resolveCreditAmounts(body) {
+  const { sms = 0, email = 0, ai = 0, packCode = null } = body;
   if (packCode && PACK_CATALOG[packCode]) {
     const pack = PACK_CATALOG[packCode];
-    finalSms = pack.smsMonthly;
-    finalEmail = pack.emailMonthly;
-    finalAi = pack.aiMonthly || 0;
+    return { sms: pack.smsMonthly, email: pack.emailMonthly, ai: pack.aiMonthly || 0 };
   }
-  
-  if (finalSms === 0 && finalEmail === 0 && finalAi === 0) {
-    return sendJson(res, 400, { error: 'Spécifier au moins sms, email ou ai > 0, ou un packCode' });
+  return { sms, email, ai };
+}
+
+function applyGiftCredits(org, orgId, amounts) {
+  org.subscriptionCredits.smsGiftMonthly += amounts.sms;
+  org.subscriptionCredits.emailGiftMonthly += amounts.email;
+  org.subscriptionCredits.aiGiftMonthly = (org.subscriptionCredits.aiGiftMonthly || 0) + amounts.ai;
+  const parts = buildCreditParts(amounts.sms, amounts.email, amounts.ai);
+  console.log(`[BILLING] 🎁 Gift credits added to org ${orgId}: ${parts.join(', ')}`);
+  return `Crédits offerts ajoutés: ${parts.join(', ')}. Expire le ${new Date(org.billing.periodEnd).toLocaleDateString('fr-FR')}`;
+}
+
+function applyPackCredits(org, orgId, amounts, packCode) {
+  org.packWallet.smsRemaining += amounts.sms;
+  org.packWallet.emailRemaining += amounts.email;
+  org.packWallet.aiRemaining = (org.packWallet.aiRemaining || 0) + amounts.ai;
+  const parts = buildCreditParts(amounts.sms, amounts.email, amounts.ai);
+  console.log(`[BILLING] 📦 Pack credits added to org ${orgId}: ${parts.join(', ')} (persistent)`);
+  const packName = (packCode && PACK_CATALOG[packCode]) ? PACK_CATALOG[packCode].name : null;
+  const prefix = packName ? `Pack ${packName} ajouté` : 'Pack ajouté';
+  return `${prefix}: ${parts.join(', ')}. Ces crédits persistent jusqu'à consommation.`;
+}
+
+async function handleAddCredits(req, res, orgId) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) return sendJson(res, auth.status || 401, { error: auth.error });
+
+  let body;
+  try { body = await parseBody(req); } catch (err) {
+    return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
-  
+
+  const { type, source, label = '', packCode = null } = body;
+  const creditType = type || source || 'gift';
+
   if (!['gift', 'pack'].includes(creditType)) {
     return sendJson(res, 400, { error: 'type doit être "gift" ou "pack"' });
   }
-  
+
+  if (creditType === 'pack' && packCode && !PACK_CATALOG[packCode]) {
+    return sendJson(res, 400, { error: `Pack inconnu: ${packCode}. Packs valides: ${Object.keys(PACK_CATALOG).join(', ')}` });
+  }
+
+  const amounts = resolveCreditAmounts(body);
+  if (amounts.sms === 0 && amounts.email === 0 && amounts.ai === 0) {
+    return sendJson(res, 400, { error: 'Spécifier au moins sms, email ou ai > 0, ou un packCode' });
+  }
+
   const data = loadData();
-  
+
   try {
     const org = getOrgOrThrow(data, orgId);
-    
-    // Ensure current period and migrate if needed
     ensureOrgBilling(org);
     ensureCurrentPeriod(data, org, false);
-    
-    let message = '';
-    
-    if (creditType === 'gift') {
-      // GIFT: Add to monthly subscription credits (expires at month end)
-      org.subscriptionCredits.smsGiftMonthly += finalSms;
-      org.subscriptionCredits.emailGiftMonthly += finalEmail;
-      org.subscriptionCredits.aiGiftMonthly = (org.subscriptionCredits.aiGiftMonthly || 0) + finalAi;
-      
-      const parts = [];
-      if (finalSms > 0) parts.push(`+${finalSms} SMS`);
-      if (finalEmail > 0) parts.push(`+${finalEmail} Email`);
-      if (finalAi > 0) parts.push(`+${finalAi} IA`);
-      
-      message = `Crédits offerts ajoutés: ${parts.join(', ')}. `;
-      message += `Expire le ${new Date(org.billing.periodEnd).toLocaleDateString('fr-FR')}`;
-      
-      console.log(`[BILLING] 🎁 Gift credits added to org ${orgId}: ${parts.join(', ')}`);
-      
-    } else {
-      // PACK: Add to persistent pack wallet (no expiration)
-      org.packWallet.smsRemaining += finalSms;
-      org.packWallet.emailRemaining += finalEmail;
-      org.packWallet.aiRemaining = (org.packWallet.aiRemaining || 0) + finalAi;
-      
-      const parts = [];
-      if (finalSms > 0) parts.push(`+${finalSms} SMS`);
-      if (finalEmail > 0) parts.push(`+${finalEmail} Email`);
-      if (finalAi > 0) parts.push(`+${finalAi} IA`);
-      
-      if (packCode && PACK_CATALOG[packCode]) {
-        const pack = PACK_CATALOG[packCode];
-        message = `Pack ${pack.name} ajouté: ${parts.join(', ')}. `;
-        message += `Ces crédits persistent jusqu'à consommation.`;
-      } else {
-        message = `Pack ajouté: ${parts.join(', ')}. `;
-        message += `Ces crédits persistent jusqu'à consommation.`;
-      }
-      
-      console.log(`[BILLING] 📦 Pack credits added to org ${orgId}: ${parts.join(', ')} (persistent)`);
-    }
-    
+
+    const message = creditType === 'gift'
+      ? applyGiftCredits(org, orgId, amounts)
+      : applyPackCredits(org, orgId, amounts, packCode);
+
     org.updatedAt = nowISO();
-    
-    // Update org in data array
     const orgIndex = data.orgs.findIndex(o => o.id === orgId);
-    if (orgIndex >= 0) {
-      data.orgs[orgIndex] = org;
-    }
-    
+    if (orgIndex >= 0) data.orgs[orgIndex] = org;
     saveData(data);
-    
-    // Get updated totals
+
     const remaining = getTotalRemaining(org);
-    
-    // P1.4: Log internal add credits
+
     logger.logInternalAction('INTERNAL_ADD_CREDITS', req, {
-      orgId,
-      status: 200,
-      creditType,
-      smsDelta: finalSms,
-      emailDelta: finalEmail,
-      aiDelta: finalAi,
-      packCode: packCode || null,
-      message: 'Credits added successfully'
+      orgId, status: 200, creditType,
+      smsDelta: amounts.sms, emailDelta: amounts.email, aiDelta: amounts.ai,
+      packCode: packCode || null, message: 'Credits added successfully'
     });
-    
-    return sendJson(res, 200, { 
+
+    return sendJson(res, 200, {
       org: sanitizeOrg(enrichOrg(data, org)),
-      added: {
-        type: creditType,
-        sms: finalSms,
-        email: finalEmail,
-        packCode: packCode || null,
-        label: label || null
-      },
-      remaining: {
-        subscription: remaining.subscription,
-        pack: remaining.pack,
-        total: { sms: remaining.sms, email: remaining.email }
-      },
+      added: { type: creditType, sms: amounts.sms, email: amounts.email, packCode: packCode || null, label: label || null },
+      remaining: { subscription: remaining.subscription, pack: remaining.pack, total: { sms: remaining.sms, email: remaining.email } },
       expiresAt: creditType === 'gift' ? org.billing.periodEnd : null,
       message
     });
@@ -5524,121 +5391,95 @@ async function handleAddCredits(req, res, orgId) {
  *   (lors du renouvellement: subscription expire, packs conservés)
  * - cancelled: envois bloqués, TOUS les crédits perdus (subscription + packs)
  */
+const STATUS_MESSAGES = {
+  suspended: 'Abonnement suspendu. Les crédits sont conservés mais les envois sont bloqués. Au prochain renouvellement, les crédits abonnement expireront mais les packs seront conservés.',
+  cancelled: 'Abonnement annulé. Tous les crédits (abonnement + packs) ont été perdus.',
+  active: 'Abonnement réactivé. Les envois sont à nouveau autorisés.',
+};
+
+function handleCancellationCredits(org, totalBefore, confirmLossCredits) {
+  if ((totalBefore.sms > 0 || totalBefore.email > 0) && !confirmLossCredits) {
+    return {
+      needsConfirmation: true,
+      response: {
+        error: 'CREDITS_WILL_BE_LOST',
+        message: `Attention: ${totalBefore.sms} SMS et ${totalBefore.email} Email seront DÉFINITIVEMENT perdus. Envoyez confirmLossCredits: true pour confirmer.`,
+        creditsAtRisk: {
+          subscription: totalBefore.subscription,
+          pack: totalBefore.pack,
+          total: { sms: totalBefore.sms, email: totalBefore.email }
+        }
+      }
+    };
+  }
+  const creditsLost = clearAllCredits(org);
+  console.log(`[BILLING] ❌ Org ${org.id} CANCELLED - all credits lost`);
+  return { needsConfirmation: false, creditsLost };
+}
+
+function persistStatusChange(data, orgId, org, status) {
+  const repos = storage.getRepos();
+  if (repos) {
+    repos.org.update(orgId, { status });
+    return repos.org.getById(orgId) || org;
+  }
+  const orgIndex = data.orgs.findIndex(o => o.id === orgId);
+  if (orgIndex >= 0) data.orgs[orgIndex] = org;
+  saveData(data);
+  return org;
+}
+
 async function handleChangeStatus(req, res, orgId) {
   const auth = requireAdmin(req);
-  if (!auth.ok) {
-    return sendJson(res, auth.status || 401, { error: auth.error });
-  }
-  
+  if (!auth.ok) return sendJson(res, auth.status || 401, { error: auth.error });
+
   let body;
-  try {
-    body = await parseBody(req);
-  } catch (err) {
+  try { body = await parseBody(req); } catch (err) {
     return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
-  
+
   const { status, confirmLossCredits = false } = body;
   const validStatuses = ['active', 'suspended', 'cancelled'];
-  
   if (!validStatuses.includes(status)) {
     return sendJson(res, 400, { error: `Statut invalide. Valeurs: ${validStatuses.join(', ')}` });
   }
-  
+
   const data = loadData();
-  
+
   try {
     const org = getOrgOrThrow(data, orgId);
     const oldStatus = org.status;
-    
-    // Ensure current period for credit calculation
     ensureCurrentPeriod(data, org, false);
-    
-    // Check if this change will cause credit loss (ONLY for cancelled)
+
     let creditsLost = null;
     const totalBefore = getTotalRemaining(org);
-    
-    // CANCELLED: Perte totale des crédits (subscription + packs)
+
     if (status === 'cancelled' && oldStatus !== 'cancelled') {
-      // If there are credits and no confirmation, warn
-      if ((totalBefore.sms > 0 || totalBefore.email > 0) && !confirmLossCredits) {
-        return sendJson(res, 400, {
-          error: 'CREDITS_WILL_BE_LOST',
-          message: `Attention: ${totalBefore.sms} SMS et ${totalBefore.email} Email seront DÉFINITIVEMENT perdus. Envoyez confirmLossCredits: true pour confirmer.`,
-          creditsAtRisk: {
-            subscription: totalBefore.subscription,
-            pack: totalBefore.pack,
-            total: { sms: totalBefore.sms, email: totalBefore.email }
-          }
-        });
-      }
-      
-      // Clear all credits (subscription + packs)
-      creditsLost = clearAllCredits(org);
-      console.log(`[BILLING] ❌ Org ${org.id} CANCELLED - all credits lost`);
+      const result = handleCancellationCredits(org, totalBefore, confirmLossCredits);
+      if (result.needsConfirmation) return sendJson(res, 400, result.response);
+      creditsLost = result.creditsLost;
     }
-    
-    // SUSPENDED: Crédits conservés, envois bloqués
-    // Note: les crédits subscription expireront normalement au renouvellement,
-    // les packs seront conservés jusqu'à réactivation ou annulation
+
     if (status === 'suspended' && oldStatus === 'active') {
       console.log(`[BILLING] ⏸️ Org ${org.id} SUSPENDED - credits preserved but sends blocked`);
       console.log(`[BILLING]    Subscription: ${totalBefore.subscription.sms} SMS, ${totalBefore.subscription.email} Email`);
       console.log(`[BILLING]    Packs: ${totalBefore.pack.sms} SMS, ${totalBefore.pack.email} Email`);
     }
-    
+
     org.status = status;
     org.updatedAt = nowISO();
-    
-    // Persist status change
-    const repos = storage.getRepos();
-    let responseOrg = org; // For the response
-    
-    if (repos) {
-      // SQLite mode: persist via repository
-      repos.org.update(orgId, { status });
-      // Reload fresh org from DB for accurate response
-      const freshOrg = repos.org.getById(orgId);
-      if (freshOrg) {
-        responseOrg = freshOrg;
-      }
-    } else {
-      // Legacy JSON mode
-      const orgIndex = data.orgs.findIndex(o => o.id === orgId);
-      if (orgIndex >= 0) {
-        data.orgs[orgIndex] = org;
-      }
-      saveData(data);
-    }
-    
-    // P1.4: Log org status change
+    const responseOrg = persistStatusChange(data, orgId, org, status);
+
     logger.logInternalAction('INTERNAL_ORG_STATUS_CHANGE', req, {
-      orgId,
-      status: 200,
-      oldStatus,
-      newStatus: status,
-      creditsLost: creditsLost ? true : false,
-      message: 'Org status changed successfully'
+      orgId, status: 200, oldStatus, newStatus: status,
+      creditsLost: !!creditsLost, message: 'Org status changed successfully'
     });
-    
-    // Build response message based on new status
-    let message = '';
-    if (status === 'suspended') {
-      message = 'Abonnement suspendu. Les crédits sont conservés mais les envois sont bloqués. ' +
-                'Au prochain renouvellement, les crédits abonnement expireront mais les packs seront conservés.';
-    } else if (status === 'cancelled') {
-      message = 'Abonnement annulé. Tous les crédits (abonnement + packs) ont été perdus.';
-    } else if (status === 'active') {
-      message = 'Abonnement réactivé. Les envois sont à nouveau autorisés.';
-    }
-    
-    return sendJson(res, 200, { 
-      org: sanitizeOrg(enrichOrg(data, responseOrg)), 
+
+    return sendJson(res, 200, {
+      org: sanitizeOrg(enrichOrg(data, responseOrg)),
       previousStatus: oldStatus,
-      message,
-      creditsLost: creditsLost ? {
-        subscription: creditsLost.lostSubscription,
-        pack: creditsLost.lostPack
-      } : null,
+      message: STATUS_MESSAGES[status] || '',
+      creditsLost: creditsLost ? { subscription: creditsLost.lostSubscription, pack: creditsLost.lostPack } : null,
       creditsPreserved: status === 'suspended' ? totalBefore : null
     });
   } catch (err) {
@@ -7147,16 +6988,80 @@ function handleClientGetTeam(req, res, urlParams) {
  * POST /client/team/invite — Invite someone to current org
  * Body: { email, role, name? }
  */
+function checkExistingMembership(repos, targetUser, orgId) {
+  if (!targetUser) return null;
+  const existing = repos.membership.getByUserAndOrg(targetUser.id, orgId);
+  if (!existing) return null;
+  if (existing.status === 'active') return { conflict: true, error: 'ALREADY_MEMBER', message: 'Cet utilisateur est déjà membre de cet établissement' };
+  if (existing.status === 'pending') return { conflict: true, error: 'ALREADY_INVITED', message: 'Cet utilisateur a déjà été invité (invitation en attente)' };
+  return { conflict: false, existing };
+}
+
+function reactivateMembership(repos, existing, role, permissions) {
+  repos.membership.updateRole(existing.id, role);
+  if (permissions) repos.membership.updatePermissions(existing.id, permissions);
+  return repos.membership.updateStatus(existing.id, 'pending');
+}
+
+async function createInvitedUser(repos, auth, email, role, name) {
+  const tempPassword = require('crypto').randomBytes(8).toString('base64url').slice(0, 12);
+  const passwordHash = await hashPassword(tempPassword);
+  const user = repos.user.create({
+    orgId: auth.org.id, email, passwordHash, role, name: name || null, emailVerified: true,
+  });
+  try {
+    const dbModule = storage.getDb();
+    dbModule.prepare('UPDATE users SET must_change_password = 1 WHERE id = $id').run({ id: user.id });
+  } catch (err) { console.debug('[TEAM] must_change_password column not ready:', err.message); }
+  return user;
+}
+
+function createOrRefreshMembership(repos, reactivated, targetUser, auth, role, permissions) {
+  const inviteToken = repos.membership.generateInviteToken();
+  if (reactivated) {
+    try {
+      const dbModule = storage.getDb();
+      dbModule.prepare('UPDATE memberships SET invite_token = $inviteToken WHERE id = $id')
+        .run({ inviteToken, id: reactivated.id });
+    } catch (err) { console.debug('[TEAM] invite_token update failed:', err.message); }
+    return { membership: reactivated, inviteToken };
+  }
+  const membership = repos.membership.create({
+    userId: targetUser.id, orgId: auth.org.id, role, status: 'pending',
+    invitedBy: auth.user.id, inviteToken, permissions: permissions || null,
+  });
+  return { membership, inviteToken };
+}
+
+function sendInviteEmail(data, email, acceptLink, orgName, inviterName, name, isNewUser) {
+  const subject = `Vous êtes invité à rejoindre ${orgName} sur Reputy`;
+  const greeting = isNewUser ? `Bonjour${name ? ` ${name}` : ''},` : 'Bonjour,';
+  const actionLine = isNewUser
+    ? `Pour accepter l'invitation et créer votre mot de passe :`
+    : `Pour accepter l'invitation :`;
+  const extraLine = isNewUser ? '' : `\nOu connectez-vous directement sur ReputyBoard.\n`;
+  const emailText = [greeting, '', `${inviterName} vous invite à rejoindre l'établissement "${orgName}" sur ReputyBoard.`, '', actionLine, acceptLink, '', extraLine, 'Cordialement,', `L'équipe Reputy`].filter(l => l !== undefined).join('\n');
+  const extraHtml = isNewUser
+    ? `<p style="color:#666;font-size:13px;">Ou copiez ce lien : ${acceptLink}</p>`
+    : `<p>Ou connectez-vous directement sur ReputyBoard.</p>`;
+  const actionHtml = isNewUser ? 'Pour accepter l\'invitation et créer votre mot de passe :' : '';
+  const emailHtml = `
+      <p>${greeting}</p>
+      <p><strong>${inviterName}</strong> vous invite à rejoindre l'établissement <strong>"${orgName}"</strong> sur ReputyBoard.</p>
+      ${actionHtml ? `<p>${actionHtml}</p>` : ''}
+      <p><a href="${acceptLink}" style="display:inline-block;padding:12px 24px;background:#242c34;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Accepter l'invitation</a></p>
+      ${extraHtml}
+      <p>Cordialement,<br/>L'équipe Reputy</p>
+    `.trim();
+  sendEmail(data, email, subject, emailText, emailHtml);
+}
+
 async function handleClientTeamInvite(req, res) {
   const data = loadData();
   const auth = getAuthUser(req, data);
-  if (!auth) {
-    return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
-  }
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'UNAUTHORIZED', message: 'Non authentifié' });
 
   const repos = storage.getRepos();
-
-  // Membership RBAC: owner/admin can invite
   const currentMembership = requireMembershipRole(repos, auth.user.id, auth.org.id, ['owner', 'admin'], res);
   if (!currentMembership) return;
 
@@ -7169,144 +7074,37 @@ async function handleClientTeamInvite(req, res) {
   if (!v.ok) return sendJson(res, 400, v.payload);
   const { email, role, name, permissions } = v.data;
 
-  // Check if user already exists
   let targetUser = repos.user.getByEmail(email);
   let tempPasswordGenerated = false;
+  let reactivated = null;
 
-  let reactivatedMembership = null;
+  const membershipCheck = checkExistingMembership(repos, targetUser, auth.org.id);
+  if (membershipCheck?.conflict) {
+    return sendJson(res, 409, { ok: false, error: membershipCheck.error, message: membershipCheck.message });
+  }
+  if (membershipCheck?.existing?.status === 'revoked') {
+    reactivated = reactivateMembership(repos, membershipCheck.existing, role, permissions);
+  }
 
-  if (targetUser) {
-    // Check if already a member of this org
-    const existingMembership = repos.membership.getByUserAndOrg(targetUser.id, auth.org.id);
-    if (existingMembership && existingMembership.status === 'active') {
-      return sendJson(res, 409, { ok: false, error: 'ALREADY_MEMBER', message: 'Cet utilisateur est déjà membre de cet établissement' });
-    }
-    if (existingMembership && existingMembership.status === 'pending') {
-      return sendJson(res, 409, { ok: false, error: 'ALREADY_INVITED', message: 'Cet utilisateur a déjà été invité (invitation en attente)' });
-    }
-    // If revoked: reactivate the existing membership instead of creating a new one
-    if (existingMembership && existingMembership.status === 'revoked') {
-      repos.membership.updateRole(existingMembership.id, role);
-      if (permissions) {
-        repos.membership.updatePermissions(existingMembership.id, permissions);
-      }
-      reactivatedMembership = repos.membership.updateStatus(existingMembership.id, 'pending');
-    }
-  } else {
-    // Create new user with temporary password (kept in DB as fallback for direct login)
-    const tempPassword = require('crypto').randomBytes(8).toString('base64url').slice(0, 12);
-    const passwordHash = await hashPassword(tempPassword);
-
-    targetUser = repos.user.create({
-      orgId: auth.org.id, // Legacy field — user "belongs" to inviting org initially
-      email: email,
-      passwordHash: passwordHash,
-      role: role, // Legacy user.role
-      name: name || null,
-      emailVerified: true, // Verified via invite
-    });
-
-    // Set must_change_password flag
-    try {
-      const dbModule = storage.getDb();
-      dbModule.prepare('UPDATE users SET must_change_password = 1 WHERE id = $id').run({ id: targetUser.id });
-    } catch (err) { console.debug('[TEAM] must_change_password column not ready:', err.message); }
-
+  if (!targetUser) {
+    targetUser = await createInvitedUser(repos, auth, email, role, name);
     tempPasswordGenerated = true;
-    // NOTE: tempPassword stays in DB (hashed) but is NEVER sent in email (PR-8e security)
   }
 
-  // PR-8e: Create membership BEFORE sending email (need inviteToken for the accept link)
-  let newMembership;
-  let inviteToken = null;
-  if (reactivatedMembership) {
-    newMembership = reactivatedMembership;
-    // Reactivated memberships: generate a fresh invite token
-    inviteToken = repos.membership.generateInviteToken();
-    try {
-      const dbModule = storage.getDb();
-      dbModule.prepare('UPDATE memberships SET invite_token = $inviteToken WHERE id = $id')
-        .run({ inviteToken, id: newMembership.id });
-    } catch (err) { console.debug('[TEAM] invite_token update failed:', err.message); }
-  } else {
-    inviteToken = repos.membership.generateInviteToken();
-    newMembership = repos.membership.create({
-      userId: targetUser.id,
-      orgId: auth.org.id,
-      role: role,
-      status: 'pending',
-      invitedBy: auth.user.id,
-      inviteToken: inviteToken,
-      permissions: permissions || null,
-    });
-  }
+  const { membership: newMembership, inviteToken } = createOrRefreshMembership(repos, reactivated, targetUser, auth, role, permissions);
 
-  // PR-8e: Send invite email with secure accept link (no password in email)
   const REPUTY_WEB_URL = process.env.REPUTY_WEB_URL || process.env.NEXT_PUBLIC_REPUTY_WEB_URL || 'http://localhost:3001';
   const acceptLink = `${REPUTY_WEB_URL}/invite/accept?token=${inviteToken}`;
   const orgName = auth.org.name || 'Reputy';
   const inviterName = auth.user.name || auth.user.email;
-  const emailSubject = `Vous êtes invité à rejoindre ${orgName} sur Reputy`;
 
-  if (tempPasswordGenerated) {
-    // New user: invite with accept link to set password
-    const emailText = [
-      `Bonjour${name ? ` ${name}` : ''},`,
-      '',
-      `${inviterName} vous invite à rejoindre l'établissement "${orgName}" sur ReputyBoard.`,
-      '',
-      `Pour accepter l'invitation et créer votre mot de passe :`,
-      `${acceptLink}`,
-      '',
-      `Cordialement,`,
-      `L'équipe Reputy`,
-    ].join('\n');
-    const emailHtml = `
-      <p>Bonjour${name ? ` ${name}` : ''},</p>
-      <p><strong>${inviterName}</strong> vous invite à rejoindre l'établissement <strong>"${orgName}"</strong> sur ReputyBoard.</p>
-      <p>Pour accepter l'invitation et créer votre mot de passe :</p>
-      <p><a href="${acceptLink}" style="display:inline-block;padding:12px 24px;background:#242c34;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Accepter l'invitation</a></p>
-      <p style="color:#666;font-size:13px;">Ou copiez ce lien : ${acceptLink}</p>
-      <p>Cordialement,<br/>L'équipe Reputy</p>
-    `.trim();
-    sendEmail(data, email, emailSubject, emailText, emailHtml);
-  } else {
-    // Existing user: invite with accept link
-    const emailText = [
-      `Bonjour,`,
-      '',
-      `${inviterName} vous invite à rejoindre l'établissement "${orgName}" sur ReputyBoard.`,
-      '',
-      `Pour accepter l'invitation :`,
-      `${acceptLink}`,
-      '',
-      `Ou connectez-vous directement sur ReputyBoard.`,
-      '',
-      `Cordialement,`,
-      `L'équipe Reputy`,
-    ].join('\n');
-    const emailHtml = `
-      <p>Bonjour,</p>
-      <p><strong>${inviterName}</strong> vous invite à rejoindre l'établissement <strong>"${orgName}"</strong> sur ReputyBoard.</p>
-      <p><a href="${acceptLink}" style="display:inline-block;padding:12px 24px;background:#242c34;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Accepter l'invitation</a></p>
-      <p>Ou connectez-vous directement sur ReputyBoard.</p>
-      <p>Cordialement,<br/>L'équipe Reputy</p>
-    `.trim();
-    sendEmail(data, email, emailSubject, emailText, emailHtml);
-  }
+  sendInviteEmail(data, email, acceptLink, orgName, inviterName, name, tempPasswordGenerated);
 
-  // Audit (NO tempPassword in meta!)
   writeAudit({ orgId: auth.org.id, actorUserId: auth.user.id, action: 'team.invite', targetType: 'user', targetId: targetUser.id, meta: { email, role, isNewUser: tempPasswordGenerated }, req });
 
   return sendJson(res, 201, {
     ok: true,
-    membership: {
-      id: newMembership.id,
-      userId: targetUser.id,
-      email: email,
-      role: role,
-      status: 'pending',
-    },
+    membership: { id: newMembership.id, userId: targetUser.id, email, role, status: 'pending' },
   });
 }
 
@@ -8581,6 +8379,28 @@ async function handleClientDeleteCampaign(req, res, campaignId) {
 /**
  * POST /client/campaigns/:id/recipients — Add recipients to a campaign
  */
+function buildSendAllRecipients(repos, orgId, campaign) {
+  const eligible = repos.contact.listEligibleForReviewCampaign(orgId, campaign.channel, campaign.spamThreshold);
+  const excluded = repos.contact.listExcludedFromReviewCampaign(orgId, campaign.channel, campaign.spamThreshold);
+  const recipients = eligible.map(c => ({ contactId: c.id }));
+  for (const c of excluded.spamExcluded) {
+    recipients.push({ contactId: c.id, excludedReason: 'spam_threshold' });
+  }
+  for (const c of excluded.reviewedExcluded) {
+    recipients.push({ contactId: c.id, excludedReason: 'already_reviewed' });
+  }
+  return recipients;
+}
+
+function buildSelectedRecipients(repos, contactIds, orgId) {
+  const recipients = [];
+  for (const contactId of contactIds) {
+    const contact = repos.contact.getById(contactId);
+    if (contact && contact.orgId === orgId) recipients.push({ contactId });
+  }
+  return recipients;
+}
+
 async function handleClientAddCampaignRecipients(req, res, campaignId) {
   const data = loadData();
   const auth = getAuthUser(req, data);
@@ -8598,27 +8418,11 @@ async function handleClientAddCampaignRecipients(req, res, campaignId) {
   const body = await parseBody(req);
 
   try {
-    let recipients = [];
+    let recipients;
     if (body.sendAll) {
-      // Get all eligible contacts for this channel with anti-spam
-      const eligible = repos.contact.listEligibleForReviewCampaign(orgId, campaign.channel, campaign.spamThreshold);
-      const excluded = repos.contact.listExcludedFromReviewCampaign(orgId, campaign.channel, campaign.spamThreshold);
-
-      for (const c of eligible) {
-        recipients.push({ contactId: c.id });
-      }
-      for (const c of excluded.spamExcluded) {
-        recipients.push({ contactId: c.id, excludedReason: 'spam_threshold' });
-      }
-      for (const c of excluded.reviewedExcluded) {
-        recipients.push({ contactId: c.id, excludedReason: 'already_reviewed' });
-      }
+      recipients = buildSendAllRecipients(repos, orgId, campaign);
     } else if (body.contactIds && Array.isArray(body.contactIds)) {
-      for (const contactId of body.contactIds) {
-        const contact = repos.contact.getById(contactId);
-        if (!contact || contact.orgId !== orgId) continue;
-        recipients.push({ contactId });
-      }
+      recipients = buildSelectedRecipients(repos, body.contactIds, orgId);
     } else {
       return sendJson(res, 400, { ok: false, error: 'INVALID_DATA', message: 'contactIds ou sendAll requis' });
     }
@@ -9023,135 +8827,104 @@ function handleGoogleAuthUrl(req, res) {
  * POST /client/google/callback - Handle OAuth callback (exchange code for tokens)
  * Body: { code, state }
  */
-async function handleGoogleCallback(req, res) {
-  const data = loadData();
-  const auth = getAuthUser(req, data);
-  if (!auth) {
-    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
-  }
-
-  const body = await parseBody(req);
-  if (!body.code) {
-    return sendJson(res, 400, { ok: false, errorCode: 'MISSING_CODE', message: 'Code d\'autorisation manquant' });
-  }
-
-  // Step 1: Exchange code for tokens (standard OAuth — should always work)
-  let tokens;
-  try {
-    tokens = await googleOAuth.exchangeCode(body.code);
-  } catch (err) {
-    logger.logError('GOOGLE_TOKEN_EXCHANGE_ERROR', {
-      orgId: auth.user.orgId,
-      error: err.message,
-      statusCode: err.statusCode,
-      body: err.body ? JSON.stringify(err.body).slice(0, 500) : undefined,
-    });
-    return sendJson(res, 400, {
-      ok: false,
-      errorCode: 'TOKEN_EXCHANGE_FAILED',
-      message: `Échec de l'échange de tokens Google: ${err.message}`,
-    });
-  }
-
-  if (!tokens.accessToken) {
-    return sendJson(res, 400, { ok: false, errorCode: 'TOKEN_EXCHANGE_FAILED', message: 'Aucun access token reçu de Google' });
-  }
-
-  // Step 2: Try to list accounts (may fail if GBP API quota = 0 — non-blocking)
+async function discoverGoogleAccountsAndLocations(accessToken, orgId) {
   let accounts = [];
   let accountId = null;
   let locations = [];
   let apiWarning = null;
 
   try {
-    accounts = await googleBusiness.listAccounts(tokens.accessToken);
+    accounts = await googleBusiness.listAccounts(accessToken);
     if (accounts && accounts.length > 0) {
-      accountId = accounts[0].name; // e.g. "accounts/123456789"
-
-      // Step 3: Try to list locations (also non-blocking)
+      accountId = accounts[0].name;
       try {
-        locations = await googleBusiness.listLocations(tokens.accessToken, accountId);
+        locations = await googleBusiness.listLocations(accessToken, accountId);
       } catch (locErr) {
-        logger.logError('GOOGLE_LIST_LOCATIONS_WARN', { orgId: auth.user.orgId, error: locErr.message });
+        logger.logError('GOOGLE_LIST_LOCATIONS_WARN', { orgId, error: locErr.message });
         apiWarning = 'Impossible de lister les établissements. Le quota GBP API est peut-être à 0.';
       }
     }
   } catch (accErr) {
     logger.logError('GOOGLE_LIST_ACCOUNTS_WARN', {
-      orgId: auth.user.orgId,
-      error: accErr.message,
-      statusCode: accErr.statusCode,
+      orgId, error: accErr.message, statusCode: accErr.statusCode,
       body: accErr.body ? JSON.stringify(accErr.body).slice(0, 500) : undefined,
     });
     apiWarning = `Impossible de lister les comptes GBP (${accErr.message}). Le quota API est peut-être à 0. Remplissez le formulaire Google pour demander l'accès.`;
   }
 
-  // Step 4: Save tokens in database (ALWAYS — even if listAccounts failed)
+  return { accounts, accountId, locations, apiWarning };
+}
+
+function saveGoogleOAuthTokens(tokens, accountId, locations, orgId) {
+  const oauthJson = googleOAuth.buildOAuthJson({
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresIn: tokens.expiresIn,
+    accountId: accountId || null,
+    locationId: locations.length > 0 ? locations[0].name : null,
+    locationName: locations.length > 0 ? locations[0].title : null,
+  });
+
+  const repos = storage.getRepos();
+  if (!repos) return;
+
+  const db = storage.getDb();
+  db.run('UPDATE orgs SET google_oauth_json = $json, updated_at = $now WHERE id = $id', {
+    json: oauthJson, now: db.nowISO(), id: orgId,
+  });
+
+  if (locations.length > 0 && locations[0].placeId) {
+    db.run('UPDATE orgs SET google_place_id = $placeId WHERE id = $id', {
+      placeId: locations[0].placeId, id: orgId,
+    });
+  }
+}
+
+async function handleGoogleCallback(req, res) {
+  const data = loadData();
+  const auth = getAuthUser(req, data);
+  if (!auth) return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+
+  const body = await parseBody(req);
+  if (!body.code) return sendJson(res, 400, { ok: false, errorCode: 'MISSING_CODE', message: 'Code d\'autorisation manquant' });
+
+  let tokens;
   try {
-    const oauthJson = googleOAuth.buildOAuthJson({
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresIn: tokens.expiresIn,
-      accountId: accountId || null,
-      locationId: locations.length > 0 ? locations[0].name : null,
-      locationName: locations.length > 0 ? locations[0].title : null,
+    tokens = await googleOAuth.exchangeCode(body.code);
+  } catch (err) {
+    logger.logError('GOOGLE_TOKEN_EXCHANGE_ERROR', {
+      orgId: auth.user.orgId, error: err.message, statusCode: err.statusCode,
+      body: err.body ? JSON.stringify(err.body).slice(0, 500) : undefined,
     });
+    return sendJson(res, 400, { ok: false, errorCode: 'TOKEN_EXCHANGE_FAILED', message: `Échec de l'échange de tokens Google: ${err.message}` });
+  }
 
-    const repos = storage.getRepos();
-    if (repos) {
-      const db = storage.getDb();
-      db.run('UPDATE orgs SET google_oauth_json = $json, updated_at = $now WHERE id = $id', {
-        json: oauthJson,
-        now: db.nowISO(),
-        id: auth.user.orgId,
-      });
+  if (!tokens.accessToken) {
+    return sendJson(res, 400, { ok: false, errorCode: 'TOKEN_EXCHANGE_FAILED', message: 'Aucun access token reçu de Google' });
+  }
 
-      if (locations.length > 0 && locations[0].placeId) {
-        db.run('UPDATE orgs SET google_place_id = $placeId WHERE id = $id', {
-          placeId: locations[0].placeId,
-          id: auth.user.orgId,
-        });
-      }
-    }
+  const { accounts, accountId, locations, apiWarning } = await discoverGoogleAccountsAndLocations(tokens.accessToken, auth.user.orgId);
 
-    // Log the event
+  try {
+    saveGoogleOAuthTokens(tokens, accountId, locations, auth.user.orgId);
+
     googleSync.logSyncEvent(auth.user.orgId, 'connect', 'success', {
-      accountId,
-      locationCount: locations.length,
-      apiWarning: apiWarning || undefined,
+      accountId, locationCount: locations.length, apiWarning: apiWarning || undefined,
     });
-
     logger.logAudit('GOOGLE_CONNECTED', {
-      orgId: auth.user.orgId,
-      userId: auth.user.id,
-      accountId,
-      locationCount: locations.length,
+      orgId: auth.user.orgId, userId: auth.user.id, accountId, locationCount: locations.length,
     });
 
     return sendJson(res, 200, {
       ok: true,
-      message: apiWarning
-        ? `Google connecté (avec avertissement: ${apiWarning})`
-        : 'Google Business connecté avec succès',
+      message: apiWarning ? `Google connecté (avec avertissement: ${apiWarning})` : 'Google Business connecté avec succès',
       warning: apiWarning || undefined,
-      account: accountId ? {
-        accountId,
-        accountName: accounts[0]?.accountName || accounts[0]?.name || accountId,
-      } : null,
-      locations: locations.map(l => ({
-        id: l.name,
-        title: l.title,
-        address: l.address,
-        placeId: l.placeId,
-      })),
+      account: accountId ? { accountId, accountName: accounts[0]?.accountName || accounts[0]?.name || accountId } : null,
+      locations: locations.map(l => ({ id: l.name, title: l.title, address: l.address, placeId: l.placeId })),
     });
   } catch (err) {
     logger.logError('GOOGLE_CALLBACK_ERROR', { orgId: auth.user.orgId, error: err.message });
-    return sendJson(res, 500, {
-      ok: false,
-      errorCode: 'GOOGLE_CALLBACK_ERROR',
-      message: `Erreur lors de la sauvegarde: ${err.message}`,
-    });
+    return sendJson(res, 500, { ok: false, errorCode: 'GOOGLE_CALLBACK_ERROR', message: `Erreur lors de la sauvegarde: ${err.message}` });
   }
 }
 
@@ -9405,87 +9178,82 @@ function handleGoogleSyncLog(req, res, urlParams) {
  * Falls back to text search if no place_id is stored.
  * Caches results for 24h to minimize API calls.
  */
+function isInvalidPlaceId(placeId) {
+  if (!placeId) return true;
+  const invalidPrefixes = ['gpage_', 'cid_', 'url_'];
+  return invalidPrefixes.some(p => placeId.startsWith(p));
+}
+
+function resolveDbPlaceId(orgId) {
+  const dbInstance = storage.getDb();
+  if (!dbInstance) return null;
+  const row = dbInstance.get('SELECT google_place_id FROM orgs WHERE id = $id', { id: orgId });
+  if (row?.google_place_id && !row.google_place_id.startsWith('gpage_') && !row.google_place_id.startsWith('cid_')) {
+    return row.google_place_id;
+  }
+  return null;
+}
+
+async function searchAndSavePlaceId(org) {
+  const searchQuery = org.name || org.options?.cabinetName || '';
+  if (!searchQuery || !org.lat || !org.lng) return { placeId: null, notConfigured: 'Aucun Place ID Google trouvé. Connectez votre fiche Google Business ou configurez vos coordonnées GPS.' };
+
+  const searchResults = await googlePlaces.textSearch({
+    textQuery: searchQuery, lat: org.lat, lng: org.lng, radiusMeters: 1000, maxResultCount: 3,
+  });
+
+  if (!searchResults || searchResults.length === 0) {
+    return { placeId: null, notConfigured: 'Fiche Google introuvable. Vérifiez le nom de votre établissement ou connectez Google Business.' };
+  }
+
+  const placeId = searchResults[0].placeId;
+  const dbInstance = storage.getDb();
+  if (dbInstance && placeId) {
+    dbInstance.run('UPDATE orgs SET google_place_id = $placeId, updated_at = $now WHERE id = $id', {
+      placeId, now: new Date().toISOString(), id: org.id,
+    });
+  }
+  return { placeId, notConfigured: null };
+}
+
+async function resolveGooglePlaceId(org) {
+  let placeId = org.googlePlaceId || null;
+
+  if (isInvalidPlaceId(placeId)) {
+    placeId = resolveDbPlaceId(org.id);
+  }
+
+  if (isInvalidPlaceId(placeId)) {
+    const result = await searchAndSavePlaceId(org);
+    if (result.notConfigured) return { placeId: null, notConfigured: result.notConfigured };
+    placeId = result.placeId;
+  }
+
+  return { placeId, notConfigured: null };
+}
+
 async function handleGoogleMyPlace(req, res) {
   const data = loadData();
   const auth = getAuthUser(req, data);
-  if (!auth) {
-    return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
-  }
-
-  if (!googlePlaces.isConfigured()) {
-    return sendJson(res, 503, { ok: false, error: 'Google Places API non configurée' });
-  }
+  if (!auth) return sendJson(res, 401, { ok: false, errorCode: 'UNAUTHORIZED', message: 'Session expirée' });
+  if (!googlePlaces.isConfigured()) return sendJson(res, 503, { ok: false, error: 'Google Places API non configurée' });
 
   const repos = storage.getRepos();
-  if (!repos) {
-    return sendJson(res, 503, { ok: false, error: 'Storage unavailable' });
-  }
+  if (!repos) return sendJson(res, 503, { ok: false, error: 'Storage unavailable' });
 
   const org = repos.org.getById(auth.user.orgId);
-  if (!org) {
-    return sendJson(res, 404, { ok: false, error: 'Organisation non trouvée' });
-  }
+  if (!org) return sendJson(res, 404, { ok: false, error: 'Organisation non trouvée' });
 
   try {
-    let placeId = org.googlePlaceId || null;
-
-    // google_place_id from SQLite (set during OAuth connection)
-    if (!placeId || placeId.startsWith('gpage_') || placeId.startsWith('cid_') || placeId.startsWith('url_')) {
-      const dbInstance = storage.getDb();
-      if (dbInstance) {
-        const row = dbInstance.get('SELECT google_place_id FROM orgs WHERE id = $id', { id: org.id });
-        if (row?.google_place_id && !row.google_place_id.startsWith('gpage_') && !row.google_place_id.startsWith('cid_')) {
-          placeId = row.google_place_id;
-        }
-      }
+    const { placeId, notConfigured } = await resolveGooglePlaceId(org);
+    if (notConfigured) {
+      return sendJson(res, 200, { ok: true, configured: false, message: notConfigured });
     }
 
-    // If still no valid Place ID, try text search with org name
-    if (!placeId || placeId.startsWith('gpage_') || placeId.startsWith('cid_') || placeId.startsWith('url_')) {
-      const searchQuery = org.name || org.options?.cabinetName || '';
-      if (!searchQuery || !org.lat || !org.lng) {
-        return sendJson(res, 200, {
-          ok: true,
-          configured: false,
-          message: 'Aucun Place ID Google trouvé. Connectez votre fiche Google Business ou configurez vos coordonnées GPS.',
-        });
-      }
-
-      const searchResults = await googlePlaces.textSearch({
-        textQuery: searchQuery,
-        lat: org.lat,
-        lng: org.lng,
-        radiusMeters: 1000,
-        maxResultCount: 3,
-      });
-      if (searchResults && searchResults.length > 0) {
-        placeId = searchResults[0].placeId;
-        // Save for future use
-        const dbInstance = storage.getDb();
-        if (dbInstance && placeId) {
-          dbInstance.run('UPDATE orgs SET google_place_id = $placeId, updated_at = $now WHERE id = $id', {
-            placeId,
-            now: new Date().toISOString(),
-            id: org.id,
-          });
-        }
-      } else {
-        return sendJson(res, 200, {
-          ok: true,
-          configured: false,
-          message: 'Fiche Google introuvable. Vérifiez le nom de votre établissement ou connectez Google Business.',
-        });
-      }
-    }
-
-    // Check cache (24h TTL for own place)
     let details = competitorRepo.getCachedPlaceDetails(placeId, 1);
-
     if (!details) {
       details = await googlePlaces.getPlaceDetails(placeId);
-      if (details) {
-        competitorRepo.cachePlaceDetails(details);
-      }
+      if (details) competitorRepo.cachePlaceDetails(details);
     }
 
     if (!details) {
@@ -9493,21 +9261,12 @@ async function handleGoogleMyPlace(req, res) {
     }
 
     return sendJson(res, 200, {
-      ok: true,
-      configured: true,
-      placeId,
-      name: details.name,
-      address: details.address,
-      phone: details.phone,
-      website: details.website,
-      rating: details.rating,
-      totalReviews: details.userRatingsTotal,
+      ok: true, configured: true, placeId,
+      name: details.name, address: details.address, phone: details.phone,
+      website: details.website, rating: details.rating, totalReviews: details.userRatingsTotal,
       reviews: (details.reviews || []).map(r => ({
-        author: r.author,
-        rating: r.rating,
-        text: r.text,
-        publishTime: r.publishTime,
-        relativeTime: r.relativePublishTimeDescription,
+        author: r.author, rating: r.rating, text: r.text,
+        publishTime: r.publishTime, relativeTime: r.relativePublishTimeDescription,
       })),
       openingHours: details.openingHours,
       cachedAt: new Date().toISOString(),
@@ -12528,10 +12287,10 @@ const _GOOGLE_PATTERNS = [
 
 async function routeClientGoogle(method, pathname, req, res, urlParams) {
   const exact = _GOOGLE_ROUTES.find(([v, p]) => v === method && p === pathname);
-  if (exact) { await exact[2](req, res, urlParams); return true; }
+  if (exact) { await Promise.resolve(exact[2](req, res, urlParams)); return true; }
   for (const [re, verb, handler] of _GOOGLE_PATTERNS) {
     const m = pathname.match(re);
-    if (m && method === verb) { await handler(req, res, m); return true; }
+    if (m && method === verb) { await Promise.resolve(handler(req, res, m)); return true; }
   }
   return false;
 }
@@ -12550,10 +12309,10 @@ const _COMPETITOR_PATTERNS = [
 
 async function routeClientCompetitors(method, pathname, req, res, urlParams) {
   const exact = _COMPETITOR_ROUTES.find(([v, p]) => v === method && p === pathname);
-  if (exact) { await exact[2](req, res, urlParams); return true; }
+  if (exact) { await Promise.resolve(exact[2](req, res, urlParams)); return true; }
   for (const [re, verb, handler] of _COMPETITOR_PATTERNS) {
     const m = pathname.match(re);
-    if (m && method === verb) { await handler(req, res, m); return true; }
+    if (m && method === verb) { await Promise.resolve(handler(req, res, m)); return true; }
   }
   return false;
 }
@@ -12597,16 +12356,23 @@ function routeClientBilling(method, pathname, req, res) {
   return false;
 }
 
+const _CLIENT_SUB_ROUTERS = [
+  ['/client/installations', (m, p, req, res, u) => routeClientInstallations(m, p, req, res)],
+  ['/client/shortlinks', (m, p, req, res, u) => routeClientShortlinks(m, p, req, res)],
+  ['/client/contacts', routeClientContacts],
+  ['/client/campaigns', routeClientCampaigns],
+  ['/client/google', routeClientGoogle],
+  ['/client/competitors', routeClientCompetitors],
+  ['/client/places', routeClientCompetitors],
+  ['/client/reviews', routeClientReviews],
+  ['/client/billing', (m, p, req, res, u) => routeClientBilling(m, p, req, res)],
+];
+
 async function routeClient(method, pathname, req, res, urlParams) {
   if (routeClientCore(method, pathname, req, res, urlParams)) return true;
-  if (pathname.startsWith('/client/installations') && routeClientInstallations(method, pathname, req, res)) return true;
-  if (pathname.startsWith('/client/shortlinks') && routeClientShortlinks(method, pathname, req, res)) return true;
-  if (pathname.startsWith('/client/contacts') && routeClientContacts(method, pathname, req, res, urlParams)) return true;
-  if (pathname.startsWith('/client/campaigns') && routeClientCampaigns(method, pathname, req, res, urlParams)) return true;
-  if (pathname.startsWith('/client/google') && await routeClientGoogle(method, pathname, req, res, urlParams)) return true;
-  if ((pathname.startsWith('/client/competitors') || pathname.startsWith('/client/places')) && await routeClientCompetitors(method, pathname, req, res, urlParams)) return true;
-  if (pathname.startsWith('/client/reviews') && routeClientReviews(method, pathname, req, res, urlParams)) return true;
-  if (pathname.startsWith('/client/billing') && routeClientBilling(method, pathname, req, res)) return true;
+  for (const [prefix, router] of _CLIENT_SUB_ROUTERS) {
+    if (pathname.startsWith(prefix) && await router(method, pathname, req, res, urlParams)) return true;
+  }
   return false;
 }
 
@@ -12647,15 +12413,21 @@ const _ADMIN_ORG_GET_PATTERNS = [
   [/^\/internal\/orgs\/([a-f0-9]+)\/api-token$/, (r, s, m) => handleGetApiToken(r, s, m[1])],
 ];
 
+const _ADMIN_ORG_VERBS = new Map([['GET', handleGetOrg], ['PUT', handleUpdateOrg]]);
+
+function _routeAdminOrgById(method, pathname, req, res, urlParams) {
+  const orgMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)$/);
+  if (!orgMatch) return false;
+  const handler = _ADMIN_ORG_VERBS.get(method);
+  if (!handler) return false;
+  handler(req, res, orgMatch[1], urlParams);
+  return true;
+}
+
 function routeInternalAdmin(method, pathname, req, res, urlParams) {
   const exact = _ADMIN_ROUTES.find(([v, p]) => v === method && p === pathname);
   if (exact) { exact[2](req, res, urlParams); return true; }
-
-  const orgMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)$/);
-  if (orgMatch) {
-    if (method === 'GET') { handleGetOrg(req, res, orgMatch[1], urlParams); return true; }
-    if (method === 'PUT') { handleUpdateOrg(req, res, orgMatch[1]); return true; }
-  }
+  if (_routeAdminOrgById(method, pathname, req, res, urlParams)) return true;
 
   const actionMatch = pathname.match(/^\/internal\/orgs\/([a-f0-9]+)\/([a-z-]+)$/);
   if (actionMatch && method === 'POST') {
@@ -12663,120 +12435,91 @@ function routeInternalAdmin(method, pathname, req, res, urlParams) {
     if (handler) { handler(req, res, actionMatch[1]); return true; }
   }
 
-  if (method === 'GET') {
-    for (const [re, handler] of _ADMIN_ORG_GET_PATTERNS) {
-      const m = pathname.match(re);
-      if (m) { handler(req, res, m, urlParams); return true; }
-    }
+  if (method !== 'GET') return false;
+  for (const [re, handler] of _ADMIN_ORG_GET_PATTERNS) {
+    const m = pathname.match(re);
+    if (m) { handler(req, res, m, urlParams); return true; }
   }
-
   return false;
 }
 
 // ============ SERVER ============
 
-const server = http.createServer(async (req, res) => {
-  try {
-  const { method, url } = req;
-
-  applySecurityHeaders(res);
-
-  const corsResult = applyCors(req, res);
-  if (corsResult === 'blocked' || corsResult === 'preflight') return;
-
-  if (method === 'GET' && url === '/health') {
-    return handleHealth(res);
-  }
-
-  if (method === 'GET' && url.startsWith('/google/oauth/callback')) {
-    return handleOAuthCallbackPage(req, res, url);
-  }
-
-  if (url.startsWith('/api/') && routeApiLegacy(method, url, req, res)) return;
-  if ((url.startsWith('/auth/') || url === '/me') && routeAuth(method, url, req, res)) return;
-
-  const urlParts = url.split('?');
-  const pathname = urlParts[0];
-  const urlParams = new URLSearchParams(urlParts[1] || '');
-  
-  if (pathname.startsWith('/client/') && await routeClient(method, pathname, req, res, urlParams)) return;
-
-  if (method === 'POST' && pathname === '/webhooks/stripe') { return handleStripeWebhook(req, res); }
-  if (method === 'POST' && pathname === '/webhooks/gocardless') { return handleGoCardlessWebhook(req, res); }
-
+function _routePublicAndWebhooks(method, pathname, req, res) {
+  if (method === 'POST' && pathname === '/webhooks/stripe') { handleStripeWebhook(req, res); return true; }
+  if (method === 'POST' && pathname === '/webhooks/gocardless') { handleGoCardlessWebhook(req, res); return true; }
   const publicOrgMatch = pathname.match(/^\/public\/org\/by-key\/([a-zA-Z0-9_]+)$/);
-  if (publicOrgMatch && method === 'GET') { return handleGetOrgByPublicKey(req, res, publicOrgMatch[1]); }
-  if (method === 'POST' && pathname === '/telemetry/extension') { return handleExtensionTelemetry(req, res); }
+  if (publicOrgMatch && method === 'GET') { handleGetOrgByPublicKey(req, res, publicOrgMatch[1]); return true; }
+  if (method === 'POST' && pathname === '/telemetry/extension') { handleExtensionTelemetry(req, res); return true; }
+  return false;
+}
 
-  if (routeInternalAdmin(method, pathname, req, res, urlParams)) return;
-
-  // Email review link with signed token (must be before shortlink match)
+function _routeShortlinkOrRating(method, pathname, req, res, urlParams) {
   if (pathname === '/r/review' && method === 'GET') {
-    if (applyAuthRateLimit(req, res, 'rating_page', 30)) return;
-    return handleEmailReviewLink(req, res, urlParams);
+    if (!applyAuthRateLimit(req, res, 'rating_page', 30)) handleEmailReviewLink(req, res, urlParams);
+    return true;
   }
-
-  // Email unsubscribe link with signed token
   if (pathname === '/r/unsubscribe' && (method === 'GET' || method === 'POST')) {
-    return handleEmailUnsubscribe(req, res, urlParams);
+    handleEmailUnsubscribe(req, res, urlParams); return true;
   }
 
-  // Shortlink redirect (QR/NFC) - check first with alphanumeric pattern
-  // Shortlinks use base62 codes (letters + numbers), while request IDs are hex only
-  const shortlinkMatch = pathname.match(/^\/r\/([a-zA-Z0-9]+)$/);
-  if (shortlinkMatch && method === 'GET') {
-    const code = shortlinkMatch[1];
-    // If code contains letters (not just hex), it's likely a shortlink
-    if (/[g-zG-Z]/.test(code)) {
-      return handleShortlinkRedirect(req, res, code);
-    }
-    // Otherwise, check if it's a shortlink in DB first
-    const repos = storage.getRepos();
-    if (repos) {
-      const shortlink = repos.shortlink.getByCode(code);
-      if (shortlink) {
-        return handleShortlinkRedirect(req, res, code);
-      }
-    }
+  const codeMatch = pathname.match(/^\/r\/([a-zA-Z0-9]+)$/);
+  if (codeMatch && method === 'GET') {
+    return _resolveShortlinkOrRatingGET(codeMatch[1], req, res);
   }
-  
-  // Track Google redirect click (beacon from patient page)
+
   const redirectMatch = pathname.match(/^\/r\/([a-f0-9]+)\/redirected$/);
-  if (redirectMatch && method === 'POST') {
-    return handleTrackRedirect(redirectMatch[1], res);
+  if (redirectMatch && method === 'POST') { handleTrackRedirect(redirectMatch[1], res); return true; }
+
+  const hexMatch = pathname.match(/^\/r\/([a-f0-9]+)$/);
+  if (hexMatch && method === 'POST') {
+    if (!applyAuthRateLimit(req, res, 'rating_submit', 5)) handleSubmitFeedback(hexMatch[1], req, res);
+    return true;
   }
+  return false;
+}
 
-  // Rating page (feedback form) - hex IDs only
-  const ratingMatch = pathname.match(/^\/r\/([a-f0-9]+)$/);
-  if (ratingMatch) {
-    const requestId = ratingMatch[1];
-    if (method === 'GET') {
-      // P1.4: Rate limit patient page — 30 req/min per IP (anti-scraping)
-      if (applyAuthRateLimit(req, res, 'rating_page', 30)) return;
-      return handleGetRatingPage(requestId, res);
-    }
-    if (method === 'POST') {
-      // P1.4: Rate limit feedback submit — 5 req/min per IP (anti-spam)
-      if (applyAuthRateLimit(req, res, 'rating_submit', 5)) return;
-      return handleSubmitFeedback(requestId, req, res);
-    }
+function _resolveShortlinkOrRatingGET(code, req, res) {
+  if (/[g-zG-Z]/.test(code)) { handleShortlinkRedirect(req, res, code); return true; }
+  const repos = storage.getRepos();
+  if (repos) {
+    const shortlink = repos.shortlink.getByCode(code);
+    if (shortlink) { handleShortlinkRedirect(req, res, code); return true; }
   }
+  if (/^[a-f0-9]+$/.test(code)) {
+    if (!applyAuthRateLimit(req, res, 'rating_page', 30)) handleGetRatingPage(code, res);
+    return true;
+  }
+  return false;
+}
 
-  sendJson(res, 404, { error: 'Not found' });
+const server = http.createServer(async (req, res) => {
+  let pathname;
+  try {
+    const { method, url } = req;
+    applySecurityHeaders(res);
+    const corsResult = applyCors(req, res);
+    if (corsResult === 'blocked' || corsResult === 'preflight') return;
 
+    if (method === 'GET' && url === '/health') return handleHealth(res);
+    if (method === 'GET' && url.startsWith('/google/oauth/callback')) return handleOAuthCallbackPage(req, res, url);
+    if (url.startsWith('/api/') && routeApiLegacy(method, url, req, res)) return;
+    if ((url.startsWith('/auth/') || url === '/me') && routeAuth(method, url, req, res)) return;
+
+    const urlParts = url.split('?');
+    pathname = urlParts[0];
+    const urlParams = new URLSearchParams(urlParts[1] || '');
+
+    if (pathname.startsWith('/client/') && await routeClient(method, pathname, req, res, urlParams)) return;
+    if (_routePublicAndWebhooks(method, pathname, req, res)) return;
+    if (routeInternalAdmin(method, pathname, req, res, urlParams)) return;
+    if (pathname.startsWith('/r/') && _routeShortlinkOrRating(method, pathname, req, res, urlParams)) return;
+
+    sendJson(res, 404, { error: 'Not found' });
   } catch (err) {
-    // Global safety net — log the error but DON'T crash the server
     const safeRoute = String(pathname || (req.url || '').split('?')[0] || 'unknown');
     console.error('[REPUTY][ERROR] Unhandled error in request handler:', err?.message, err?.stack);
-
-    sentry.captureException(err, {
-      route: safeRoute,
-      status_code: '500',
-      source: 'global_catch',
-      method: req.method,
-      layer: 'api',
-    });
-
+    sentry.captureException(err, { route: safeRoute, status_code: '500', source: 'global_catch', method: req.method, layer: 'api' });
     try {
       if (!res.headersSent) {
         res.statusCode = 500;

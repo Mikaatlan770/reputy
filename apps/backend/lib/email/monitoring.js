@@ -266,6 +266,87 @@ function getLastSesWebhookSeen() {
   };
 }
 
+// ============ ALERT COMPUTATION HELPERS ============
+
+function checkOrgRateAlerts(topRisk, rateKey, countKey, type, redThreshold, orangeThreshold, T) {
+  const alerts = [];
+  for (const org of topRisk) {
+    if (org.sentCount <= 0) continue;
+    const rate = org[rateKey];
+    const isRed = rate >= redThreshold;
+    const isOrange = !isRed && rate >= orangeThreshold;
+    if (!isRed && !isOrange) continue;
+
+    const severity = isRed ? 'red' : 'orange';
+    const threshold = isRed ? redThreshold : orangeThreshold;
+    const label = isRed ? 'critique' : "d'attention";
+    alerts.push({
+      id: `${rateKey.replace('Rate', '')}_${severity}_${org.orgId}`,
+      severity,
+      type,
+      message: `${org.orgName}: ${rateKey.replace('Rate', '')} rate ${(rate * 100).toFixed(3)}% dépasse le seuil ${label} (${(threshold * 100).toFixed(2)}%)`,
+      orgId: org.orgId,
+      meta: { [rateKey]: rate, [countKey]: org[countKey], sent: org.sentCount, threshold },
+    });
+  }
+  return alerts;
+}
+
+function checkWebhookSilenceAlerts(globalStats24h, lastSes, T) {
+  if (globalStats24h.sentCount <= 0) return [];
+  const baseMeta = { sent24h: globalStats24h.sentCount };
+
+  if (lastSes.lastSeenAt === null) {
+    return [{
+      id: 'webhook_silence_red', severity: 'red', type: 'GLOBAL_WEBHOOK_SILENCE',
+      message: `Aucun webhook SES reçu alors que ${globalStats24h.sentCount} email(s) envoyé(s) les dernières 24h. Vérifier la config SNS/SES.`,
+      meta: { lastSeenAt: null, ...baseMeta },
+    }];
+  }
+
+  if (lastSes.hoursSince >= T.webhookSilenceRedHours) {
+    return [{
+      id: 'webhook_silence_red', severity: 'red', type: 'GLOBAL_WEBHOOK_SILENCE',
+      message: `Dernier webhook SES reçu il y a ${lastSes.hoursSince.toFixed(1)}h (> ${T.webhookSilenceRedHours}h). Vérifier la config SNS/SES.`,
+      meta: { lastSeenAt: lastSes.lastSeenAt, hoursSince: lastSes.hoursSince, ...baseMeta, threshold: T.webhookSilenceRedHours },
+    }];
+  }
+
+  if (lastSes.hoursSince >= T.webhookSilenceOrangeHours) {
+    return [{
+      id: 'webhook_silence_orange', severity: 'orange', type: 'GLOBAL_WEBHOOK_SILENCE',
+      message: `Dernier webhook SES reçu il y a ${lastSes.hoursSince.toFixed(1)}h (> ${T.webhookSilenceOrangeHours}h). À surveiller.`,
+      meta: { lastSeenAt: lastSes.lastSeenAt, hoursSince: lastSes.hoursSince, ...baseMeta, threshold: T.webhookSilenceOrangeHours },
+    }];
+  }
+
+  return [];
+}
+
+function checkWarmingAlerts(T) {
+  const alerts = [];
+  try {
+    const allOrgs = orgRepo.getAll();
+    for (const org of allOrgs) {
+      const wState = org.options?.emailWarmup;
+      if (!wState || wState.status !== 'warming' || !wState.startedAt) continue;
+
+      const daysSinceStart = (Date.now() - new Date(wState.startedAt).getTime()) / (24 * 60 * 60 * 1000);
+      if (daysSinceStart >= T.warmingTooLongDaysOrange) {
+        alerts.push({
+          id: `warming_too_long_${org.id}`, severity: 'orange', type: 'ORG_WARMING_TOO_LONG',
+          message: `${org.name}: en warm-up depuis ${Math.floor(daysSinceStart)} jours (seuil: ${T.warmingTooLongDaysOrange}j). Vérifier ou forcer warm.`,
+          orgId: org.id,
+          meta: { warmupStatus: wState.status, startedAt: wState.startedAt, daysSinceStart: Math.floor(daysSinceStart), threshold: T.warmingTooLongDaysOrange },
+        });
+      }
+    }
+  } catch (err) {
+    logger.logError('MONITORING_WARMING_CHECK_ERROR', err.message, { error: err.message });
+  }
+  return alerts;
+}
+
 // ============ ALERTES ============
 
 /**
@@ -279,122 +360,18 @@ function getLastSesWebhookSeen() {
  * @returns {Array<{ id: string, severity: string, type: string, message: string, orgId?: string, meta: object }>}
  */
 function computeAlerts(windowStr = '7d', injected = {}) {
-  const alerts = [];
   const T = ALERT_THRESHOLDS;
-
-  // --- Données nécessaires (injectées ou calculées) ---
-  const globalStats = injected.globalStats || getGlobalEmailHealth(windowStr);
   const lastSes = injected.lastSesWebhook || getLastSesWebhookSeen();
   const topRisk = injected.topRiskOrgs || getTopRiskOrgs(windowStr, 50);
-
-  // Trafic 24h pour décider si webhookSilence est pertinent
   const globalStats24h = injected.globalStats24h || getGlobalEmailHealth('24h');
 
-  // --- A) ORG_COMPLAINT_RATE ---
-  for (const org of topRisk) {
-    if (org.sentCount <= 0) continue;
+  const alerts = [
+    ...checkOrgRateAlerts(topRisk, 'complaintRate', 'complaintCount', 'ORG_COMPLAINT_RATE', T.complaintRateRed, T.complaintRateOrange, T),
+    ...checkOrgRateAlerts(topRisk, 'bounceRate', 'bounceCount', 'ORG_BOUNCE_RATE', T.hardBounceRed, T.hardBounceOrange, T),
+    ...checkWebhookSilenceAlerts(globalStats24h, lastSes, T),
+    ...checkWarmingAlerts(T),
+  ];
 
-    if (org.complaintRate >= T.complaintRateRed) {
-      alerts.push({
-        id: `complaint_red_${org.orgId}`,
-        severity: 'red',
-        type: 'ORG_COMPLAINT_RATE',
-        message: `${org.orgName}: complaint rate ${(org.complaintRate * 100).toFixed(3)}% dépasse le seuil critique (${(T.complaintRateRed * 100).toFixed(2)}%)`,
-        orgId: org.orgId,
-        meta: { complaintRate: org.complaintRate, complaints: org.complaintCount, sent: org.sentCount, threshold: T.complaintRateRed },
-      });
-    } else if (org.complaintRate >= T.complaintRateOrange) {
-      alerts.push({
-        id: `complaint_orange_${org.orgId}`,
-        severity: 'orange',
-        type: 'ORG_COMPLAINT_RATE',
-        message: `${org.orgName}: complaint rate ${(org.complaintRate * 100).toFixed(3)}% dépasse le seuil d'attention (${(T.complaintRateOrange * 100).toFixed(2)}%)`,
-        orgId: org.orgId,
-        meta: { complaintRate: org.complaintRate, complaints: org.complaintCount, sent: org.sentCount, threshold: T.complaintRateOrange },
-      });
-    }
-  }
-
-  // --- B) ORG_BOUNCE_RATE ---
-  for (const org of topRisk) {
-    if (org.sentCount <= 0) continue;
-
-    if (org.bounceRate >= T.hardBounceRed) {
-      alerts.push({
-        id: `bounce_red_${org.orgId}`,
-        severity: 'red',
-        type: 'ORG_BOUNCE_RATE',
-        message: `${org.orgName}: bounce rate ${(org.bounceRate * 100).toFixed(2)}% dépasse le seuil critique (${(T.hardBounceRed * 100)}%)`,
-        orgId: org.orgId,
-        meta: { bounceRate: org.bounceRate, bounces: org.bounceCount, sent: org.sentCount, threshold: T.hardBounceRed },
-      });
-    } else if (org.bounceRate >= T.hardBounceOrange) {
-      alerts.push({
-        id: `bounce_orange_${org.orgId}`,
-        severity: 'orange',
-        type: 'ORG_BOUNCE_RATE',
-        message: `${org.orgName}: bounce rate ${(org.bounceRate * 100).toFixed(2)}% dépasse le seuil d'attention (${(T.hardBounceOrange * 100)}%)`,
-        orgId: org.orgId,
-        meta: { bounceRate: org.bounceRate, bounces: org.bounceCount, sent: org.sentCount, threshold: T.hardBounceOrange },
-      });
-    }
-  }
-
-  // --- C) GLOBAL_WEBHOOK_SILENCE ---
-  // Uniquement pertinent si du trafic a été émis récemment (sent 24h > 0)
-  if (globalStats24h.sentCount > 0) {
-    if (lastSes.lastSeenAt === null) {
-      // Jamais de webhook SES reçu mais du trafic → red
-      alerts.push({
-        id: 'webhook_silence_red',
-        severity: 'red',
-        type: 'GLOBAL_WEBHOOK_SILENCE',
-        message: `Aucun webhook SES reçu alors que ${globalStats24h.sentCount} email(s) envoyé(s) les dernières 24h. Vérifier la config SNS/SES.`,
-        meta: { lastSeenAt: null, sent24h: globalStats24h.sentCount },
-      });
-    } else if (lastSes.hoursSince >= T.webhookSilenceRedHours) {
-      alerts.push({
-        id: 'webhook_silence_red',
-        severity: 'red',
-        type: 'GLOBAL_WEBHOOK_SILENCE',
-        message: `Dernier webhook SES reçu il y a ${lastSes.hoursSince.toFixed(1)}h (> ${T.webhookSilenceRedHours}h). Vérifier la config SNS/SES.`,
-        meta: { lastSeenAt: lastSes.lastSeenAt, hoursSince: lastSes.hoursSince, sent24h: globalStats24h.sentCount, threshold: T.webhookSilenceRedHours },
-      });
-    } else if (lastSes.hoursSince >= T.webhookSilenceOrangeHours) {
-      alerts.push({
-        id: 'webhook_silence_orange',
-        severity: 'orange',
-        type: 'GLOBAL_WEBHOOK_SILENCE',
-        message: `Dernier webhook SES reçu il y a ${lastSes.hoursSince.toFixed(1)}h (> ${T.webhookSilenceOrangeHours}h). À surveiller.`,
-        meta: { lastSeenAt: lastSes.lastSeenAt, hoursSince: lastSes.hoursSince, sent24h: globalStats24h.sentCount, threshold: T.webhookSilenceOrangeHours },
-      });
-    }
-  }
-
-  // --- D) ORG_WARMING_TOO_LONG ---
-  try {
-    const allOrgs = orgRepo.getAll();
-    for (const org of allOrgs) {
-      const wState = org.options?.emailWarmup;
-      if (!wState || wState.status !== 'warming' || !wState.startedAt) continue;
-
-      const daysSinceStart = (Date.now() - new Date(wState.startedAt).getTime()) / (24 * 60 * 60 * 1000);
-      if (daysSinceStart >= T.warmingTooLongDaysOrange) {
-        alerts.push({
-          id: `warming_too_long_${org.id}`,
-          severity: 'orange',
-          type: 'ORG_WARMING_TOO_LONG',
-          message: `${org.name}: en warm-up depuis ${Math.floor(daysSinceStart)} jours (seuil: ${T.warmingTooLongDaysOrange}j). Vérifier ou forcer warm.`,
-          orgId: org.id,
-          meta: { warmupStatus: wState.status, startedAt: wState.startedAt, daysSinceStart: Math.floor(daysSinceStart), threshold: T.warmingTooLongDaysOrange },
-        });
-      }
-    }
-  } catch (err) {
-    logger.logError('MONITORING_WARMING_CHECK_ERROR', err.message, { error: err.message });
-  }
-
-  // Tri : red d'abord, puis orange
   const severityOrder = { red: 0, orange: 1, info: 2 };
   alerts.sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9));
 

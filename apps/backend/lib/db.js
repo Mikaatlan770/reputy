@@ -144,6 +144,39 @@ function splitSqlStatements(sql) {
 }
 
 /**
+ * Execute all statements in a migration, ignoring idempotent errors.
+ * @returns {{ ok: boolean, ignoredCount: number }}
+ */
+function executeMigrationStatements(database, statements, migrationName) {
+  let ignoredCount = 0;
+  for (const stmt of statements) {
+    try {
+      database.exec(stmt);
+    } catch (err) {
+      if (isIdempotentError(err.message)) {
+        ignoredCount++;
+        console.log(`[REPUTY-DB]   ⚠️  Ignored idempotent error in ${migrationName}: ${err.message}`);
+        continue;
+      }
+      console.error(`[REPUTY-DB] ❌ Migration failed: ${migrationName} — ${err.message}`);
+      console.error(`[REPUTY-DB]    Statement: ${stmt.substring(0, 120)}...`);
+      return { ok: false, ignoredCount };
+    }
+  }
+  return { ok: true, ignoredCount };
+}
+
+function recordMigration(database, migrationName) {
+  try {
+    database.exec(
+      `INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('${migrationName}', datetime('now'))`
+    );
+  } catch (recordErr) {
+    console.error(`[REPUTY-DB] ⚠️  Could not record migration ${migrationName}: ${recordErr.message}`);
+  }
+}
+
+/**
  * Run all pending SQL migrations from lib/migrations/
  * Migrations are tracked in the `migrations` table.
  * 
@@ -156,7 +189,6 @@ function splitSqlStatements(sql) {
 function runPendingMigrations() {
   const database = getDb();
 
-  // Ensure migrations table exists
   database.exec(`
     CREATE TABLE IF NOT EXISTS migrations (
       name TEXT PRIMARY KEY,
@@ -164,68 +196,31 @@ function runPendingMigrations() {
     )
   `);
 
-  if (!fs.existsSync(MIGRATIONS_DIR)) {
-    return 0;
-  }
+  if (!fs.existsSync(MIGRATIONS_DIR)) return 0;
 
-  // Get already applied migrations
   const applied = new Set(
     database.prepare('SELECT name FROM migrations').all().map(r => r.name)
   );
 
-  // List all .sql files sorted by name (numeric prefix ensures order)
   const files = fs.readdirSync(MIGRATIONS_DIR)
     .filter(f => f.endsWith('.sql'))
     .sort();
 
   let count = 0;
   for (const file of files) {
-    // Migration name = filename without .sql
     const migrationName = file.replace('.sql', '');
     if (applied.has(migrationName)) continue;
 
-    const sqlPath = path.join(MIGRATIONS_DIR, file);
-    const sql = fs.readFileSync(sqlPath, 'utf8');
-
-    // Execute statements one-by-one for production safety
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
     const statements = splitSqlStatements(sql);
-    let migrationOk = true;
-    let ignoredCount = 0;
+    const { ok, ignoredCount } = executeMigrationStatements(database, statements, migrationName);
 
-    for (const stmt of statements) {
-      try {
-        database.exec(stmt);
-      } catch (err) {
-        if (isIdempotentError(err.message)) {
-          // Safe to ignore: column/table/index already exists
-          ignoredCount++;
-          console.log(`[REPUTY-DB]   ⚠️  Ignored idempotent error in ${migrationName}: ${err.message}`);
-        } else {
-          // Real error — stop this migration, don't record it
-          console.error(`[REPUTY-DB] ❌ Migration failed: ${migrationName} — ${err.message}`);
-          console.error(`[REPUTY-DB]    Statement: ${stmt.substring(0, 120)}...`);
-          migrationOk = false;
-          break;
-        }
-      }
-    }
-
-    if (migrationOk) {
-      // ── AUTO-RECORD: always insert into migrations table after success ──
-      // This ensures migrations are tracked even if the SQL file doesn't
-      // contain its own INSERT INTO migrations statement.
-      try {
-        database.exec(
-          `INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('${migrationName}', datetime('now'))`
-        );
-      } catch (recordErr) {
-        console.error(`[REPUTY-DB] ⚠️  Could not record migration ${migrationName}: ${recordErr.message}`);
-      }
+    if (ok) {
+      recordMigration(database, migrationName);
       count++;
       const suffix = ignoredCount > 0 ? ` (${ignoredCount} idempotent warning(s) ignored)` : '';
       console.log(`[REPUTY-DB] ✅ Migration applied: ${migrationName}${suffix}`);
     }
-    // If !migrationOk, migration is NOT recorded → will retry on next startup
   }
 
   if (count > 0) {

@@ -29,6 +29,29 @@ const roleLabels: Record<string, string> = {
   agent: 'Secrétaire',
 }
 
+function getDisplayName(isClient: boolean, clientOrg: any, currentUser: any): string {
+  if (isClient && clientOrg) return clientOrg.name
+  if (currentUser) return `${currentUser.civility} ${currentUser.firstName} ${currentUser.lastName}`
+  return ''
+}
+
+function getDisplayRole(
+  isClient: boolean,
+  currentMembershipRole: string | null | undefined,
+  clientUser: any,
+  currentUser: any
+): string {
+  if (isClient && currentMembershipRole) return roleLabels[currentMembershipRole] || currentMembershipRole
+  if (isClient && clientUser) return clientUser.role
+  return currentUser?.role || ''
+}
+
+function getDisplayInitials(isClient: boolean, clientOrg: any, currentUser: any): string {
+  if (isClient && clientOrg) return clientOrg.name.substring(0, 2).toUpperCase()
+  if (currentUser) return `${currentUser.lastName[0]}${currentUser.firstName[0]}`.toUpperCase()
+  return 'U'
+}
+
 export function Topbar() {
   const { 
     currentUser,
@@ -39,41 +62,19 @@ export function Topbar() {
   const { mode, clientUser, clientOrg, logoutClient, memberships, currentMembershipRole, switchOrg } = useAuth()
   const isClient = useIsClient()
 
-  // Handle logout for clients - redirect to reputy-web
   const handleLogout = async () => {
     await logoutClient()
     window.location.href = LOGOUT_REDIRECT_URL
   }
 
-  // Handle org switch
   const handleOrgSwitch = async (orgId: string) => {
-    // Don't switch if already on this org
     if (orgId === clientOrg?.id) return
     await switchOrg(orgId)
-    // switchOrg does window.location.href = '/' on success
   }
   
-  // Get display name based on auth mode
-  const displayName = isClient && clientOrg 
-    ? clientOrg.name 
-    : currentUser 
-      ? `${currentUser.civility} ${currentUser.firstName} ${currentUser.lastName}` 
-      : ''
-  
-  // PR-8c: Use membership role, not user role
-  const displayRole = isClient && currentMembershipRole
-    ? roleLabels[currentMembershipRole] || currentMembershipRole
-    : isClient && clientUser 
-      ? clientUser.role 
-      : currentUser?.role || ''
-  
-  const initials = isClient && clientOrg
-    ? clientOrg.name.substring(0, 2).toUpperCase()
-    : currentUser 
-      ? `${currentUser.lastName[0]}${currentUser.firstName[0]}`.toUpperCase()
-      : 'U'
-
-  // PR-8c: Determine if we have multiple orgs to show the picker
+  const displayName = getDisplayName(isClient, clientOrg, currentUser)
+  const displayRole = getDisplayRole(isClient, currentMembershipRole, clientUser, currentUser)
+  const initials = getDisplayInitials(isClient, clientOrg, currentUser)
   const hasMultipleOrgs = memberships.length > 1
 
   return (

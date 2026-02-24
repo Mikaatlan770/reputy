@@ -192,116 +192,97 @@ function _computeStatDeltas(current, prev, responseTime, totalPeriod) {
   return { avgRatingPeriod, repliedCountPeriod, responseRatePeriod, reviewsDeltaPct, avgRatingDelta, responseRateDeltaPct, avgResponseTimeHours };
 }
 
-function getStats(orgId, period = DEFAULT_PERIOD) {
-  // Validate period
-  const days = PERIOD_TO_DAYS[period] || PERIOD_TO_DAYS[DEFAULT_PERIOD];
-  const validPeriod = PERIOD_TO_DAYS[period] ? period : DEFAULT_PERIOD;
+function _buildDistribution(rows, keyField, valueField, allKeys, total) {
+  return allKeys.map(key => {
+    const found = rows.find(r => r[keyField] === key);
+    const count = found?.[valueField] || 0;
+    return { [keyField]: key, count, percentage: total > 0 ? Math.round((count / total) * 100) : 0 };
+  });
+}
 
-  // ========== ALL-TIME STATS ==========
+function _buildTagBreakdown(tagRows, totalPeriod) {
+  const tagCounts = new Map();
+  for (const row of tagRows) {
+    if (!row?.tags) continue;
+    try {
+      const arr = JSON.parse(row.tags);
+      if (!Array.isArray(arr)) continue;
+      for (const t of arr) {
+        if (!t || typeof t !== 'string') continue;
+        const key = t.trim().toLowerCase();
+        if (key) tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
+      }
+    } catch (err) {
+      console.debug('[REVIEW] Tag parse skipped:', err.message);
+    }
+  }
+  return [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([tag, count]) => ({
+      tag, count, percentage: totalPeriod > 0 ? Math.round((count / totalPeriod) * 100) : 0,
+    }));
+}
+
+function _buildResponseTimeDist(distRows, noReplyRow) {
+  const RESPONSE_BUCKETS = ['<1h', '1-4h', '4-24h', '1-3d', '>3d'];
+  const repliedTotal = distRows.reduce((s, r) => s + (r.count || 0), 0);
+  const distribution = _buildDistribution(distRows, 'bucket', 'count', RESPONSE_BUCKETS, repliedTotal);
+  return { distribution, noReplyCount: noReplyRow?.count || 0 };
+}
+
+function _queryPeriodData(orgId, days) {
   const allTimeStats = db.get(`
-    SELECT 
-      COUNT(*) as total,
-      AVG(rating) as avgRating,
+    SELECT COUNT(*) as total, AVG(rating) as avgRating,
       COUNT(CASE WHEN status = 'pending' THEN 1 END) as pendingCount
-    FROM reviews 
-    WHERE org_id = $orgId
+    FROM reviews WHERE org_id = $orgId
   `, { orgId });
 
-  // ========== CURRENT PERIOD STATS ==========
   const currentPeriodStats = db.get(`
-    SELECT 
-      COUNT(*) as total,
-      AVG(rating) as avgRating,
+    SELECT COUNT(*) as total, AVG(rating) as avgRating,
       COUNT(CASE WHEN reply_status IN ('queued', 'sent') THEN 1 END) as repliedCount
-    FROM reviews 
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
+    FROM reviews WHERE org_id = $orgId AND reviewed_at >= datetime('now', '-${days} days')
   `, { orgId });
 
-  // ========== PREVIOUS PERIOD STATS (for deltas) ==========
   const prevPeriodStats = db.get(`
-    SELECT 
-      COUNT(*) as total,
-      AVG(rating) as avgRating,
+    SELECT COUNT(*) as total, AVG(rating) as avgRating,
       COUNT(CASE WHEN reply_status IN ('queued', 'sent') THEN 1 END) as repliedCount
-    FROM reviews 
-    WHERE org_id = $orgId
+    FROM reviews WHERE org_id = $orgId
       AND reviewed_at >= datetime('now', '-${days * 2} days')
       AND reviewed_at < datetime('now', '-${days} days')
   `, { orgId });
 
-  // ========== AVERAGE RESPONSE TIME (current period, only where reply_sent_at exists) ==========
   const responseTimeStats = db.get(`
-    SELECT 
-      AVG((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) as avgHours
-    FROM reviews 
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
-      AND reply_sent_at IS NOT NULL
+    SELECT AVG((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) as avgHours
+    FROM reviews WHERE org_id = $orgId
+      AND reviewed_at >= datetime('now', '-${days} days') AND reply_sent_at IS NOT NULL
   `, { orgId });
 
-  // ========== STAR DISTRIBUTION (current period) ==========
+  return { allTimeStats, currentPeriodStats, prevPeriodStats, responseTimeStats };
+}
+
+function _queryBreakdowns(orgId, days) {
   const starRows = db.all(`
-    SELECT rating as stars, COUNT(*) as count
-    FROM reviews
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
-    GROUP BY rating
-    ORDER BY rating DESC
+    SELECT rating as stars, COUNT(*) as count FROM reviews
+    WHERE org_id = $orgId AND reviewed_at >= datetime('now', '-${days} days')
+    GROUP BY rating ORDER BY rating DESC
   `, { orgId });
 
-  // Build star distribution (ensure all stars 1-5 are present)
-  const totalPeriod = currentPeriodStats?.total || 0;
-  const starDistributionPeriod = [5, 4, 3, 2, 1].map(stars => {
-    const found = starRows.find(r => r.stars === stars);
-    const count = found?.count || 0;
-    return {
-      stars,
-      count,
-      percentage: totalPeriod > 0 ? Math.round((count / totalPeriod) * 100) : 0
-    };
-  });
-
-  // ========== PROVIDER BREAKDOWN (current period) ==========
   const providerRows = db.all(`
-    SELECT COALESCE(provider, 'unknown') as provider, COUNT(*) as count
-    FROM reviews
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
-    GROUP BY COALESCE(provider, 'unknown')
-    ORDER BY count DESC
+    SELECT COALESCE(provider, 'unknown') as provider, COUNT(*) as count FROM reviews
+    WHERE org_id = $orgId AND reviewed_at >= datetime('now', '-${days} days')
+    GROUP BY COALESCE(provider, 'unknown') ORDER BY count DESC
   `, { orgId });
 
-  const providerBreakdownPeriod = providerRows.map(r => ({
-    provider: r.provider,
-    count: r.count || 0,
-    percentage: totalPeriod > 0 ? Math.round((r.count / totalPeriod) * 100) : 0,
-  }));
-
-  // ========== SENTIMENT BREAKDOWN (current period) ==========
   const sentimentRows = db.all(`
-    SELECT sentiment, COUNT(*) as count
-    FROM reviews
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
-      AND sentiment IS NOT NULL
-    GROUP BY sentiment
-    ORDER BY count DESC
+    SELECT sentiment, COUNT(*) as count FROM reviews
+    WHERE org_id = $orgId AND reviewed_at >= datetime('now', '-${days} days') AND sentiment IS NOT NULL
+    GROUP BY sentiment ORDER BY count DESC
   `, { orgId });
 
-  const sentimentBreakdownPeriod = sentimentRows.map(r => ({
-    sentiment: r.sentiment,
-    count: r.count || 0,
-    percentage: totalPeriod > 0 ? Math.round((r.count / totalPeriod) * 100) : 0,
-  }));
-
-  // ========== RESPONSE TIME DISTRIBUTION (current period) ==========
   const noReplyRow = db.get(`
-    SELECT COUNT(*) as count
-    FROM reviews
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
-      AND reply_sent_at IS NULL
+    SELECT COUNT(*) as count FROM reviews
+    WHERE org_id = $orgId AND reviewed_at >= datetime('now', '-${days} days') AND reply_sent_at IS NULL
   `, { orgId });
 
   const responseTimeDistRows = db.all(`
@@ -312,109 +293,56 @@ function getStats(orgId, period = DEFAULT_PERIOD) {
         WHEN ((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) < 24 THEN '4-24h'
         WHEN ((julianday(reply_sent_at) - julianday(reviewed_at)) * 24) < 72 THEN '1-3d'
         ELSE '>3d'
-      END as bucket,
-      COUNT(*) as count
-    FROM reviews
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
-      AND reply_sent_at IS NOT NULL
+      END as bucket, COUNT(*) as count
+    FROM reviews WHERE org_id = $orgId
+      AND reviewed_at >= datetime('now', '-${days} days') AND reply_sent_at IS NOT NULL
     GROUP BY bucket
   `, { orgId });
 
-  const RESPONSE_BUCKETS = ['<1h', '1-4h', '4-24h', '1-3d', '>3d'];
-  const repliedWithTimeCount = responseTimeDistRows.reduce((s, r) => s + (r.count || 0), 0);
-
-  const responseTimeDistributionPeriod = RESPONSE_BUCKETS.map(bucket => {
-    const found = responseTimeDistRows.find(r => r.bucket === bucket);
-    const count = found?.count || 0;
-    return {
-      bucket,
-      count,
-      percentage: repliedWithTimeCount > 0 ? Math.round((count / repliedWithTimeCount) * 100) : 0,
-    };
-  });
-
-  const responseTimeNoReplyCount = noReplyRow?.count || 0;
-
-  // ========== TAG BREAKDOWN (current period, top 12, JS aggregation) ==========
   const tagRows = db.all(`
-    SELECT tags
-    FROM reviews
-    WHERE org_id = $orgId
-      AND reviewed_at >= datetime('now', '-${days} days')
-      AND tags IS NOT NULL
-      AND tags != '[]'
+    SELECT tags FROM reviews
+    WHERE org_id = $orgId AND reviewed_at >= datetime('now', '-${days} days')
+      AND tags IS NOT NULL AND tags != '[]'
   `, { orgId });
 
-  const tagCounts = new Map();
-  for (const row of tagRows) {
-    if (!row?.tags) continue;
-    try {
-      const arr = JSON.parse(row.tags);
-      if (!Array.isArray(arr)) continue;
-      for (const t of arr) {
-        if (!t || typeof t !== 'string') continue;
-        const key = t.trim().toLowerCase();
-        if (!key) continue;
-        tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
-      }
-    } catch (err) {
-      console.debug('[REVIEW] Tag parse skipped:', err.message);
-    }
-  }
+  return { starRows, providerRows, sentimentRows, noReplyRow, responseTimeDistRows, tagRows };
+}
 
-  const tagBreakdownPeriod = [...tagCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12)
-    .map(([tag, count]) => ({
-      tag,
-      count,
-      percentage: totalPeriod > 0 ? Math.round((count / totalPeriod) * 100) : 0,
-    }));
+function getStats(orgId, period = DEFAULT_PERIOD) {
+  const days = PERIOD_TO_DAYS[period] || PERIOD_TO_DAYS[DEFAULT_PERIOD];
+  const validPeriod = PERIOD_TO_DAYS[period] ? period : DEFAULT_PERIOD;
 
+  const { allTimeStats, currentPeriodStats, prevPeriodStats, responseTimeStats } = _queryPeriodData(orgId, days);
+  const { starRows, providerRows, sentimentRows, noReplyRow, responseTimeDistRows, tagRows } = _queryBreakdowns(orgId, days);
+
+  const totalPeriod = currentPeriodStats?.total || 0;
+  const starDistributionPeriod = _buildDistribution(starRows, 'stars', 'count', [5, 4, 3, 2, 1], totalPeriod);
+  const providerBreakdownPeriod = providerRows.map(r => ({
+    provider: r.provider, count: r.count || 0,
+    percentage: totalPeriod > 0 ? Math.round((r.count / totalPeriod) * 100) : 0,
+  }));
+  const sentimentBreakdownPeriod = sentimentRows.map(r => ({
+    sentiment: r.sentiment, count: r.count || 0,
+    percentage: totalPeriod > 0 ? Math.round((r.count / totalPeriod) * 100) : 0,
+  }));
+  const { distribution: responseTimeDistributionPeriod, noReplyCount: responseTimeNoReplyCount } = _buildResponseTimeDist(responseTimeDistRows, noReplyRow);
+  const tagBreakdownPeriod = _buildTagBreakdown(tagRows, totalPeriod);
   const { avgRatingPeriod, repliedCountPeriod, responseRatePeriod, reviewsDeltaPct, avgRatingDelta, responseRateDeltaPct, avgResponseTimeHours } =
     _computeStatDeltas(currentPeriodStats, prevPeriodStats, responseTimeStats, totalPeriod);
 
-  // ========== RETURN FINAL OBJECT ==========
+  const roundedAllTimeRating = allTimeStats?.avgRating ? Math.round(allTimeStats.avgRating * 10) / 10 : 0;
+
   return {
     period: validPeriod,
-
-    // All-time stats
-    totalAllTime: allTimeStats?.total || 0,
-    avgRatingAllTime: allTimeStats?.avgRating 
-      ? Math.round(allTimeStats.avgRating * 10) / 10 
-      : 0,
-
-    // Current period stats
-    totalPeriod,
-    avgRatingPeriod,
-    pendingCount: allTimeStats?.pendingCount || 0, // all-time pending
-    repliedCountPeriod,
-    responseRatePeriod,
-    avgResponseTimeHours,
-
-    // Deltas vs previous period (null if not calculable)
-    reviewsDeltaPct,
-    avgRatingDelta,
-    responseRateDeltaPct,
-
-    // Star distribution for current period
+    totalAllTime: allTimeStats?.total || 0, avgRatingAllTime: roundedAllTimeRating,
+    totalPeriod, avgRatingPeriod, pendingCount: allTimeStats?.pendingCount || 0,
+    repliedCountPeriod, responseRatePeriod, avgResponseTimeHours,
+    reviewsDeltaPct, avgRatingDelta, responseRateDeltaPct,
     starDistributionPeriod,
-
-    // Advanced breakdowns (PR-A analytics)
-    providerBreakdownPeriod,
-    sentimentBreakdownPeriod,
-    responseTimeDistributionPeriod,
-    responseTimeNoReplyCount,
-    tagBreakdownPeriod,
-
-    // Legacy fields (for backward compatibility)
-    total: allTimeStats?.total || 0,
-    avgRating: allTimeStats?.avgRating 
-      ? Math.round(allTimeStats.avgRating * 10) / 10 
-      : 0,
-    repliedCount: currentPeriodStats?.repliedCount || 0,
-    ignoredCount: 0, // deprecated, kept for compat
+    providerBreakdownPeriod, sentimentBreakdownPeriod,
+    responseTimeDistributionPeriod, responseTimeNoReplyCount, tagBreakdownPeriod,
+    total: allTimeStats?.total || 0, avgRating: roundedAllTimeRating,
+    repliedCount: currentPeriodStats?.repliedCount || 0, ignoredCount: 0,
     responseRate: responseRatePeriod,
     reviews30Days: validPeriod === '30d' ? totalPeriod : 0,
     starDistribution: starDistributionPeriod
@@ -477,47 +405,38 @@ function getAnalytics(orgId, period = '30d', groupBy = 'day') {
 // Write Operations
 // ============================================================
 
+function _validateReviewData(data) {
+  if (!data.orgId) throw new Error('orgId is required');
+  if (!data.authorName) throw new Error('authorName is required');
+  if (!data.rating || data.rating < 1 || data.rating > 5) throw new Error('rating must be 1-5');
+  if (!data.reviewedAt) throw new Error('reviewedAt is required');
+}
+
+const RATING_SENTIMENT_MAP = { 5: 'positive', 4: 'positive', 3: 'neutral' };
+
+function _normalizeSentiment(data) {
+  if (data.sentiment && VALID_SENTIMENTS.includes(data.sentiment)) return data.sentiment;
+  return RATING_SENTIMENT_MAP[data.rating] || 'negative';
+}
+
+function _normalizeTags(tags) {
+  if (!tags) return '[]';
+  if (Array.isArray(tags)) return JSON.stringify(tags);
+  if (typeof tags === 'string') {
+    try { JSON.parse(tags); return tags; } catch { return '[]'; }
+  }
+  return '[]';
+}
+
 /**
  * Create a new review
  * @param {object} data - Review data
  * @returns {object} Created review
  */
 function create(data) {
+  _validateReviewData(data);
   const id = data.id || generateId();
   const now = db.nowISO();
-
-  // Validate required fields
-  if (!data.orgId) throw new Error('orgId is required');
-  if (!data.authorName) throw new Error('authorName is required');
-  if (!data.rating || data.rating < 1 || data.rating > 5) throw new Error('rating must be 1-5');
-  if (!data.reviewedAt) throw new Error('reviewedAt is required');
-
-  // Normalize sentiment
-  let sentiment = null;
-  if (data.sentiment && VALID_SENTIMENTS.includes(data.sentiment)) {
-    sentiment = data.sentiment;
-  } else if (data.rating >= 4) {
-    sentiment = 'positive';
-  } else if (data.rating === 3) {
-    sentiment = 'neutral';
-  } else {
-    sentiment = 'negative';
-  }
-
-  // Ensure tags is valid JSON array
-  let tags = '[]';
-  if (data.tags) {
-    if (Array.isArray(data.tags)) {
-      tags = JSON.stringify(data.tags);
-    } else if (typeof data.tags === 'string') {
-      try {
-        JSON.parse(data.tags);
-        tags = data.tags;
-      } catch {
-        tags = '[]';
-      }
-    }
-  }
 
   db.run(`
     INSERT INTO reviews (
@@ -546,8 +465,8 @@ function create(data) {
     replyStatus: VALID_REPLY_STATUSES.includes(data.replyStatus) ? data.replyStatus : 'none',
     replySentAt: data.replySentAt || null,
     replyError: data.replyError || null,
-    tags,
-    sentiment,
+    tags: _normalizeTags(data.tags),
+    sentiment: _normalizeSentiment(data),
     rawJson: data.rawJson || null,
     now
   });

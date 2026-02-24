@@ -226,6 +226,43 @@ async function syncOneOrg(org, periodKey, isDryRun, isForce) {
   return 'processed';
 }
 
+function resolveProfileName(org) {
+  try {
+    return placesProfiles.getSearchProfile(org.vertical, org.specialty).profileName;
+  } catch (e) {
+    console.debug('[SYNC] Profile resolve failed:', e.message);
+    return 'unknown';
+  }
+}
+
+function logSyncError(org, err, periodKey, isDryRun) {
+  console.error(`[SYNC-COMPETITORS]   ❌ Error for org ${org.id}: ${err.message}`);
+  if (!isDryRun) {
+    competitorRepo.logSync({
+      orgId: org.id, profile: resolveProfileName(org), runPeriodKey: periodKey,
+      status: 'error', placesFound: 0, placesStored: 0, errorMessage: err.message,
+    });
+  }
+}
+
+async function processOrgs(eligibleOrgs, periodKey, isDryRun, isForce) {
+  let totalProcessed = 0, totalSkipped = 0, totalErrors = 0;
+
+  for (const org of eligibleOrgs.slice(0, MAX_ORGS_PER_RUN)) {
+    try {
+      const result = await syncOneOrg(org, periodKey, isDryRun, isForce);
+      if (result === 'skipped') totalSkipped++;
+      else totalProcessed++;
+      await sleep(500);
+    } catch (err) {
+      logSyncError(org, err, periodKey, isDryRun);
+      totalErrors++;
+    }
+  }
+
+  return { totalProcessed, totalSkipped, totalErrors };
+}
+
 async function main() {
   const isDryRun = process.argv.includes('--dry-run');
   const isForce = process.argv.includes('--force');
@@ -251,25 +288,7 @@ async function main() {
     process.exit(0);
   }
 
-  let totalProcessed = 0, totalSkipped = 0, totalErrors = 0;
-
-  for (const org of eligibleOrgs.slice(0, MAX_ORGS_PER_RUN)) {
-    try {
-      const result = await syncOneOrg(org, periodKey, isDryRun, isForce);
-      if (result === 'skipped') totalSkipped++;
-      else totalProcessed++;
-      await sleep(500);
-    } catch (err) {
-      console.error(`[SYNC-COMPETITORS]   ❌ Error for org ${org.id}: ${err.message}`);
-      let profileName = 'unknown';
-      try { profileName = placesProfiles.getSearchProfile(org.vertical, org.specialty).profileName; } catch (e) { console.debug('[SYNC] Profile resolve failed:', e.message); }
-      if (!isDryRun) {
-        competitorRepo.logSync({ orgId: org.id, profile: profileName, runPeriodKey: periodKey, status: 'error', placesFound: 0, placesStored: 0, errorMessage: err.message });
-      }
-      totalErrors++;
-    }
-  }
-
+  const { totalProcessed, totalSkipped, totalErrors } = await processOrgs(eligibleOrgs, periodKey, isDryRun, isForce);
   console.log(`[SYNC-COMPETITORS] Done! Processed: ${totalProcessed}, Skipped: ${totalSkipped}, Errors: ${totalErrors}`);
 }
 
