@@ -421,6 +421,46 @@ function getCompetitorSubtitle(competitor: Record<string, unknown>): string {
   return competitor.distanceKm ? `${competitor.distanceKm} km` : '-'
 }
 
+const monthLabels: Record<string, string> = {
+  '01': 'Jan', '02': 'Fév', '03': 'Mar', '04': 'Avr',
+  '05': 'Mai', '06': 'Juin', '07': 'Juil', '08': 'Août',
+  '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Déc',
+}
+
+function computeEstablishmentData(
+  googleData: { configured?: boolean; rating?: number | null; totalReviews?: number | null } | null | undefined,
+  stats: { avgRatingAllTime?: number; totalAllTime?: number; totalPeriod?: number; responseRatePeriod?: number; reviewsDeltaPct?: number | null } | null | undefined,
+) {
+  return {
+    rating: googleData?.configured && googleData.rating != null
+      ? googleData.rating
+      : (stats?.avgRatingAllTime ?? 0),
+    reviewsCount: googleData?.configured && googleData.totalReviews != null
+      ? googleData.totalReviews
+      : (stats?.totalAllTime ?? 0),
+    reviewsLast30d: stats?.totalPeriod ?? 0,
+    responseRate: stats?.responseRatePeriod ?? 0,
+    reviewsDeltaPct: stats?.reviewsDeltaPct ?? null,
+  }
+}
+
+function buildEvolutionData(
+  analyticsSeries: { period: string; reviews: number }[],
+  totalAllTime: number,
+) {
+  if (analyticsSeries.length === 0) return []
+  let cumul = totalAllTime - analyticsSeries.reduce((acc, p) => acc + p.reviews, 0)
+  return analyticsSeries.map((p) => {
+    cumul += p.reviews
+    const monthKey = p.period.split('-')[1]
+    return {
+      month: monthLabels[monthKey] || p.period,
+      vous: cumul,
+      local: null as number | null,
+    }
+  })
+}
+
 interface CompetitorRowData {
   id: string; name: string; rating?: number | null
   reviewsCount: number; distanceKm?: number | null; isAuto: boolean
@@ -768,18 +808,7 @@ export default function CompetitorsPage() {
   const { series: analyticsSeries, loading: analyticsLoading } = useReviewAnalytics('90d', 'month')
   const { data: googleData, loading: googleLoading } = useGoogleMyPlace()
 
-  // Données établissement actif: Google live rating si disponible, sinon fallback reviews sync
-  const currentEstablishmentData = {
-    rating: googleData?.configured && googleData.rating != null
-      ? googleData.rating
-      : (stats?.avgRatingAllTime ?? 0),
-    reviewsCount: googleData?.configured && googleData.totalReviews != null
-      ? googleData.totalReviews
-      : (stats?.totalAllTime ?? 0),
-    reviewsLast30d: stats?.totalPeriod ?? 0,
-    responseRate: stats?.responseRatePeriod ?? 0,
-    reviewsDeltaPct: stats?.reviewsDeltaPct ?? null,
-  }
+  const currentEstablishmentData = computeEstablishmentData(googleData, stats)
 
   // État pour les paramètres de recherche auto
   const [establishmentType, setEstablishmentType] = useState<EstablishmentType>(
@@ -1064,27 +1093,7 @@ export default function CompetitorsPage() {
     radius,
   })
 
-  // Évolution des avis (réel depuis /client/reviews/analytics)
-  const monthLabels: Record<string, string> = {
-    '01': 'Jan', '02': 'Fév', '03': 'Mar', '04': 'Avr',
-    '05': 'Mai', '06': 'Juin', '07': 'Juil', '08': 'Août',
-    '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Déc',
-  }
-
-  const evolutionData = analyticsSeries.length > 0
-    ? (() => {
-        let cumul = (stats?.totalAllTime ?? 0) - analyticsSeries.reduce((acc, p) => acc + p.reviews, 0)
-        return analyticsSeries.map((p) => {
-          cumul += p.reviews
-          const monthKey = p.period.split('-')[1] // "2026-01" → "01"
-          return {
-            month: monthLabels[monthKey] || p.period,
-            vous: cumul,
-            local: null as number | null,
-          }
-        })
-      })()
-    : []
+  const evolutionData = buildEvolutionData(analyticsSeries, stats?.totalAllTime ?? 0)
 
   return (
     <div className="space-y-6">
@@ -1225,81 +1234,18 @@ export default function CompetitorsPage() {
               </Button>
             </div>
 
-            {/* Ligne 2 : Spécialité — Onglets catégories + recherche + dropdown */}
             {establishmentType === 'health' && (
-              <div className="space-y-2.5 rounded-lg border border-input/50 bg-muted/30 p-3">
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground font-medium">
-                    Spécialité
-                  </label>
-                  {savingSpecialty && (
-                    <span className="text-xs text-blue-500 animate-pulse">Sauvegarde...</span>
-                  )}
-                  {specialtySaved && !savingSpecialty && (
-                    <span className="text-xs text-green-600">✓ Enregistré</span>
-                  )}
-                  {specialty && (
-                    <Badge variant="outline" className="text-xs ml-auto">
-                      {specialtyLabels[specialty] || specialty}
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Onglets catégories (pills) */}
-                <Tabs
-                  value={selectedCategory}
-                  onValueChange={(val) => {
-                    setSelectedCategory(val)
-                    setSpecialtySearch('')
-                  }}
-                >
-                  <TabsList className="flex flex-wrap h-auto gap-1 bg-transparent p-0">
-                    {specialtyCategories.map((cat) => (
-                      <TabsTrigger
-                        key={cat.label}
-                        value={cat.label}
-                        className="text-xs px-2.5 py-1.5 rounded-full border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:shadow-none border-input bg-background hover:bg-muted"
-                      >
-                        {cat.label}
-                        <span className="ml-1 text-[10px] opacity-60">
-                          ({cat.items.length})
-                        </span>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-
-                {/* Recherche + Dropdown filtré */}
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1 max-w-[250px]">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                    <input
-                      type="text"
-                      value={specialtySearch}
-                      onChange={(e) => setSpecialtySearch(e.target.value)}
-                      placeholder="Filtrer..."
-                      className="h-9 w-full pl-8 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-                    />
-                  </div>
-                  <select
-                    value={specialty}
-                    onChange={(e) => {
-                      handleSpecialtyChange(e.target.value as HealthSpecialty)
-                    }}
-                    disabled={savingSpecialty}
-                    className="h-9 px-3 rounded-lg border border-input bg-background text-sm min-w-[220px]"
-                  >
-                    {filteredSpecialties.length === 0 && (
-                      <option value="" disabled>Aucun résultat</option>
-                    )}
-                    {filteredSpecialties.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              <SpecialtySelector
+                specialty={specialty}
+                savingSpecialty={savingSpecialty}
+                specialtySaved={specialtySaved}
+                selectedCategory={selectedCategory}
+                onCategoryChange={(val) => { setSelectedCategory(val); setSpecialtySearch('') }}
+                specialtySearch={specialtySearch}
+                onSpecialtySearchChange={setSpecialtySearch}
+                filteredSpecialties={filteredSpecialties}
+                onSpecialtyChange={handleSpecialtyChange}
+              />
             )}
           </div>
 
@@ -1321,116 +1267,24 @@ export default function CompetitorsPage() {
         </CardContent>
       </Card>
 
-      {/* Table Comparatif */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Comparatif</CardTitle>
-            {activeAutoStats && (
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>
-                  {activeAutoStats.totalCompetitors} concurrent
-                  {activeAutoStats.totalCompetitors > 1 ? 's' : ''} détecté
-                  {activeAutoStats.totalCompetitors > 1 ? 's' : ''}
-                </span>
-                <span>
-                  Note moy.: <strong>{activeAutoStats.avgRating}</strong>
-                </span>
-                {hasRealData && (
-                  <Badge variant="outline" className="text-[10px] px-1 py-0 text-green-600 border-green-300">
-                    Google Places
-                  </Badge>
-                )}
-              </div>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {(isLoading || competitorsLoading) ? (
-            // Skeleton loader
-            <div className="space-y-3">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <Skeleton className="h-10 w-10 rounded-lg" />
-                  <div className="flex-1">
-                    <Skeleton className="h-4 w-48 mb-2" />
-                    <Skeleton className="h-3 w-32" />
-                  </div>
-                  <Skeleton className="h-6 w-16" />
-                  <Skeleton className="h-6 w-12" />
-                  <Skeleton className="h-6 w-16" />
-                </div>
-              ))}
-            </div>
-          ) : allCompetitors.length === 0 && filteredManualCompetitors.length === 0 ? (
-            // Empty state
-            <div className="text-center py-12">
-              <MapPin className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="font-medium text-foreground mb-2">
-                Aucune concurrence détectée
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Essayez d&apos;élargir le rayon de recherche ou ajoutez des
-                concurrents manuellement.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Établissement
-                    </th>
-                    <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Note
-                    </th>
-                    <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Total avis
-                    </th>
-                    <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Avis 30j
-                    </th>
-                    <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Tendance
-                    </th>
-                    <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Distance
-                    </th>
-                    <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
-                      Source
-                    </th>
-                    <th className="text-right py-3 px-4"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentLocation && (
-                    <YourEstablishmentRow
-                      location={currentLocation}
-                      data={currentEstablishmentData}
-                      loading={statsLoading}
-                    />
-                  )}
-                  {allCompetitors.map((competitor) => (
-                    <CompetitorRow
-                      key={competitor.id}
-                      competitor={competitor as CompetitorRowData}
-                      isPinned={pinnedAutoIds.has(competitor.id)}
-                      isEstimated30d={isEstimated30d}
-                      onTogglePin={togglePin}
-                      onToggleHide={toggleHide}
-                      onSelectCompetitor={(pid, name) => {
-                        setSelectedPlaceId(pid)
-                        setSelectedCompetitorName(name)
-                      }}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <ComparativeTableCard
+        activeAutoStats={activeAutoStats}
+        hasRealData={hasRealData}
+        loading={isLoading || competitorsLoading}
+        empty={allCompetitors.length === 0 && filteredManualCompetitors.length === 0}
+        allCompetitors={allCompetitors as CompetitorRowData[]}
+        currentLocation={currentLocation}
+        currentEstablishmentData={currentEstablishmentData}
+        statsLoading={statsLoading}
+        pinnedAutoIds={pinnedAutoIds}
+        isEstimated30d={isEstimated30d}
+        onTogglePin={togglePin}
+        onToggleHide={toggleHide}
+        onSelectCompetitor={(pid: string, name: string) => {
+          setSelectedPlaceId(pid)
+          setSelectedCompetitorName(name)
+        }}
+      />
 
       {/* Graphiques et Insights */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -1471,36 +1325,10 @@ export default function CompetitorsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {analyticsLoading ? (
-              <div className="h-[250px] flex items-center justify-center">
-                <div className="text-center space-y-2">
-                  <Skeleton className="h-[200px] w-full rounded-lg" />
-                </div>
-              </div>
-            ) : evolutionData.length === 0 ? (
-              <div className="h-[250px] flex items-center justify-center text-muted-foreground text-sm">
-                Pas encore de données d&apos;évolution
-              </div>
-            ) : (
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={evolutionData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="vous"
-                    stroke="#3B82F6"
-                    strokeWidth={2}
-                      name="Vous (cumulés)"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            )}
+            <EvolutionChartContent
+              loading={analyticsLoading}
+              evolutionData={evolutionData}
+            />
           </CardContent>
         </Card>
       </div>
@@ -1546,6 +1374,299 @@ export default function CompetitorsPage() {
         addCompetitorLoading={addCompetitorLoading}
         onAddCompetitor={handleAddCompetitor}
       />
+    </div>
+  )
+}
+
+function SpecialtySelector({
+  specialty,
+  savingSpecialty,
+  specialtySaved,
+  selectedCategory,
+  onCategoryChange,
+  specialtySearch,
+  onSpecialtySearchChange,
+  filteredSpecialties,
+  onSpecialtyChange,
+}: {
+  specialty: HealthSpecialty | ''
+  savingSpecialty: boolean
+  specialtySaved: boolean
+  selectedCategory: string
+  onCategoryChange: (val: string) => void
+  specialtySearch: string
+  onSpecialtySearchChange: (val: string) => void
+  filteredSpecialties: { value: HealthSpecialty; label: string }[]
+  onSpecialtyChange: (spec: HealthSpecialty) => void
+}) {
+  return (
+    <div className="space-y-2.5 rounded-lg border border-input/50 bg-muted/30 p-3">
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-muted-foreground font-medium">
+          Spécialité
+        </label>
+        {savingSpecialty && (
+          <span className="text-xs text-blue-500 animate-pulse">Sauvegarde...</span>
+        )}
+        {specialtySaved && !savingSpecialty && (
+          <span className="text-xs text-green-600">✓ Enregistré</span>
+        )}
+        {specialty && (
+          <Badge variant="outline" className="text-xs ml-auto">
+            {specialtyLabels[specialty] || specialty}
+          </Badge>
+        )}
+      </div>
+
+      <Tabs
+        value={selectedCategory}
+        onValueChange={onCategoryChange}
+      >
+        <TabsList className="flex flex-wrap h-auto gap-1 bg-transparent p-0">
+          {specialtyCategories.map((cat) => (
+            <TabsTrigger
+              key={cat.label}
+              value={cat.label}
+              className="text-xs px-2.5 py-1.5 rounded-full border data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:border-primary data-[state=active]:shadow-none border-input bg-background hover:bg-muted"
+            >
+              {cat.label}
+              <span className="ml-1 text-[10px] opacity-60">
+                ({cat.items.length})
+              </span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-[250px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={specialtySearch}
+            onChange={(e) => onSpecialtySearchChange(e.target.value)}
+            placeholder="Filtrer..."
+            className="h-9 w-full pl-8 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+          />
+        </div>
+        <select
+          value={specialty}
+          onChange={(e) => onSpecialtyChange(e.target.value as HealthSpecialty)}
+          disabled={savingSpecialty}
+          className="h-9 px-3 rounded-lg border border-input bg-background text-sm min-w-[220px]"
+        >
+          {filteredSpecialties.length === 0 && (
+            <option value="" disabled>Aucun résultat</option>
+          )}
+          {filteredSpecialties.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
+}
+
+function ComparativeTableCard({
+  activeAutoStats,
+  hasRealData,
+  loading,
+  empty,
+  allCompetitors,
+  currentLocation,
+  currentEstablishmentData,
+  statsLoading,
+  pinnedAutoIds,
+  isEstimated30d,
+  onTogglePin,
+  onToggleHide,
+  onSelectCompetitor,
+}: {
+  activeAutoStats: { avgRating: number; avgReviews: number; totalCompetitors: number } | null
+  hasRealData: boolean
+  loading: boolean
+  empty: boolean
+  allCompetitors: CompetitorRowData[]
+  currentLocation: { name: string; address: string } | null
+  currentEstablishmentData: { rating: number; reviewsCount: number; reviewsLast30d: number; reviewsDeltaPct: number | null }
+  statsLoading: boolean
+  pinnedAutoIds: Set<string>
+  isEstimated30d: boolean
+  onTogglePin: (id: string) => void
+  onToggleHide: (id: string) => void
+  onSelectCompetitor: (placeId: string, name: string) => void
+}) {
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Comparatif</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="h-10 w-10 rounded-lg" />
+                <div className="flex-1">
+                  <Skeleton className="h-4 w-48 mb-2" />
+                  <Skeleton className="h-3 w-32" />
+                </div>
+                <Skeleton className="h-6 w-16" />
+                <Skeleton className="h-6 w-12" />
+                <Skeleton className="h-6 w-16" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (empty) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Comparatif</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12">
+            <MapPin className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <h3 className="font-medium text-foreground mb-2">
+              Aucune concurrence détectée
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Essayez d&apos;élargir le rayon de recherche ou ajoutez des
+              concurrents manuellement.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">Comparatif</CardTitle>
+          {activeAutoStats && (
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span>
+                {activeAutoStats.totalCompetitors} concurrent
+                {activeAutoStats.totalCompetitors > 1 ? 's' : ''} détecté
+                {activeAutoStats.totalCompetitors > 1 ? 's' : ''}
+              </span>
+              <span>
+                Note moy.: <strong>{activeAutoStats.avgRating}</strong>
+              </span>
+              {hasRealData && (
+                <Badge variant="outline" className="text-[10px] px-1 py-0 text-green-600 border-green-300">
+                  Google Places
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                  Établissement
+                </th>
+                <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
+                  Note
+                </th>
+                <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
+                  Total avis
+                </th>
+                <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
+                  Avis 30j
+                </th>
+                <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
+                  Tendance
+                </th>
+                <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
+                  Distance
+                </th>
+                <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">
+                  Source
+                </th>
+                <th className="text-right py-3 px-4"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentLocation && (
+                <YourEstablishmentRow
+                  location={currentLocation}
+                  data={currentEstablishmentData}
+                  loading={statsLoading}
+                />
+              )}
+              {allCompetitors.map((competitor) => (
+                <CompetitorRow
+                  key={competitor.id}
+                  competitor={competitor}
+                  isPinned={pinnedAutoIds.has(competitor.id)}
+                  isEstimated30d={isEstimated30d}
+                  onTogglePin={onTogglePin}
+                  onToggleHide={onToggleHide}
+                  onSelectCompetitor={onSelectCompetitor}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function EvolutionChartContent({
+  loading,
+  evolutionData,
+}: {
+  loading: boolean
+  evolutionData: { month: string; vous: number; local: number | null }[]
+}) {
+  if (loading) {
+    return (
+      <div className="h-[250px] flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <Skeleton className="h-[200px] w-full rounded-lg" />
+        </div>
+      </div>
+    )
+  }
+  if (evolutionData.length === 0) {
+    return (
+      <div className="h-[250px] flex items-center justify-center text-muted-foreground text-sm">
+        Pas encore de données d&apos;évolution
+      </div>
+    )
+  }
+  return (
+    <div className="h-[250px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={evolutionData}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+          <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+          <YAxis tick={{ fontSize: 12 }} />
+          <Tooltip />
+          <Legend />
+          <Line
+            type="monotone"
+            dataKey="vous"
+            stroke="#3B82F6"
+            strokeWidth={2}
+            name="Vous (cumulés)"
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   )
 }

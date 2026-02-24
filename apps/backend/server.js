@@ -3183,16 +3183,256 @@ function _enqueueSqliteChannel(repos, dbRequest, body, orgId, channel) {
   return null;
 }
 
+function handleSendReviewAuthFailure(req, res, auth, publicKey, reqId, startTime) {
+  const data = loadData();
+  recordTelemetry(data, null, 'warn', auth.error,
+    `Auth failed: ${auth.message}`, { source: 'extension', publicKey: publicKey || 'none' });
+  saveData(data);
+
+  logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
+    requestId: reqId,
+    durationMs: Date.now() - startTime,
+    status: 401,
+    errorCode: auth.error,
+    publicKey: publicKey || 'none'
+  });
+
+  return sendJson(res, 401, {
+    ok: false,
+    error: auth.error,
+    message: auth.message
+  });
+}
+
+function handleSendReviewAccessBlocked(req, res, data, org, accessCheckSms, publicKey, orgId, reqId, startTime) {
+  recordTelemetry(data, orgId, 'warn', accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
+    `Tentative d'envoi sur compte ${org.status}`, { source: 'extension', publicKey });
+  saveData(data);
+
+  logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
+    requestId: reqId,
+    orgId,
+    durationMs: Date.now() - startTime,
+    status: 403,
+    errorCode: accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
+    orgStatus: org.status
+  });
+
+  return sendJson(res, 403, {
+    ok: false,
+    errorCategory: accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
+    error: accessCheckSms.error?.errorCode || 'FEATURE_BLOCKED',
+    message: accessCheckSms.error?.message || 'Fonctionnalité non disponible avec votre abonnement actuel.',
+    action: accessCheckSms.error?.action || 'UPGRADE_PLAN',
+    details: {
+      status: org.status,
+      orgName: org.name,
+      message: stateMachine.getStateInfo(org).blockMessage || 'Contactez votre administrateur.'
+    }
+  });
+}
+
+function checkSendReviewIdempotency(data, orgId, clientRequestId) {
+  if (!clientRequestId || !orgId) return null;
+
+  const existingUsage = findUsageByRequestId(data, orgId, clientRequestId);
+  if (!existingUsage) return null;
+
+  console.log(`[REPUTY][API] ⚡ Idempotence: requestId ${clientRequestId} déjà traité`);
+  const existingReqId = existingUsage.meta?.requestId || existingUsage.meta?.originalRequestId;
+  const existingRequest = existingReqId ? data.requests?.[existingReqId] : null;
+
+  return {
+    ok: true,
+    deduped: true,
+    requestId: existingReqId || clientRequestId,
+    feedbackUrl: existingRequest?.feedbackUrl || null,
+    message: 'Requête déjà traitée (idempotent)'
+  };
+}
+
+function processResendCredits(req, res, data, body, existingRequest, id, orgId, reqId, startTime) {
+  const channel = body.channel;
+  const usageType = channel === 'email' ? 'email' : 'sms';
+  const effectiveOrgId = orgId || existingRequest.orgId;
+
+  if (!effectiveOrgId) return null;
+
+  const org = data.orgs.find(o => o.id === effectiveOrgId);
+  if (!org) return null;
+
+  const usageResult = recordUsageAndDebit(data, org, usageType, {
+    channel,
+    requestId: id,
+    patientName: body.patientName,
+    patientContact: channel === 'email' ? body.patientEmail : body.patientPhone,
+    resend: true,
+    sendCount: existingRequest.sendCount
+  });
+
+  if (!usageResult.success) {
+    saveData(data);
+
+    logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
+      requestId: reqId,
+      orgId: effectiveOrgId,
+      channel,
+      durationMs: Date.now() - startTime,
+      status: 402,
+      errorCode: 'QUOTA_EXCEEDED',
+      resend: true
+    });
+
+    return sendJson(res, 402, {
+      ok: false,
+      error: 'QUOTA_EXCEEDED',
+      message: `Quota ${usageType.toUpperCase()} dépassé pour cette période (renvoi)`,
+      billingPeriodEnd: org.billing?.periodEnd
+    });
+  }
+
+  recordTelemetry(data, effectiveOrgId, 'info',
+    usageType === 'sms' ? 'RESEND_SMS_SUCCESS' : 'RESEND_EMAIL_SUCCESS',
+    `Renvoi ${usageType.toUpperCase()} #${existingRequest.sendCount} à ${body.patientName}`, {
+      source: 'extension',
+      requestId: id,
+      channel,
+      allocationId: usageResult.entry?.meta?.allocationId
+    });
+
+  return null;
+}
+
+function handleDuplicateResend(req, res, data, body, duplicate, orgId, reqId, startTime) {
+  const { id, request: existingRequest } = duplicate;
+
+  if ((existingRequest.sendCount || 1) < MAX_SEND_COUNT) {
+    existingRequest.sendCount = (existingRequest.sendCount || 1) + 1;
+    existingRequest.lastSentAt = new Date().toISOString();
+
+    const quotaError = processResendCredits(req, res, data, body, existingRequest, id, orgId, reqId, startTime);
+    if (quotaError) return quotaError;
+
+    saveData(data);
+
+    const effectiveOrgId = orgId || existingRequest.orgId;
+    console.log('[REPUTY][API] Demande dupliquée (renvoi autorisé)', {
+      requestId: id,
+      sendCount: existingRequest.sendCount,
+      orgId: effectiveOrgId || 'non rattaché'
+    });
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    requestId: id,
+    feedbackUrl: existingRequest.feedbackUrl,
+    duplicate: true,
+    sendCount: existingRequest.sendCount || 1,
+    reason: `Demande déjà créée il y a moins de ${DUPLICATE_WINDOW_HOURS}h`
+  });
+}
+
+function processNewRequestUsage(req, res, data, body, orgId, requestId, reqId, startTime, reviewUrl) {
+  const channel = body.channel;
+  const usageType = channel === 'email' ? 'email' : 'sms';
+
+  if (!orgId) return null;
+
+  const org = data.orgs.find(o => o.id === orgId);
+  if (!org) return null;
+
+  const usageRequestId = body.requestId || requestId;
+  const usageResult = recordUsageAndDebit(data, org, usageType, {
+    channel,
+    requestId: usageRequestId,
+    reviewRequestId: requestId,
+    patientName: body.patientName,
+    patientContact: channel === 'email' ? body.patientEmail : body.patientPhone
+  });
+
+  if (usageResult.deduped) {
+    console.log('[REPUTY][API] Idempotent request detected, returning existing result');
+    return sendJson(res, 200, {
+      ok: true,
+      requestId,
+      feedbackUrl: reviewUrl,
+      deduped: true,
+      message: 'Requête déjà traitée (idempotent)'
+    });
+  }
+
+  if (!usageResult.success) {
+    saveData(data);
+
+    if (usageResult.reason === 'SUBSCRIPTION_INACTIVE') {
+      return sendJson(res, 403, {
+        ok: false,
+        error: 'SUBSCRIPTION_INACTIVE',
+        message: 'Abonnement inactif. Les envois sont désactivés.',
+        details: {
+          status: org.status,
+          message: 'Contactez votre administrateur pour réactiver votre abonnement.'
+        }
+      });
+    }
+
+    const periodEndDate = org.billing?.periodEnd ?
+      new Date(org.billing.periodEnd).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) :
+      'fin de mois';
+
+    logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
+      requestId: reqId,
+      orgId,
+      channel,
+      durationMs: Date.now() - startTime,
+      status: 402,
+      errorCode: 'QUOTA_EXCEEDED'
+    });
+
+    return sendJson(res, 402, {
+      ok: false,
+      error: 'QUOTA_EXCEEDED',
+      message: `Crédits ${usageType.toUpperCase()} épuisés.`,
+      details: {
+        smsRemaining: usageResult.smsRemaining || 0,
+        emailRemaining: usageResult.emailRemaining || 0,
+        subscriptionRemaining: usageResult.subscriptionRemaining,
+        packRemaining: usageResult.packRemaining,
+        periodEnd: org.billing?.periodEnd,
+        periodEndFormatted: periodEndDate,
+        renewalMessage: `Renouvellement abonnement le ${periodEndDate}. Achetez un pack pour des crédits supplémentaires.`
+      }
+    });
+  }
+
+  const orgIndex = data.orgs.findIndex(o => o.id === orgId);
+  if (orgIndex >= 0) {
+    data.orgs[orgIndex] = org;
+  }
+
+  const telemetryCode = usageType === 'sms' ? 'SEND_SMS_SUCCESS' : 'SEND_EMAIL_SUCCESS';
+  recordTelemetry(data, orgId, 'info', telemetryCode,
+    `${usageType.toUpperCase()} envoyé à ${body.patientName}`, {
+      source: 'extension',
+      requestId,
+      channel,
+      allocationId: usageResult.entry?.meta?.allocationId
+    });
+
+  return null;
+}
+
 async function handleSendReview(req, res) {
   const startTime = Date.now();
-  
+
   let body;
   try {
     body = await parseBody(req);
   } catch (err) {
     return sendJson(res, 400, { error: 'Corps JSON invalide' });
   }
-  
+
   const reqId = logger.extractRequestId(req, body);
 
   const validationError = validatePayload(body);
@@ -3200,37 +3440,16 @@ async function handleSendReview(req, res) {
     return sendJson(res, 400, { error: validationError });
   }
 
-  // ============ P1.3: AUTH VIA publicKey + apiToken ============
   const publicKey = req.headers['x-public-key'];
   const auth = validateExtensionAuth(req, publicKey);
-  
+
   if (!auth.ok) {
-    const data = loadData();
-    // Log failed auth attempt
-    recordTelemetry(data, null, 'warn', auth.error, 
-      `Auth failed: ${auth.message}`, { source: 'extension', publicKey: publicKey || 'none' });
-    saveData(data);
-    
-    // P1.4: Log extension auth failed
-    logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
-      requestId: reqId,
-      durationMs: Date.now() - startTime,
-      status: 401,
-      errorCode: auth.error,
-      publicKey: publicKey || 'none'
-    });
-    
-    return sendJson(res, 401, { 
-      ok: false, 
-      error: auth.error, 
-      message: auth.message 
-    });
+    return handleSendReviewAuthFailure(req, res, auth, publicKey, reqId, startTime);
   }
-  
+
   const org = auth.org;
   const orgId = org.id;
 
-  // P1.6: Kill switch — silently skip all messaging when MESSAGING_DISABLED
   if (MESSAGING_DISABLED) {
     logger.logInfo('MESSAGING_DISABLED', { orgId, reqId, route: '/api/send-review-request' });
     return sendJson(res, 200, {
@@ -3242,154 +3461,30 @@ async function handleSendReview(req, res) {
   }
 
   const data = loadData();
-  
-  // STATE MACHINE GUARD: Check if org can send SMS/email
-  // This replaces the old simple status check with proper state machine logic
+
   const accessCheckSms = stateMachine.canPerformAction(org, 'sendSms');
   const accessCheckEmail = stateMachine.canPerformAction(org, 'sendEmail');
-  
-  // Block if BOTH SMS and email are blocked (read_only or suspended state)
+
   if (!accessCheckSms.allowed && !accessCheckEmail.allowed) {
-    recordTelemetry(data, orgId, 'warn', accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED', 
-      `Tentative d'envoi sur compte ${org.status}`, { source: 'extension', publicKey });
-    saveData(data);
-    
-    // P1.4: Log extension subscription restricted
-    logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
-      requestId: reqId,
-      orgId,
-      durationMs: Date.now() - startTime,
-      status: 403,
-      errorCode: accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
-      orgStatus: org.status
-    });
-    
-    return sendJson(res, 403, {
-      ok: false,
-      errorCategory: accessCheckSms.error?.errorCategory || 'SUBSCRIPTION_RESTRICTED',
-      error: accessCheckSms.error?.errorCode || 'FEATURE_BLOCKED',
-      message: accessCheckSms.error?.message || 'Fonctionnalité non disponible avec votre abonnement actuel.',
-      action: accessCheckSms.error?.action || 'UPGRADE_PLAN',
-      details: {
-        status: org.status,
-        orgName: org.name,
-        message: stateMachine.getStateInfo(org).blockMessage || 'Contactez votre administrateur.'
-      }
-    });
+    return handleSendReviewAccessBlocked(req, res, data, org, accessCheckSms, publicKey, orgId, reqId, startTime);
   }
-  
-  // ============ IDEMPOTENCE VIA requestId ============
-  // Si le client fournit un requestId, vérifier si déjà traité
-  const clientRequestId = body.requestId;
-  if (clientRequestId && orgId) {
-    const existingUsage = findUsageByRequestId(data, orgId, clientRequestId);
-    if (existingUsage) {
-      console.log(`[REPUTY][API] ⚡ Idempotence: requestId ${clientRequestId} déjà traité`);
-      
-      // Trouver la request associée pour retourner feedbackUrl
-      const existingReqId = existingUsage.meta?.requestId || existingUsage.meta?.originalRequestId;
-      const existingRequest = existingReqId ? data.requests?.[existingReqId] : null;
-      
-      return sendJson(res, 200, {
-        ok: true,
-        deduped: true,
-        requestId: existingReqId || clientRequestId,
-        feedbackUrl: existingRequest?.feedbackUrl || null,
-        message: 'Requête déjà traitée (idempotent)'
-      });
-    }
+
+  const idempotentResult = checkSendReviewIdempotency(data, orgId, body.requestId);
+  if (idempotentResult) {
+    return sendJson(res, 200, idempotentResult);
   }
-  
+
   const idempotencyKey = generateIdempotencyKey(body);
-  
-  // ============ ANTI-DOUBLON: Vérifier si request existe déjà ============
   const duplicate = findDuplicateRequest(data, idempotencyKey);
-  
+
   if (duplicate) {
-    const { id, request: existingRequest } = duplicate;
-    
-    // Incrémenter le compteur de renvoi (si inférieur au max)
-    if ((existingRequest.sendCount || 1) < MAX_SEND_COUNT) {
-      existingRequest.sendCount = (existingRequest.sendCount || 1) + 1;
-      existingRequest.lastSentAt = new Date().toISOString();
-      
-      // Enregistrer usage + telemetry même pour les renvois
-      const channel = body.channel;
-      const usageType = channel === 'email' ? 'email' : 'sms';
-      const effectiveOrgId = orgId || existingRequest.orgId;
-      
-      if (effectiveOrgId) {
-        const org = data.orgs.find(o => o.id === effectiveOrgId);
-        
-        if (org) {
-          // Debit credits for resend
-          const usageResult = recordUsageAndDebit(data, org, usageType, {
-            channel,
-            requestId: id,
-            patientName: body.patientName,
-            patientContact: channel === 'email' ? body.patientEmail : body.patientPhone,
-            resend: true,
-            sendCount: existingRequest.sendCount
-          });
-          
-          if (!usageResult.success) {
-            // Quota exceeded - reject the resend
-            saveData(data);
-            
-            // P1.4: Log quota exceeded for resend
-            logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
-              requestId: reqId,
-              orgId: effectiveOrgId,
-              channel,
-              durationMs: Date.now() - startTime,
-              status: 402,
-              errorCode: 'QUOTA_EXCEEDED',
-              resend: true
-            });
-            
-            return sendJson(res, 402, {
-              ok: false,
-              error: 'QUOTA_EXCEEDED',
-              message: `Quota ${usageType.toUpperCase()} dépassé pour cette période (renvoi)`,
-              billingPeriodEnd: org.billing?.periodEnd
-            });
-          }
-          
-          recordTelemetry(data, effectiveOrgId, 'info', 
-            usageType === 'sms' ? 'RESEND_SMS_SUCCESS' : 'RESEND_EMAIL_SUCCESS',
-            `Renvoi ${usageType.toUpperCase()} #${existingRequest.sendCount} à ${body.patientName}`, {
-              source: 'extension',
-              requestId: id,
-              channel,
-              allocationId: usageResult.entry?.meta?.allocationId
-            });
-        }
-      }
-      
-      saveData(data);
-      
-      console.log('[REPUTY][API] Demande dupliquée (renvoi autorisé)', {
-        requestId: id,
-        sendCount: existingRequest.sendCount,
-        orgId: effectiveOrgId || 'non rattaché'
-      });
-    }
-    
-    return sendJson(res, 200, {
-      ok: true,
-      requestId: id,
-      feedbackUrl: existingRequest.feedbackUrl,
-      duplicate: true,
-      sendCount: existingRequest.sendCount || 1,
-      reason: `Demande déjà créée il y a moins de ${DUPLICATE_WINDOW_HOURS}h`
-    });
+    return handleDuplicateResend(req, res, data, body, duplicate, orgId, reqId, startTime);
   }
 
   if (storage.USE_SQLITE) {
     return _handleSendReviewSQLite(req, res, body, orgId, startTime);
   }
 
-  // ============ JSON MODE: NOUVELLE REQUEST (legacy) ============
   const requestId = randomBytes(12).toString('hex');
   const reviewUrl = `${REVIEWS_BASE_URL}/r/${requestId}`;
   const now = new Date().toISOString();
@@ -3401,7 +3496,7 @@ async function handleSendReview(req, res) {
     lastSentAt: now,
     sendCount: 1,
     channel: body.channel,
-    orgId: orgId || null, // Rattacher la request à l'org
+    orgId: orgId || null,
     patient: {
       name: body.patientName,
       firstName: body.patientFirstName || '',
@@ -3417,108 +3512,12 @@ async function handleSendReview(req, res) {
       locationId: body.locationId || ''
     }
   };
-  
-  // ============ VÉRIFIER QUOTA & ENREGISTRER USAGE ============
-  const channel = body.channel; // 'sms' ou 'email'
-  const usageType = channel === 'email' ? 'email' : 'sms';
-  
-  if (orgId) {
-    // Get the org object for debit
-    const org = data.orgs.find(o => o.id === orgId);
-    
-    if (org) {
-      // Debit credits and record usage
-      // Use body.requestId (from extension) for idempotence if provided, else use requestId
-      const usageRequestId = body.requestId || requestId;
-      const usageResult = recordUsageAndDebit(data, org, usageType, {
-        channel,
-        requestId: usageRequestId, // For idempotence check
-        reviewRequestId: requestId, // Link to review request
-        patientName: body.patientName,
-        patientContact: channel === 'email' ? body.patientEmail : body.patientPhone
-      });
-      
-      // Check if deduped (idempotent request)
-      if (usageResult.deduped) {
-        console.log('[REPUTY][API] Idempotent request detected, returning existing result');
-        // Return success without re-debiting
-        return sendJson(res, 200, {
-          ok: true,
-          requestId,
-          feedbackUrl: reviewUrl,
-          deduped: true,
-          message: 'Requête déjà traitée (idempotent)'
-        });
-      }
-      
-      if (!usageResult.success) {
-        saveData(data); // Save the usage entry with fail status
-        
-        // Handle SUBSCRIPTION_INACTIVE
-        if (usageResult.reason === 'SUBSCRIPTION_INACTIVE') {
-          return sendJson(res, 403, {
-            ok: false,
-            error: 'SUBSCRIPTION_INACTIVE',
-            message: 'Abonnement inactif. Les envois sont désactivés.',
-            details: {
-              status: org.status,
-              message: 'Contactez votre administrateur pour réactiver votre abonnement.'
-            }
-          });
-        }
-        
-        // Handle QUOTA_EXCEEDED
-        const periodEndDate = org.billing?.periodEnd ? 
-          new Date(org.billing.periodEnd).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : 
-          'fin de mois';
-        
-        // P1.4: Log quota exceeded
-        logger.logExtensionAction('EXTENSION_SEND_REVIEW_FAILED', false, req, {
-          requestId: reqId,
-          orgId,
-          channel,
-          durationMs: Date.now() - startTime,
-          status: 402,
-          errorCode: 'QUOTA_EXCEEDED'
-        });
-        
-        return sendJson(res, 402, {
-          ok: false,
-          error: 'QUOTA_EXCEEDED',
-          message: `Crédits ${usageType.toUpperCase()} épuisés.`,
-          details: {
-            smsRemaining: usageResult.smsRemaining || 0,
-            emailRemaining: usageResult.emailRemaining || 0,
-            subscriptionRemaining: usageResult.subscriptionRemaining,
-            packRemaining: usageResult.packRemaining,
-            periodEnd: org.billing?.periodEnd,
-            periodEndFormatted: periodEndDate,
-            renewalMessage: `Renouvellement abonnement le ${periodEndDate}. Achetez un pack pour des crédits supplémentaires.`
-          }
-        });
-      }
-      
-      // Update org in data
-      const orgIndex = data.orgs.findIndex(o => o.id === orgId);
-      if (orgIndex >= 0) {
-        data.orgs[orgIndex] = org;
-      }
-      
-      // Enregistrer la télémétrie
-      const telemetryCode = usageType === 'sms' ? 'SEND_SMS_SUCCESS' : 'SEND_EMAIL_SUCCESS';
-      recordTelemetry(data, orgId, 'info', telemetryCode, 
-        `${usageType.toUpperCase()} envoyé à ${body.patientName}`, {
-          source: 'extension',
-          requestId,
-          channel,
-          allocationId: usageResult.entry?.meta?.allocationId
-        });
-    }
-  }
-  
+
+  const usageResponse = processNewRequestUsage(req, res, data, body, orgId, requestId, reqId, startTime, reviewUrl);
+  if (usageResponse) return usageResponse;
+
   saveData(data);
 
-  // P1.4: Log extension success
   logger.logExtensionAction('EXTENSION_SEND_REVIEW_SUCCESS', true, req, {
     requestId: reqId,
     orgId,
@@ -12493,6 +12492,23 @@ function _resolveShortlinkOrRatingGET(code, req, res) {
   return false;
 }
 
+function isAuthRoute(url) {
+  return url.startsWith('/auth/') || url === '/me';
+}
+
+function handleServerError(res, err, req, pathname) {
+  const safeRoute = String(pathname || (req.url || '').split('?')[0] || 'unknown');
+  console.error('[REPUTY][ERROR] Unhandled error in request handler:', err?.message, err?.stack);
+  sentry.captureException(err, { route: safeRoute, status_code: '500', source: 'global_catch', method: req.method, layer: 'api' });
+  try {
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'Erreur interne du serveur' }));
+    }
+  } catch (innerErr) { console.debug('[HTTP] Error response failed (already sent?):', innerErr.message); }
+}
+
 const server = http.createServer(async (req, res) => {
   let pathname;
   try {
@@ -12504,7 +12520,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && url === '/health') return handleHealth(res);
     if (method === 'GET' && url.startsWith('/google/oauth/callback')) return handleOAuthCallbackPage(req, res, url);
     if (url.startsWith('/api/') && routeApiLegacy(method, url, req, res)) return;
-    if ((url.startsWith('/auth/') || url === '/me') && routeAuth(method, url, req, res)) return;
+    if (isAuthRoute(url) && routeAuth(method, url, req, res)) return;
 
     const urlParts = url.split('?');
     pathname = urlParts[0];
@@ -12517,16 +12533,7 @@ const server = http.createServer(async (req, res) => {
 
     sendJson(res, 404, { error: 'Not found' });
   } catch (err) {
-    const safeRoute = String(pathname || (req.url || '').split('?')[0] || 'unknown');
-    console.error('[REPUTY][ERROR] Unhandled error in request handler:', err?.message, err?.stack);
-    sentry.captureException(err, { route: safeRoute, status_code: '500', source: 'global_catch', method: req.method, layer: 'api' });
-    try {
-      if (!res.headersSent) {
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'Erreur interne du serveur' }));
-      }
-    } catch (err) { console.debug('[HTTP] Error response failed (already sent?):', err.message); }
+    handleServerError(res, err, req, pathname);
   }
 });
 

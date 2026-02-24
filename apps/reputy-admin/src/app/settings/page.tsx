@@ -556,131 +556,14 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Review Routing - NOUVEAU */}
-        <Card className="lg:col-span-2 border-blue-200 bg-gradient-to-br from-blue-50/50 to-indigo-50/30">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Filter className="h-5 w-5 text-blue-600" />
-              Routing des avis
-            </CardTitle>
-            <CardDescription>
-              Configurez le seuil pour rediriger les patients satisfaits vers les avis publics
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Toggle activation */}
-            <div className="flex items-center justify-between p-4 bg-white rounded-lg border">
-              <div>
-                <p className="font-medium">Activer le routing</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {reviewRouting.enabled 
-                    ? 'Les patients satisfaits seront invités à laisser un avis public'
-                    : 'Tous les avis restent en feedback interne'}
-                </p>
-              </div>
-              <button
-                onClick={() => setReviewRouting({ ...reviewRouting, enabled: !reviewRouting.enabled })}
-                disabled={loadingRouting}
-                className="relative"
-              >
-                {reviewRouting.enabled ? (
-                  <ToggleRight className="h-8 w-8 text-blue-600" />
-                ) : (
-                  <ToggleLeft className="h-8 w-8 text-gray-400" />
-                )}
-              </button>
-            </div>
-
-            {reviewRouting.enabled && (
-              <>
-                {/* Threshold slider */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium">Seuil minimum</label>
-                    <span className="text-sm font-bold text-blue-600">
-                      {reviewRouting.threshold}+ étoiles
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">1★</span>
-                    <input
-                      type="range"
-                      min="1"
-                      max="5"
-                      value={reviewRouting.threshold}
-                      onChange={(e) => setReviewRouting({ ...reviewRouting, threshold: parseInt(e.target.value) })}
-                      disabled={loadingRouting}
-                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                    />
-                    <span className="text-xs text-muted-foreground">5★</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Les patients avec {reviewRouting.threshold}★ ou plus seront redirigés vers un avis public
-                  </p>
-                </div>
-
-                {/* Target selection */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Plateforme cible</label>
-                  <div className="flex gap-3">
-                    {(['DOCTOLIB', 'GOOGLE'] as const).map((target) => (
-                      <button
-                        key={target}
-                        onClick={() => setReviewRouting({ ...reviewRouting, publicTarget: target })}
-                        disabled={loadingRouting}
-                        className={`flex-1 p-3 rounded-lg border-2 transition-colors ${
-                          reviewRouting.publicTarget === target
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <p className="font-medium">{target === 'DOCTOLIB' ? 'Doctolib' : 'Google'}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {target === 'DOCTOLIB' ? 'Avis Doctolib (bientôt)' : 'Google Business'}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Preview */}
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <Info className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-amber-800">
-                      <p className="font-medium mb-1">Comportement actuel</p>
-                      <ul className="text-xs space-y-1">
-                        <li>• Note ≥ {reviewRouting.threshold}★ → Redirection vers {reviewRouting.publicTarget === 'GOOGLE' ? 'Google' : 'Doctolib'}</li>
-                        <li>• Note &lt; {reviewRouting.threshold}★ → Feedback interne uniquement</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="flex items-center gap-3 pt-2">
-              <Button 
-                onClick={saveReviewRouting} 
-                disabled={savingRouting || loadingRouting}
-                className="gap-2"
-              >
-                {savingRouting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                Enregistrer le routing
-              </Button>
-              {routingSaveSuccess && (
-                <span className="text-sm text-green-600 flex items-center gap-1">
-                  <CheckCircle className="h-4 w-4" />
-                  Enregistré !
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <ReviewRoutingCard
+          reviewRouting={reviewRouting}
+          loadingRouting={loadingRouting}
+          savingRouting={savingRouting}
+          routingSaveSuccess={routingSaveSuccess}
+          onRoutingChange={setReviewRouting}
+          onSave={saveReviewRouting}
+        />
 
         <GoogleBusinessCard
           googleLoading={googleLoading}
@@ -1259,5 +1142,145 @@ function GoogleDisconnectedState({
         </div>
       </div>
     </>
+  )
+}
+
+function ReviewRoutingCard({
+  reviewRouting,
+  loadingRouting,
+  savingRouting,
+  routingSaveSuccess,
+  onRoutingChange,
+  onSave,
+}: {
+  reviewRouting: { enabled: boolean; threshold: number; publicTarget: 'DOCTOLIB' | 'GOOGLE' }
+  loadingRouting: boolean
+  savingRouting: boolean
+  routingSaveSuccess: boolean
+  onRoutingChange: (routing: { enabled: boolean; threshold: number; publicTarget: 'DOCTOLIB' | 'GOOGLE' }) => void
+  onSave: () => void
+}) {
+  const targetLabel = reviewRouting.publicTarget === 'GOOGLE' ? 'Google' : 'Doctolib'
+  return (
+    <Card className="lg:col-span-2 border-blue-200 bg-gradient-to-br from-blue-50/50 to-indigo-50/30">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Filter className="h-5 w-5 text-blue-600" />
+          Routing des avis
+        </CardTitle>
+        <CardDescription>
+          Configurez le seuil pour rediriger les patients satisfaits vers les avis publics
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center justify-between p-4 bg-white rounded-lg border">
+          <div>
+            <p className="font-medium">Activer le routing</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {reviewRouting.enabled
+                ? 'Les patients satisfaits seront invités à laisser un avis public'
+                : 'Tous les avis restent en feedback interne'}
+            </p>
+          </div>
+          <button
+            onClick={() => onRoutingChange({ ...reviewRouting, enabled: !reviewRouting.enabled })}
+            disabled={loadingRouting}
+            className="relative"
+          >
+            {reviewRouting.enabled ? (
+              <ToggleRight className="h-8 w-8 text-blue-600" />
+            ) : (
+              <ToggleLeft className="h-8 w-8 text-gray-400" />
+            )}
+          </button>
+        </div>
+
+        {reviewRouting.enabled && (
+          <>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Seuil minimum</label>
+                <span className="text-sm font-bold text-blue-600">
+                  {reviewRouting.threshold}+ étoiles
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">1★</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="5"
+                  value={reviewRouting.threshold}
+                  onChange={(e) => onRoutingChange({ ...reviewRouting, threshold: parseInt(e.target.value) })}
+                  disabled={loadingRouting}
+                  className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+                <span className="text-xs text-muted-foreground">5★</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Les patients avec {reviewRouting.threshold}★ ou plus seront redirigés vers un avis public
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Plateforme cible</label>
+              <div className="flex gap-3">
+                {(['DOCTOLIB', 'GOOGLE'] as const).map((target) => (
+                  <button
+                    key={target}
+                    onClick={() => onRoutingChange({ ...reviewRouting, publicTarget: target })}
+                    disabled={loadingRouting}
+                    className={`flex-1 p-3 rounded-lg border-2 transition-colors ${
+                      reviewRouting.publicTarget === target
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="font-medium">{target === 'DOCTOLIB' ? 'Doctolib' : 'Google'}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {target === 'DOCTOLIB' ? 'Avis Doctolib (bientôt)' : 'Google Business'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <Info className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">Comportement actuel</p>
+                  <ul className="text-xs space-y-1">
+                    <li>• Note ≥ {reviewRouting.threshold}★ → Redirection vers {targetLabel}</li>
+                    <li>• Note &lt; {reviewRouting.threshold}★ → Feedback interne uniquement</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-3 pt-2">
+          <Button
+            onClick={onSave}
+            disabled={savingRouting || loadingRouting}
+            className="gap-2"
+          >
+            {savingRouting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Enregistrer le routing
+          </Button>
+          {routingSaveSuccess && (
+            <span className="text-sm text-green-600 flex items-center gap-1">
+              <CheckCircle className="h-4 w-4" />
+              Enregistré !
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }

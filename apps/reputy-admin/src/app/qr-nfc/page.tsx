@@ -503,14 +503,14 @@ function CreateShortlinkDialog({
   onCopyUrl: (url: string) => void
   getAuthToken: () => Promise<string | null>
 }) {
+  const createdTitle = `✅ ${createType === 'qr' ? 'QR Code' : 'Lien NFC'} créé !`
+  const formTitle = `Nouveau ${createType === 'qr' ? 'QR Code' : 'lien NFC'}`
   return (
     <Dialog open={open} onOpenChange={(o) => !newShortlink && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {newShortlink 
-              ? `✅ ${createType === 'qr' ? 'QR Code' : 'Lien NFC'} créé !`
-              : `Nouveau ${createType === 'qr' ? 'QR Code' : 'lien NFC'}`}
+            {newShortlink ? createdTitle : formTitle}
           </DialogTitle>
           <DialogDescription>
             {newShortlink 

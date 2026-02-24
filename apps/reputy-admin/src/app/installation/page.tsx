@@ -374,86 +374,20 @@ function ApiTokenCard({
       </CardHeader>
       <CardContent>
         {apiToken ? (
-          <div className="space-y-3">
-            <div className="bg-white/10 backdrop-blur rounded-xl p-4 flex items-center justify-between gap-4">
-              <code className="font-mono text-sm text-green-300 break-all">
-                {tokenRevealed ? apiToken : '••••••••••••••••••••••••••••••••'}
-              </code>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={() => setTokenRevealed(!tokenRevealed)}
-                  variant="ghost"
-                  size="icon"
-                  className="text-white hover:text-white hover:bg-white/10"
-                  title={tokenRevealed ? 'Masquer' : 'Afficher'}
-                >
-                  {tokenRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                <Button
-                  onClick={onCopyToken}
-                  variant={copiedToken ? 'default' : 'secondary'}
-                  className={copiedToken ? 'bg-green-500 hover:bg-green-600' : ''}
-                >
-                  {copiedToken ? (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Copié !
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copier
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-start gap-2 text-sm text-amber-200">
-              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <span>
-                ⚠️ Copiez ce token maintenant ! Il ne sera plus affiché après avoir quitté cette page.
-              </span>
-            </div>
-          </div>
+          <TokenDisplayView
+            apiToken={apiToken}
+            tokenRevealed={tokenRevealed}
+            setTokenRevealed={setTokenRevealed}
+            copiedToken={copiedToken}
+            onCopyToken={onCopyToken}
+          />
         ) : (
-          <div className="space-y-3">
-            {hasToken && (
-              <div className="bg-white/10 backdrop-blur rounded-xl p-4">
-                <p className="text-sm text-amber-200">
-                  Un token API existe déjà pour votre organisation.
-                  {tokenMeta.apiTokenLastRotatedAt && (
-                    <span className="block mt-1 text-xs text-amber-300">
-                      Dernière rotation : {new Date(tokenMeta.apiTokenLastRotatedAt).toLocaleString('fr-FR')}
-                    </span>
-                  )}
-                </p>
-              </div>
-            )}
-            <Button
-              onClick={onRotateToken}
-              disabled={tokenLoading}
-              variant="secondary"
-              className="w-full"
-            >
-              {tokenLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Génération...
-                </>
-              ) : (
-                <>
-                  <RotateCw className="h-4 w-4 mr-2" />
-                  {hasToken ? 'Régénérer le Token API' : 'Générer le Token API'}
-                </>
-              )}
-            </Button>
-            <p className="text-xs text-amber-300">
-              {hasToken 
-                ? "L'ancien token restera valide 24h après la rotation."
-                : "Vous devrez copier ce token dans les paramètres de l'extension Chrome."
-              }
-            </p>
-          </div>
+          <TokenGenerateView
+            hasToken={hasToken}
+            tokenMeta={tokenMeta}
+            tokenLoading={tokenLoading}
+            onRotateToken={onRotateToken}
+          />
         )}
       </CardContent>
     </Card>
@@ -562,5 +496,116 @@ function SetupInstructions({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function TokenDisplayView({
+  apiToken,
+  tokenRevealed,
+  setTokenRevealed,
+  copiedToken,
+  onCopyToken,
+}: {
+  apiToken: string
+  tokenRevealed: boolean
+  setTokenRevealed: (v: boolean) => void
+  copiedToken: boolean
+  onCopyToken: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="bg-white/10 backdrop-blur rounded-xl p-4 flex items-center justify-between gap-4">
+        <code className="font-mono text-sm text-green-300 break-all">
+          {tokenRevealed ? apiToken : '••••••••••••••••••••••••••••••••'}
+        </code>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setTokenRevealed(!tokenRevealed)}
+            variant="ghost"
+            size="icon"
+            className="text-white hover:text-white hover:bg-white/10"
+            title={tokenRevealed ? 'Masquer' : 'Afficher'}
+          >
+            {tokenRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </Button>
+          <Button
+            onClick={onCopyToken}
+            variant={copiedToken ? 'default' : 'secondary'}
+            className={copiedToken ? 'bg-green-500 hover:bg-green-600' : ''}
+          >
+            {copiedToken ? (
+              <>
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Copié !
+              </>
+            ) : (
+              <>
+                <Copy className="h-4 w-4 mr-2" />
+                Copier
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+      <div className="flex items-start gap-2 text-sm text-amber-200">
+        <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+        <span>
+          ⚠️ Copiez ce token maintenant ! Il ne sera plus affiché après avoir quitté cette page.
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function TokenGenerateView({
+  hasToken,
+  tokenMeta,
+  tokenLoading,
+  onRotateToken,
+}: {
+  hasToken: boolean
+  tokenMeta: { apiTokenCreatedAt: string | null; apiTokenLastRotatedAt: string | null }
+  tokenLoading: boolean
+  onRotateToken: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      {hasToken && (
+        <div className="bg-white/10 backdrop-blur rounded-xl p-4">
+          <p className="text-sm text-amber-200">
+            Un token API existe déjà pour votre organisation.
+            {tokenMeta.apiTokenLastRotatedAt && (
+              <span className="block mt-1 text-xs text-amber-300">
+                Dernière rotation : {new Date(tokenMeta.apiTokenLastRotatedAt).toLocaleString('fr-FR')}
+              </span>
+            )}
+          </p>
+        </div>
+      )}
+      <Button
+        onClick={onRotateToken}
+        disabled={tokenLoading}
+        variant="secondary"
+        className="w-full"
+      >
+        {tokenLoading ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Génération...
+          </>
+        ) : (
+          <>
+            <RotateCw className="h-4 w-4 mr-2" />
+            {hasToken ? 'Régénérer le Token API' : 'Générer le Token API'}
+          </>
+        )}
+      </Button>
+      <p className="text-xs text-amber-300">
+        {hasToken
+          ? "L'ancien token restera valide 24h après la rotation."
+          : "Vous devrez copier ce token dans les paramètres de l'extension Chrome."
+        }
+      </p>
+    </div>
   )
 }

@@ -484,63 +484,14 @@ function CreateInstallationDialog({
             </DialogFooter>
           </>
         ) : (
-          <>
-            <div className="space-y-4">
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                <p className="text-sm text-amber-800">
-                  ⚠️ Ce token ne sera affiché qu'une seule fois. Copiez-le maintenant !
-                </p>
-              </div>
-              
-              <div className="relative">
-                <div className="bg-slate-900 text-white rounded-lg p-4 font-mono text-sm break-all">
-                  {showToken ? newToken : '•'.repeat(newToken.length)}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-12"
-                  onClick={() => setShowToken(!showToken)}
-                >
-                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute top-2 right-2"
-                  onClick={onCopyToken}
-                >
-                  {tokenCopied ? (
-                    <CheckCircle className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button 
-                onClick={onCopyToken}
-                variant={tokenCopied ? 'default' : 'outline'}
-                className={tokenCopied ? 'bg-green-600 hover:bg-green-700' : ''}
-              >
-                {tokenCopied ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Copié !
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copier le token
-                  </>
-                )}
-              </Button>
-              <Button onClick={onClose}>
-                Fermer
-              </Button>
-            </DialogFooter>
-          </>
+          <TokenCreatedView
+            newToken={newToken}
+            showToken={showToken}
+            setShowToken={setShowToken}
+            tokenCopied={tokenCopied}
+            onCopyToken={onCopyToken}
+            onClose={onClose}
+          />
         )}
       </DialogContent>
     </Dialog>
@@ -599,5 +550,81 @@ function RevokeInstallationDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function TokenCreatedView({
+  newToken,
+  showToken,
+  setShowToken,
+  tokenCopied,
+  onCopyToken,
+  onClose,
+}: {
+  newToken: string
+  showToken: boolean
+  setShowToken: (v: boolean) => void
+  tokenCopied: boolean
+  onCopyToken: () => void
+  onClose: () => void
+}) {
+  return (
+    <>
+      <div className="space-y-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <p className="text-sm text-amber-800">
+            ⚠️ Ce token ne sera affiché qu&apos;une seule fois. Copiez-le maintenant !
+          </p>
+        </div>
+
+        <div className="relative">
+          <div className="bg-slate-900 text-white rounded-lg p-4 font-mono text-sm break-all">
+            {showToken ? newToken : '•'.repeat(newToken.length)}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-12"
+            onClick={() => setShowToken(!showToken)}
+          >
+            {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2"
+            onClick={onCopyToken}
+          >
+            {tokenCopied ? (
+              <CheckCircle className="h-4 w-4 text-green-500" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button
+          onClick={onCopyToken}
+          variant={tokenCopied ? 'default' : 'outline'}
+          className={tokenCopied ? 'bg-green-600 hover:bg-green-700' : ''}
+        >
+          {tokenCopied ? (
+            <>
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Copié !
+            </>
+          ) : (
+            <>
+              <Copy className="h-4 w-4 mr-2" />
+              Copier le token
+            </>
+          )}
+        </Button>
+        <Button onClick={onClose}>
+          Fermer
+        </Button>
+      </DialogFooter>
+    </>
   )
 }
