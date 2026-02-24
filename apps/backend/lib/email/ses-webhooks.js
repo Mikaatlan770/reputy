@@ -12,7 +12,7 @@
  * - Record email_events for tracking
  */
 
-const { createVerify } = require('crypto');
+const { createVerify } = require('node:crypto');
 const logger = require('../logger');
 const db = require('../db');
 const emailOutboxRepo = require('../repositories/email-outbox.repo');

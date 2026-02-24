@@ -15,7 +15,7 @@
  * Reference: https://developers.google.com/maps/documentation/places/web-service/
  */
 
-const https = require('https');
+const https = require('node:https');
 const logger = require('../logger');
 
 // ============================================================

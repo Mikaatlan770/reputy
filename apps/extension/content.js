@@ -71,8 +71,7 @@ const MODE_CONFIG = {
  */
 function inferDefaultModeFromHost() {
   const hostname = window.location.hostname || '';
-  const pathname = window.location.pathname || '';
-  
+
   // Doctolib Pro => health
   if (hostname.includes('pro.doctolib') || hostname.includes('doctolib')) {
     return 'health';
@@ -746,20 +745,6 @@ function createModal(patientInfo, rootEl) {
     : (patientInfo.phone || patientInfo.email || "Coordonnées à compléter");
 
   const channelSelectorHtml = _buildChannelSelectorHtml(calendarOnly, patientInfo);
-  const hintHtml = _buildContactHintHtml(calendarOnly, patientInfo);
-
-  // Groupe email: masqué sur agenda principal
-  const emailGroupHtml = calendarOnly
-    ? '' // Pas de champ email sur page agenda
-    : `<div class="reputy-form-group" id="reputy-email-group" style="display: none;">
-        <label class="reputy-label">Email</label>
-        <input type="email" class="reputy-input" id="reputy-email" 
-               value="${escapeHtml(patientInfo.email)}" 
-               placeholder="patient@email.com">
-      </div>`;
-
-  // Bouton envoyer: désactivé si téléphone manquant sur page agenda
-  const sendDisabled = calendarOnly && !patientInfo.phone;
 
   currentModal.innerHTML = `
     <div class="reputy-modal-header">

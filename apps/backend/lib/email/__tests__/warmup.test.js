@@ -141,7 +141,6 @@ console.log('\n--- getWarmupState: warming at day 7+ → auto-warm ---');
   // isn't available in test mode. But the RETURNED state should be warm.
   const now = Date.now();
   const startedAt = new Date(now - 8 * DAY_MS).toISOString();
-  const org = { id: 'org-auto', options: { emailWarmup: { status: 'warming', startedAt } } };
 
   // We can't test persistence without DB, but we can test the state calculation
   // The function will try to call orgRepo.updateOptions and might fail, so let's just test getLimitsForDay

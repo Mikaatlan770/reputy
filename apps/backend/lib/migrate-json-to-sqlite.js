@@ -8,8 +8,8 @@
  * It uses INSERT OR IGNORE to avoid duplicates.
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const db = require('./db');
 
 // ============================================================

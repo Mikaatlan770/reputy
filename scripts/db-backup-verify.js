@@ -16,8 +16,8 @@
 
 'use strict';
 
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 const Database = require('better-sqlite3');
 
 const BACKUP_DIR = process.env.BACKUP_DIR
@@ -48,8 +48,7 @@ function main() {
   console.log(`${'#'.padStart(3)}  ${'Filename'.padEnd(30)}  ${'Size'.padStart(10)}  ${'Date'.padEnd(20)}  Status`);
   console.log('─'.repeat(80));
 
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
+  for (const [i, f] of files.entries()) {
     const fullPath = path.join(BACKUP_DIR, f);
     const stat = fs.statSync(fullPath);
     const sizeKB = (stat.size / 1024).toFixed(1) + ' KB';

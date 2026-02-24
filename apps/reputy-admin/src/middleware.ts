@@ -49,8 +49,8 @@ function constantTimeCompare(a: string, b: string): boolean {
   }
   
   let result = 0
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  for (const [i, ch] of [...a].entries()) {
+    result |= ch.charCodeAt(0) ^ b.charCodeAt(i)
   }
   return result === 0
 }

@@ -11,11 +11,11 @@
  * One active channel at a time: ALERTING_PROVIDER=webhook|email
  */
 
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
-const http = require('http');
-const https = require('https');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const http = require('node:http');
+const https = require('node:https');
 const logger = require('../logger');
 const monitoring = require('./monitoring');
 

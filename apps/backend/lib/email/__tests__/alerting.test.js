@@ -6,9 +6,9 @@
  * Run: node lib/email/__tests__/alerting.test.js
  */
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 
 let passed = 0;
 let failed = 0;
@@ -424,7 +424,7 @@ console.log('\n=== Provider selection ===');
 // ============================================================
 console.log('\n=== Webhook payload + X-Request-Id ===');
 {
-  const crypto = require('crypto');
+  const crypto = require('node:crypto');
 
   const alerts = [
     { id: 'complaint_red_abc', severity: 'red', type: 'ORG_COMPLAINT_RATE', message: 'test', orgId: 'abc', meta: { rate: 0.002 } },

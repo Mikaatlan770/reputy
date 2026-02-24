@@ -6,8 +6,8 @@
  */
 
 const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 
 // ============================================================
 // Configuration
@@ -306,7 +306,7 @@ function transaction(fn) {
  * @returns {string}
  */
 function generateId() {
-  const crypto = require('crypto');
+  const crypto = require('node:crypto');
   return crypto.randomBytes(12).toString('hex');
 }
 
@@ -361,7 +361,7 @@ function toJson(obj) {
  * @returns {string} Hex hash
  */
 function hashToken(token) {
-  const crypto = require('crypto');
+  const crypto = require('node:crypto');
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
@@ -372,7 +372,7 @@ function hashToken(token) {
  * @returns {boolean}
  */
 function timingSafeEqual(a, b) {
-  const crypto = require('crypto');
+  const crypto = require('node:crypto');
   if (!a || !b) return false;
   if (a.length !== b.length) return false;
   try {

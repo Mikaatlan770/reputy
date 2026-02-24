@@ -304,7 +304,7 @@ function updateSyncStatus(orgId, syncStatus, lastSyncAt = null) {
 function logSyncEvent(orgId, action, status, details = {}) {
   try {
     const db = require('../db');
-    const crypto = require('crypto');
+    const crypto = require('node:crypto');
     const id = 'gsync_' + crypto.randomBytes(8).toString('hex');
 
     db.run(`

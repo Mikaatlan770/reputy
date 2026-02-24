@@ -29,7 +29,7 @@
  */
 
 // Load env
-require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
+require('dotenv').config({ path: require('node:path').join(__dirname, '..', '..', '.env') });
 
 const db = require('../db');
 const googlePlaces = require('../google/google-places');

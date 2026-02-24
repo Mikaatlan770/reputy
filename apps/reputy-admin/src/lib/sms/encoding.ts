@@ -75,9 +75,7 @@ export function detectEncoding(message: string): EncodingResult {
   const invalidPositions: number[] = []
   let extendedCount = 0
 
-  for (let i = 0; i < message.length; i++) {
-    const char = message[i]
-    
+  for (const [i, char] of [...message].entries()) {
     if (isGsm7ExtendedChar(char)) {
       extendedCount++
     } else if (!isGsm7BasicChar(char)) {

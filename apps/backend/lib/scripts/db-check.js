@@ -7,7 +7,7 @@
  * Checks database integrity, counts, and foreign key constraints.
  */
 
-const fs = require('fs');
+const fs = require('node:fs');
 const db = require('../db');
 
 console.log('='.repeat(60));

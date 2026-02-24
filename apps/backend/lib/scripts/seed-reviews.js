@@ -124,10 +124,7 @@ async function seed(orgId, count = 50) {
   console.log(`📦 Target org: ${orgId}`);
   console.log(`📊 Generating ${count} reviews...\n`);
 
-  const reviews = [];
-  for (let i = 0; i < count; i++) {
-    reviews.push(generateRandomReview(orgId, i));
-  }
+  const reviews = Array.from({ length: count }, (_, i) => generateRandomReview(orgId, i));
 
   const result = reviewRepo.bulkInsert(orgId, reviews);
   
@@ -190,8 +187,8 @@ async function main() {
     const tableExists = db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'");
     if (!tableExists) {
       console.log('📋 Running reviews migration...');
-      const migrationSQL = require('fs').readFileSync(
-        require('path').join(__dirname, '../migrations/004_add_reviews.sql'),
+      const migrationSQL = require('node:fs').readFileSync(
+        require('node:path').join(__dirname, '../migrations/004_add_reviews.sql'),
         'utf-8'
       );
       db.exec(migrationSQL);

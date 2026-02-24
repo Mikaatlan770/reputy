@@ -13,7 +13,7 @@
  * Designed to be called by cron (e.g. every 1-5 minutes).
  */
 
-const path = require('path');
+const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const db = require('../db');

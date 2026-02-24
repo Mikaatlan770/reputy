@@ -37,7 +37,6 @@ const PLAN_PRICES = {
 function getPaymentSuccessTemplate(data) {
   const { 
     orgName, 
-    email, 
     planId, 
     amount, 
     currency = 'EUR',
@@ -151,7 +150,6 @@ L'équipe Reputy
 function getPaymentFailedTemplate(data) {
   const { 
     orgName, 
-    email, 
     planId,
     daysPastDue = 0,
     daysRemaining,
@@ -273,7 +271,7 @@ L'équipe Reputy
  * Email envoyé quand le compte passe en lecture seule (J7)
  */
 function getReadOnlyTemplate(data) {
-  const { orgName, email, planId, updatePaymentUrl } = data;
+  const { orgName, planId, updatePaymentUrl } = data;
   const planLabel = PLAN_LABELS[planId] || planId;
   
   return {

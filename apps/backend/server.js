@@ -54,10 +54,10 @@
 //  - REVIEWS_BASE_URL    (défaut : http://localhost:PORT)
 //  - INTERNAL_ADMIN_TOKEN (token backoffice super admin)
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const { randomBytes, createHash, createHmac, timingSafeEqual } = require('crypto');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const { randomBytes, createHash, createHmac, timingSafeEqual } = require('node:crypto');
 const bcrypt = require('bcryptjs');
 
 // Load environment variables from .env file
@@ -830,8 +830,8 @@ function generatePublicKey() {
   const length = 20; // Entre 16 et 24
   let result = 'pub_';
   const bytes = randomBytes(length);
-  for (let i = 0; i < length; i++) {
-    result += chars[bytes[i] % chars.length];
+  for (const byte of bytes) {
+    result += chars[byte % chars.length];
   }
   return result;
 }
@@ -1560,7 +1560,6 @@ function getPeriodAllocations(data, org) {
 function calculateRemainingRatio(periodEnd) {
   const now = new Date();
   const end = new Date(periodEnd);
-  const monthStart = getMonthStart(now);
   const daysInMonth = getDaysInMonth(now);
   
   // Days remaining including today
@@ -1811,10 +1810,8 @@ function enrichOrg(data, org, debugNow = null) {
   org = ensureOrgBilling(org);
   ensureCurrentPeriod(data, org, false, debugNow);
   
-  // Get credits using NEW system
-  const sub = getSubscriptionRemaining(org);
+  // Get pack credits (used in legacy billingComputed)
   const pack = getPackRemaining(org);
-  const total = getTotalRemaining(org);
   
   // Legacy pricing (for backward compat)
   const pricing = calculateOrgPricing(org);
@@ -2576,7 +2573,7 @@ function verifyTokenSqlite(token, org) {
 
   const isCurrentToken = org.apiTokenHash &&
     tokenHash.length === org.apiTokenHash.length &&
-    require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenHash));
+    require('node:crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenHash));
   if (isCurrentToken) return { ok: true, org };
 
   const hasPrevious = org.apiTokenPreviousHash &&
@@ -2584,7 +2581,7 @@ function verifyTokenSqlite(token, org) {
     Date.now() < new Date(org.apiTokenPreviousExpiresAt).getTime();
   if (hasPrevious) {
     const isPrev = tokenHash.length === org.apiTokenPreviousHash.length &&
-      require('crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenPreviousHash));
+      require('node:crypto').timingSafeEqual(Buffer.from(tokenHash), Buffer.from(org.apiTokenPreviousHash));
     if (isPrev) {
       console.log(`[SECURITY] ℹ️  Using previous token (grace period) for org ${org.id}`);
       return { ok: true, org };
@@ -2872,7 +2869,6 @@ p { color: #1f2937; font-size: 16px; line-height: 1.6; }
 
 function _buildRatingScript(requestId, threshold, routingEnabled, firstName) { // NOSONAR - client-side JS assembled as string
   const rid = JSON.stringify(requestId);
-  const gurl = JSON.stringify(requestId);
   const fn = JSON.stringify(firstName);
   return `const requestId=${rid};const STORAGE_KEY='reputy_submitted_'+requestId;`
     + `const ROUTING_THRESHOLD=${threshold};const ROUTING_ENABLED=${routingEnabled};`
@@ -4352,8 +4348,7 @@ function _metricsRequests(db, since, p) {
 
   const PERIOD_COLS = ['created_at', 'queued_at', 'sent_at', 'failed_at', 'feedback_received_at', 'public_redirected_at'];
   const PERIOD_KEYS = ['created_in_period', 'queued_in_period', 'sent_in_period', 'failed_in_period', 'feedback_received_in_period', 'public_redirected_in_period'];
-  for (let i = 0; i < PERIOD_COLS.length; i++) {
-    const col = PERIOD_COLS[i];
+  for (const [i, col] of PERIOD_COLS.entries()) {
     const nullClause = col === 'created_at' ? '' : `${col} IS NOT NULL AND `;
     p.requests[PERIOD_KEYS[i]] = db.prepare(
       `SELECT COUNT(*) as cnt FROM review_requests WHERE ${nullClause}${col} >= $since`
@@ -4362,9 +4357,9 @@ function _metricsRequests(db, since, p) {
 
   const ALL_TIME_COLS = ['sent_at', 'failed_at', 'feedback_received_at', 'public_redirected_at'];
   const ALL_TIME_KEYS = ['total_sent', 'total_failed', 'total_feedback_received', 'total_public_redirected'];
-  for (let i = 0; i < ALL_TIME_COLS.length; i++) {
+  for (const [i, col] of ALL_TIME_COLS.entries()) {
     p.requests[ALL_TIME_KEYS[i]] = db.prepare(
-      `SELECT COUNT(*) as cnt FROM review_requests WHERE ${ALL_TIME_COLS[i]} IS NOT NULL`
+      `SELECT COUNT(*) as cnt FROM review_requests WHERE ${col} IS NOT NULL`
     ).get().cnt;
   }
 
@@ -5753,7 +5748,7 @@ function extractGooglePlaceId(url) {
     if (placeIdMatch) return placeIdMatch[1];
     
     // Fallback: hash the URL to create a unique identifier
-    const crypto = require('crypto');
+    const crypto = require('node:crypto');
     return `url_${crypto.createHash('sha256').update(url).digest('hex').substring(0, 16)}`;
   } catch (err) {
     logger.logError('GOOGLE_PLACE_ID_EXTRACTION_ERROR', { url, error: err.message });
@@ -7003,7 +6998,7 @@ function reactivateMembership(repos, existing, role, permissions) {
 }
 
 async function createInvitedUser(repos, auth, email, role, name) {
-  const tempPassword = require('crypto').randomBytes(8).toString('base64url').slice(0, 12);
+  const tempPassword = require('node:crypto').randomBytes(8).toString('base64url').slice(0, 12);
   const passwordHash = await hashPassword(tempPassword);
   const user = repos.user.create({
     orgId: auth.org.id, email, passwordHash, role, name: name || null, emailVerified: true,
@@ -8943,7 +8938,7 @@ async function handleGoogleListAccounts(req, res) {
   }
 
   try {
-    const { accessToken, oauthData } = await googleSync.getValidToken(repos.org, auth.user.orgId);
+    const { accessToken } = await googleSync.getValidToken(repos.org, auth.user.orgId);
 
     const accounts = await googleBusiness.listAccounts(accessToken);
     const result = [];
@@ -11081,7 +11076,6 @@ async function handleCheckoutCompleted(data, session) {
  */
 async function handleInvoicePaid(data, invoice) {
   const customerId = invoice.customer;
-  const subscriptionId = invoice.subscription;
   const amountPaid = invoice.amount_paid;
   
   // Find org by Stripe customer ID

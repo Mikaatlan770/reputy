@@ -14,8 +14,8 @@
  * - GOOGLE_ENCRYPTION_KEY (32-byte hex key for AES-256-GCM)
  */
 
-const https = require('https');
-const crypto = require('crypto');
+const https = require('node:https');
+const crypto = require('node:crypto');
 const logger = require('../logger');
 
 // ============================================================

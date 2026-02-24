@@ -14,7 +14,7 @@
  * Designed to run via PM2 cron_restart at 00:05 UTC daily.
  */
 
-const path = require('path');
+const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const db = require('../db');

@@ -8,7 +8,7 @@
  * Token format: base64url(JSON) + "." + base64url(HMAC)
  */
 
-const { createHmac, timingSafeEqual } = require('crypto');
+const { createHmac, timingSafeEqual } = require('node:crypto');
 
 const EMAIL_SIGNING_SECRET = process.env.EMAIL_SIGNING_SECRET || 'dev-email-signing-secret-change-me';
 

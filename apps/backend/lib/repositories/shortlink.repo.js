@@ -5,7 +5,7 @@
  */
 
 const db = require('../db');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 
 // ============================================================
 // Constants
@@ -31,8 +31,8 @@ const TYPES = {
 function generateCode() {
   let code = '';
   const bytes = crypto.randomBytes(CODE_LENGTH);
-  for (let i = 0; i < CODE_LENGTH; i++) {
-    code += CODE_CHARS[bytes[i] % CODE_CHARS.length];
+  for (const byte of bytes) {
+    code += CODE_CHARS[byte % CODE_CHARS.length];
   }
   return code;
 }

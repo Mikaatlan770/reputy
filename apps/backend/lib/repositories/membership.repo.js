@@ -6,7 +6,7 @@
  */
 
 const db = require('../db');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 
 // ============================================================
 // Read Operations

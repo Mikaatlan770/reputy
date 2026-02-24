@@ -329,12 +329,12 @@ function parseOrgRow(row) {
 }
 
 function generatePublicKey() {
-  const crypto = require('crypto');
+  const crypto = require('node:crypto');
   return 'pub_' + crypto.randomBytes(15).toString('base64url');
 }
 
 function generateApiToken() {
-  const crypto = require('crypto');
+  const crypto = require('node:crypto');
   return 'rpt_' + crypto.randomBytes(32).toString('base64url');
 }
 
