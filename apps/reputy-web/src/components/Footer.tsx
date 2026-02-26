@@ -31,6 +31,11 @@ export function Footer() {
                   Tarifs
                 </Link>
               </li>
+              <li>
+                <Link href="/#app" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
+                  Application mobile
+                </Link>
+              </li>
             </ul>
           </div>
 

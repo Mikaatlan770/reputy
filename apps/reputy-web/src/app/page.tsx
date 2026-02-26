@@ -8,6 +8,7 @@ import {
   HowItWorksSection,
   TestimonialsSection,
   CTASection,
+  AppSection,
 } from '@/components/home'
 
 export default function HomePage() {
@@ -36,6 +37,9 @@ export default function HomePage() {
 
         {/* 7. CTA final */}
         <CTASection />
+
+        {/* 8. Application mobile */}
+        <AppSection />
       </main>
 
       <Footer />

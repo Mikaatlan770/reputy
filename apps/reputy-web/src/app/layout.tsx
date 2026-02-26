@@ -1,10 +1,16 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Reputy - Gérez votre e-réputation en toute simplicité',
   description: 'La solution complète pour collecter, gérer et diffuser vos avis clients. Boostez votre réputation en ligne.',
   keywords: ['avis clients', 'e-réputation', 'google reviews', 'gestion avis', 'réputation en ligne'],
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -19,7 +25,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       </head>
-      <body className="antialiased">
+      <body className="antialiased safearea-web">
         {children}
       </body>
     </html>

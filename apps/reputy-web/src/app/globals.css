@@ -42,6 +42,28 @@ html {
   outline-offset: 2px;
 }
 
+/* ============================================================
+ * SAFE AREAS — Capacitor / iOS WebView
+ * Defined outside @layer so Tailwind never purges these.
+ * ============================================================ */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+/*
+ * .safearea-web — applied to <body> in reputy-web.
+ * The fixed Header handles padding-top itself via var(--sat),
+ * so we only handle left/right here (landscape notch).
+ */
+.safearea-web {
+  min-height: 100dvh;
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
