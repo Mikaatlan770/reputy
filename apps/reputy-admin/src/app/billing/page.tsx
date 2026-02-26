@@ -98,7 +98,7 @@ interface BillingStatus {
 // Constants
 // ============================================================
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8787'
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8787'
 
 const PLANS = {
   bronze: {
@@ -856,10 +856,10 @@ function CurrentPlanCard({ billing, currentPlan, isActive, portalLoading, handle
 
         <div className="mt-6 flex gap-3">
           {IS_IOS_CAPACITOR ? (
-            <p className="text-sm text-muted-foreground">
-              Gérez votre abonnement sur{' '}
-              <span className="font-medium text-foreground">admin.reputyapp.com</span>
-            </p>
+                <p className="text-sm text-muted-foreground">
+                  Gérez votre abonnement sur{' '}
+                  <span className="font-medium text-foreground">app.reputyapp.com</span>
+                </p>
           ) : (
             <>
               <Button onClick={onChangePlan}>

@@ -1,4 +1,18 @@
 /** @type {import('next').NextConfig} */
+
+// ─── Prod build guard ────────────────────────────────────────────────────────
+// NEXT_PUBLIC_* are baked at build time by webpack. If missing on Vercel,
+// the bundle silently contains 'http://localhost:...' — so we fail the build.
+if (process.env.NODE_ENV === 'production') {
+  const required = ['NEXT_PUBLIC_BACKEND_URL', 'NEXT_PUBLIC_REPUTY_WEB_URL']
+  for (const key of required) {
+    if (!process.env[key]) {
+      throw new Error(`[reputy-admin] Missing required env var: ${key}. Set it in Vercel dashboard.`)
+    }
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const nextConfig = {
   reactStrictMode: true,
   webpack: (config) => {
