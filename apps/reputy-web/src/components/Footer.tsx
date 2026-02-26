@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { Mail } from 'lucide-react'
 
 export function Footer() {
   const currentYear = new Date().getFullYear()
@@ -15,6 +16,19 @@ export function Footer() {
             <p className="text-sm text-gray-500">
               La réputation qui inspire confiance.
             </p>
+            <div className="mt-4 space-y-2">
+              <p className="text-xs text-gray-400">
+                6 Allée Gustave Eiffel<br />
+                92130 Issy-les-Moulineaux
+              </p>
+              <a
+                href="mailto:contact@reputyapp.com"
+                className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <Mail className="h-3.5 w-3.5 flex-shrink-0" />
+                contact@reputyapp.com
+              </a>
+            </div>
           </div>
 
           {/* Product */}
