@@ -13,9 +13,9 @@ import {
 } from '@/components/health'
 
 export const metadata = {
-  title: 'Reputy Health - Gestion de réputation pour professionnels de santé',
+  title: 'Reputy Health – Avis Google pour cabinets médicaux',
   description:
-    'Collectez des avis patients, gérez votre réputation Google et répondez à tous vos avis depuis un tableau de bord unique. Conforme RGPD, hébergement France.',
+    "Collecte d'avis patients, réponses IA et suivi multi-sites. Conçu pour médecins, dentistes et centres de santé. Conforme RGPD. Démo gratuite.",
 }
 
 export default function HealthPage() {

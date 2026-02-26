@@ -1,4 +1,11 @@
+import type { Metadata } from 'next'
 import { Header } from '@/components/Header'
+
+export const metadata: Metadata = {
+  title: 'Reputy – Logiciel Avis Google pour Pros de Santé',
+  description:
+    "Collectez des avis Google, répondez avec l'IA et pilotez votre réputation. Conçu pour médecins, dentistes et centres de santé. Essai gratuit.",
+}
 import { Footer } from '@/components/Footer'
 import {
   HeroSection,

@@ -17,15 +17,15 @@ export function HeroSection() {
           </div>
 
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6 animate-fadeIn animate-delay-100">
-            Gérez votre e-réputation{' '}
+            Logiciel de gestion d&apos;avis Google pour{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-600 to-accent-600">
-              en toute simplicité
+              professionnels de santé
             </span>
           </h1>
 
           <p className="text-lg md:text-xl text-gray-600 mb-8 animate-fadeIn animate-delay-200">
-            Collectez, gérez et répondez à vos avis clients. Boostez votre note
-            Google et transformez vos patients satisfaits en ambassadeurs.
+            Collectez plus d&apos;avis et répondez avec l&apos;IA. Conçu pour médecins,
+            dentistes, centres de santé — et bientôt tous secteurs.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fadeIn animate-delay-300">

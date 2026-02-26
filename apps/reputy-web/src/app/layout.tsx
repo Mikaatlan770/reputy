@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://reputyapp.com'),
   title: 'Reputy - Gérez votre e-réputation en toute simplicité',
   description: 'La solution complète pour collecter, gérer et diffuser vos avis clients. Boostez votre réputation en ligne.',
   keywords: ['avis clients', 'e-réputation', 'google reviews', 'gestion avis', 'réputation en ligne'],
