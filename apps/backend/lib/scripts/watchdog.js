@@ -275,9 +275,104 @@ async function checkViaHttp() {
   }
 }
 
-// ============ ALERT (stub — plug in Slack/email/PagerDuty) ============
+// ============ ALERT ============
 
-function alertIfNeeded(issues) {
+async function sendEmailAlert(issues, status) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const to = process.env.WATCHDOG_ALERT_EMAIL;
+  if (!apiKey || !to) return;
+
+  const criticalCount = issues.filter(i => i.severity === 'critical').length;
+  const subject = criticalCount > 0
+    ? `🔴 [CRITIQUE] Reputy Backend — ${criticalCount} problème(s) critique(s)`
+    : `🟠 [ALERTE] Reputy Backend — ${issues.length} problème(s) détecté(s)`;
+
+  const rows = issues.map(i =>
+    `<tr>
+      <td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:bold;color:${i.severity === 'critical' ? '#d32f2f' : '#e65100'}">${i.severity.toUpperCase()}</td>
+      <td style="padding:6px 12px;border-bottom:1px solid #eee">${i.component}</td>
+      <td style="padding:6px 12px;border-bottom:1px solid #eee">${i.error || 'inconnu'}</td>
+    </tr>`
+  ).join('');
+
+  const htmlContent = `
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <h2 style="color:#d32f2f">🚨 Watchdog Reputy — ${status.toUpperCase()}</h2>
+      <p><strong>Détecté à :</strong> ${new Date().toISOString()}</p>
+      <p><strong>Serveur :</strong> vps-01e17ded</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:16px">
+        <thead>
+          <tr style="background:#f5f5f5">
+            <th style="padding:8px 12px;text-align:left">Sévérité</th>
+            <th style="padding:8px 12px;text-align:left">Composant</th>
+            <th style="padding:8px 12px;text-align:left">Erreur</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="margin-top:24px;padding:12px;background:#fff3e0;border-radius:4px">
+        <strong>Action rapide :</strong><br/>
+        <code>ssh ubuntu@vps-01e17ded</code><br/>
+        <code>pm2 status && pm2 logs --lines 30</code>
+      </div>
+    </div>
+  `;
+
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: { name: 'Reputy Watchdog', email: 'noreply@reputyapp.com' },
+        to: [{ email: to }],
+        subject,
+        htmlContent,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      logError(`⚠️  Watchdog email failed (${res.status}): ${body}`);
+    }
+  } catch (e) {
+    logError(`⚠️  Watchdog email error: ${e.message}`);
+  }
+}
+
+async function sendSlackAlert(issues, status) {
+  const webhookUrl = process.env.WATCHDOG_SLACK_WEBHOOK;
+  if (!webhookUrl) return;
+
+  const color = status === 'critical' ? '#d32f2f' : '#e65100';
+  const fields = issues.map(i => ({
+    title: `[${i.severity.toUpperCase()}] ${i.component}`,
+    value: i.error || 'inconnu',
+    short: false,
+  }));
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        attachments: [{
+          color,
+          title: `🚨 Reputy Watchdog — ${status.toUpperCase()}`,
+          title_link: 'https://api.reputyapp.com/health',
+          fields,
+          footer: `vps-01e17ded | ${new Date().toISOString()}`,
+        }],
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      logError(`⚠️  Watchdog Slack failed (${res.status}): ${body}`);
+    }
+  } catch (e) {
+    logError(`⚠️  Watchdog Slack error: ${e.message}`);
+  }
+}
+
+async function alertIfNeeded(issues, status) {
   if (issues.length === 0) return;
 
   console.log();
@@ -289,6 +384,11 @@ function alertIfNeeded(issues) {
     const icon = getSeverityIcon(issue.severity);
     console.log(`${icon} [${issue.severity.toUpperCase()}] ${issue.component}: ${issue.error || 'unknown'}`);
   }
+
+  await Promise.allSettled([
+    sendEmailAlert(issues, status),
+    sendSlackAlert(issues, status),
+  ]);
 }
 
 // ============ MAIN — HELPERS ============
@@ -353,7 +453,7 @@ function handleFatalError(err) {
     }
 
     console.log();
-    alertIfNeeded(issues);
+    await alertIfNeeded(issues, status);
     logHumanExitStatus(issues, hasCritical, hasErrors);
     process.exit(exitCode);
   } catch (err) {
