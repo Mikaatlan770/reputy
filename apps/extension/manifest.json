@@ -8,10 +8,7 @@
   ],
   "host_permissions": [
     "https://pro.doctolib.fr/*",
-    "https://api.reputyapp.com/*",
-    "http://localhost:*/*",
-    "http://127.0.0.1:*/*",
-    "http://[::1]:*/*"
+    "https://api.reputyapp.com/*"
   ],
   "background": {
     "service_worker": "background.js"
