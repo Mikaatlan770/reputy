@@ -42,32 +42,25 @@ function acquire(name, ttlSeconds = 600, owner) {
   const now = db.nowISO();
   const lockedUntil = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
-  // Try to insert (no existing lock)
-  const existing = db.get('SELECT * FROM cron_locks WHERE name = $name', { name });
+  // Atomic insert — INSERT OR IGNORE never throws on UNIQUE conflict.
+  // Eliminates the TOCTOU race condition where two concurrent processes
+  // both SELECT (see no lock) then both try to INSERT simultaneously.
+  const insert = db.run(`
+    INSERT OR IGNORE INTO cron_locks (name, locked_at, locked_until, owner, updated_at)
+    VALUES ($name, $now, $lockedUntil, $owner, $now)
+  `, { name, now, lockedUntil, owner });
 
-  if (!existing) {
-    // No lock → insert
-    db.run(`
-      INSERT INTO cron_locks (name, locked_at, locked_until, owner, updated_at)
-      VALUES ($name, $now, $lockedUntil, $owner, $now)
-    `, { name, now, lockedUntil, owner });
-    return true;
-  }
+  if ((insert?.changes || 0) > 0) return true; // Inserted → lock acquired
 
-  // Lock exists — check if expired
-  const expiry = new Date(existing.locked_until).getTime();
-  if (Date.now() >= expiry) {
-    // Expired → overwrite (steal the lock)
-    db.run(`
-      UPDATE cron_locks
-      SET locked_at = $now, locked_until = $lockedUntil, owner = $owner, updated_at = $now
-      WHERE name = $name
-    `, { name, now, lockedUntil, owner });
-    return true;
-  }
+  // Lock already exists — steal it atomically only if it has expired.
+  // The WHERE locked_until < $now makes this a single atomic operation.
+  const steal = db.run(`
+    UPDATE cron_locks
+    SET locked_at = $now, locked_until = $lockedUntil, owner = $owner, updated_at = $now
+    WHERE name = $name AND locked_until < $now
+  `, { name, now, lockedUntil, owner });
 
-  // Lock is still valid and held by someone else (or same owner re-running)
-  return false;
+  return (steal?.changes || 0) > 0;
 }
 
 /**
