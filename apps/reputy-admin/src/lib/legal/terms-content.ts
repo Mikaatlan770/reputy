@@ -5,7 +5,7 @@
 export const COMPANY_INFO = {
   name: 'REPUTY SAS',
   legalForm: 'Société par Actions Simplifiée',
-  capital: '10 000 €',
+  capital: '1 000 €',
   rcs: 'Nanterre B 809 760 168',
   siret: '80976016800017',
   tva: 'FR03809760168',
@@ -154,6 +154,6 @@ Le Service n'est PAS destiné au traitement de données de santé au sens du RGP
 
 En cas de litige, les parties s'efforceront de trouver une solution amiable dans un délai de trente (30) jours.
 
-À défaut d'accord amiable, tout litige relatif à l'interprétation ou à l'exécution des présentes sera soumis à la compétence exclusive des tribunaux de Paris.`,
+À défaut d'accord amiable, tout litige relatif à l'interprétation ou à l'exécution des présentes sera soumis à la compétence exclusive des tribunaux de Nanterre.`,
   },
 ];
