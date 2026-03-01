@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Reputy - Gestion des avis",
-  "version": "1.0.0",
-  "description": "Extension pour professionnels de santé. Envoyez des demandes d'avis par SMS ou Email à vos patients directement depuis Doctolib Pro. Configuration par clé publique et token API.",
+  "version": "1.0.1",
+  "description": "Envoyez des demandes d'avis Google à vos patients depuis Doctolib Pro. Pour médecins et dentistes. Configuration par clé API.",
   "permissions": [
     "storage"
   ],
