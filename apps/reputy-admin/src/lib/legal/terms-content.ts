@@ -6,7 +6,7 @@ export const COMPANY_INFO = {
   name: 'REPUTY SAS',
   legalForm: 'Société par Actions Simplifiée',
   capital: '10 000 €',
-  rcs: 'Paris B 809 760 168',
+  rcs: 'Nanterre B 809 760 168',
   siret: '80976016800017',
   tva: 'FR03809760168',
   address: {
