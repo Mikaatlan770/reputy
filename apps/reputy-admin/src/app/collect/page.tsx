@@ -527,6 +527,7 @@ export default function CollectPage() {
                 message={smsMessage || undefined}
                 shortUrl={primaryShortlink?.shortUrl || 'rpt.ly/votre-lien'}
                 phoneNumber={currentLocation?.name ? `Client de ${currentLocation.name}` : undefined}
+                orgName={(clientOrg as any)?.name || undefined}
                 onMessageChange={setSmsMessage}
                 onValidationChange={setSmsValid}
                 readOnly={false}
@@ -559,7 +560,7 @@ export default function CollectPage() {
               )}
               {smsHasLien && (
                 <p className="text-xs text-muted-foreground">
-                  💡 Utilisez <code className="bg-slate-100 px-1 rounded">{'{lien}'}</code> dans votre message pour insérer automatiquement le lien de collecte.
+                  💡 Placeholders disponibles : <code className="bg-slate-100 px-1 rounded">{'{lien}'}</code> → lien de collecte (obligatoire) · <code className="bg-slate-100 px-1 rounded">{'{cabinet}'}</code> → nom de votre établissement
                 </p>
               )}
             </div>

@@ -115,7 +115,10 @@ function buildSmsContent(entry, org) {
 
   const customTpl = org.options?.smsTemplate;
   if (customTpl) {
-    return { body: customTpl.replace(/\{lien\}/g, feedbackUrl), tag: 'review_request' };
+    const body = customTpl
+      .replace(/\{lien\}/g, feedbackUrl)
+      .replace(/\{cabinet\}/g, org.name || '');
+    return { body, tag: 'review_request' };
   }
   return smsTemplates.reviewRequest({
     orgName: org.name,

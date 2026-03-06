@@ -39,6 +39,16 @@ Cela nous aide beaucoup.
 Merci !
 {lien}`
 
+/**
+ * Placeholders disponibles dans les templates personnalisés
+ * - {lien}    → URL de collecte d'avis (obligatoire)
+ * - {cabinet} → Nom de l'établissement
+ */
+export const SMS_PLACEHOLDERS = [
+  { key: '{lien}', description: 'Lien de collecte (obligatoire)', required: true },
+  { key: '{cabinet}', description: "Nom de l'établissement", required: false },
+] as const
+
 // ===== CHARSET GSM-7 =====
 
 /**

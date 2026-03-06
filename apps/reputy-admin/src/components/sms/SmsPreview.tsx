@@ -31,6 +31,8 @@ interface SmsPreviewProps {
   shortUrl?: string
   /** Numéro de téléphone destinataire (optionnel, pour affichage) */
   phoneNumber?: string
+  /** Nom du cabinet — remplace {cabinet} dans le preview */
+  orgName?: string
   /** Callback quand le message change */
   onMessageChange?: (message: string) => void
   /** Callback quand la validation change */
@@ -49,6 +51,7 @@ export function SmsPreview({
   message: propMessage,
   shortUrl = 'rpt.ly/abc123',
   phoneNumber,
+  orgName,
   onMessageChange,
   onValidationChange,
   readOnly = false,
@@ -67,13 +70,19 @@ export function SmsPreview({
     }
   }, [propMessage])
 
-  // Message final avec lien
+  // Message final avec placeholders résolus (pour preview et validation)
   const finalMessage = useMemo(() => {
-    if (!shortUrl) return message
-    return message.includes('{lien}')
-      ? message.replace('{lien}', shortUrl)
-      : `${message}\n${shortUrl}`
-  }, [message, shortUrl])
+    let msg = message
+    // Remplacer {cabinet} par le nom de l'org (preview only)
+    if (orgName) {
+      msg = msg.replace(/\{cabinet\}/g, orgName)
+    }
+    // Remplacer {lien} ou ajouter le lien en fin
+    if (!shortUrl) return msg
+    return msg.includes('{lien}')
+      ? msg.replace('{lien}', shortUrl)
+      : `${msg}\n${shortUrl}`
+  }, [message, shortUrl, orgName])
 
   // Validation
   const validation = useMemo<SmsValidationResult>(
