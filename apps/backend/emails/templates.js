@@ -10,7 +10,7 @@
 
 const REPUTY_DOMAIN = process.env.REPUTY_DOMAIN || 'https://reputyapp.com';
 const ADMIN_URL = process.env.ADMIN_URL || 'https://app.reputyapp.com';
-const CHROME_EXTENSION_URL = 'https://chrome.google.com/webstore/detail/reputy/nfmjafgkhmociachlhiaegkfhodhgkoc';
+const CHROME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/reputy/nfmjafgkhmociachlhiaegkfhodhgkoc';
 
 /**
  * Template: Confirmation d'inscription

@@ -26,7 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8787'
-const CHROME_EXTENSION_URL = 'https://chrome.google.com/webstore/detail/reputy/nfmjafgkhmociachlhiaegkfhodhgkoc'
+const CHROME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/reputy/nfmjafgkhmociachlhiaegkfhodhgkoc'
 
 /**
  * Page Installation - CLIENT ONLY
