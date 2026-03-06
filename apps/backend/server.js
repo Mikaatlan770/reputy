@@ -2685,8 +2685,8 @@ function getSettings() {
  * @param {number} rating - Note 1-5
  * @returns {{ mode: 'PUBLIC_REVIEW' | 'INTERNAL_FEEDBACK', target?: string, redirectUrl?: string }}
  */
-function determineReviewRouting(rating) {
-  const settings = getSettings();
+function determineReviewRouting(rating, orgSettings) {
+  const settings = orgSettings || getSettings();
   const { reviewRouting, googleReviewUrl } = settings;
   
   // Si routing désactivé => tout en interne
@@ -3546,7 +3546,20 @@ function handleGetRatingPage(requestId, res) {
       
       // Check existing feedback
       const existingFeedback = repos.feedback.getByRequestDbId(dbRequest.id);
-      const settings = getSettings();
+
+      // Load settings from the org that owns this request (multi-org support)
+      let settings;
+      if (dbRequest.orgId && repos.org) {
+        const org = repos.org.getById(dbRequest.orgId);
+        settings = {
+          cabinetName: org?.name || DEFAULT_SETTINGS.cabinetName,
+          googleReviewUrl: org?.options?.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl,
+          reviewRouting: org?.options?.reviewRouting || DEFAULT_SETTINGS.reviewRouting,
+        };
+      } else {
+        settings = getSettings();
+      }
+
       return sendHtml(res, 200, generateRatingPage(requestId, dbRequest, existingFeedback, settings));
     }
   }
@@ -3570,9 +3583,9 @@ function handleGetRatingPage(requestId, res) {
   return sendHtml(res, 200, generateRatingPage(requestId, request, existingFeedback, settings));
 }
 
-function buildFeedbackRoutingResponse(rating) {
-  const routing = determineReviewRouting(rating);
-  const settings = getSettings();
+function buildFeedbackRoutingResponse(rating, orgSettings) {
+  const routing = determineReviewRouting(rating, orgSettings);
+  const settings = orgSettings || getSettings();
   return {
     ok: true,
     success: true,
@@ -3626,7 +3639,18 @@ async function handleSubmitFeedbackSqlite(requestId, req, res) {
     requestId, dbId: dbRequest.id, rating: parsed.rating, hasComment: !!parsed.comment
   });
 
-  return sendJson(res, 200, buildFeedbackRoutingResponse(parsed.rating));
+  // Load org-specific settings for routing (correct googleReviewUrl per org)
+  let orgSettings;
+  if (dbRequest.orgId && repos.org) {
+    const org = repos.org.getById(dbRequest.orgId);
+    orgSettings = {
+      cabinetName: org?.name || DEFAULT_SETTINGS.cabinetName,
+      googleReviewUrl: org?.options?.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl,
+      reviewRouting: org?.options?.reviewRouting || DEFAULT_SETTINGS.reviewRouting,
+    };
+  }
+
+  return sendJson(res, 200, buildFeedbackRoutingResponse(parsed.rating, orgSettings));
 }
 
 async function handleSubmitFeedback(requestId, req, res) {
