@@ -3137,11 +3137,8 @@ async function _handleSendReviewSQLite(req, res, body, orgId, startTime) {
 
   repos.message.create({ requestDbId: dbRequest.id, channel, recipient, status: 'queued' });
 
-  const usageType = channel === 'email' ? 'email' : 'sms';
-  repos.usage.addEntry({
-    orgId, type: usageType, qty: 1,
-    details: { requestId: dbRequest.idempotencyKey, patientName: body.patientName || '', patientFirstName: body.patientFirstName || '', patientLastName: body.patientLastName || '', patientContact: recipient, channel }
-  });
+  // Usage is recorded by the worker when the message is actually sent (process-scheduled-sends.js
+  // for SMS, process-email-outbox.js for email). Recording here would cause double counting.
 
   logger.logExtensionAction('EXTENSION_SEND_REVIEW_SUCCESS', true, req, { requestId: dbRequest.idempotencyKey, orgId, channel, durationMs: Date.now() - startTime, status: 201 });
   console.log(`[REPUTY][API] ✅ SQLite: New request created: ${dbRequest.idempotencyKey}`);
@@ -6006,7 +6003,41 @@ async function handleSignup(req, res) {
     durationMs: Date.now() - startTime,
     status: 201
   });
-  
+
+  // Notify admin of new signup (fire-and-forget, never blocks the response)
+  const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'admin@reputyapp.com';
+  const verticalLabels = { health: 'Santé', food: 'Restauration', business: 'Services' };
+  const planLabels = { bronze: 'Bronze (gratuit)', argent: 'Argent', or: 'Or', platinum: 'Platinum' };
+  emailProvider.sendEmail({
+    to: ADMIN_NOTIFY_EMAIL,
+    subject: `🆕 Nouveau client Reputy — ${orgName}`,
+    text: [
+      `Nouveau compte créé sur Reputy`,
+      ``,
+      `Établissement : ${orgName}`,
+      `Email         : ${email}`,
+      `Secteur       : ${verticalLabels[vertical] || vertical}`,
+      `Forfait       : ${planLabels[plan] || plan}`,
+      `Date          : ${new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}`,
+      ``,
+      `→ Backoffice : https://app.reputyapp.com/admin`,
+    ].join('\n'),
+    html: `
+      <div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:24px;">
+        <h2 style="color:#1f2937;margin-bottom:4px;">🆕 Nouveau client Reputy</h2>
+        <p style="color:#6b7280;margin-top:0;">Un nouveau compte vient d'être créé.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+          <tr><td style="padding:8px 0;color:#6b7280;width:140px;">Établissement</td><td style="padding:8px 0;font-weight:600;color:#111827;">${escapeHtml(orgName)}</td></tr>
+          <tr style="background:#f9fafb;"><td style="padding:8px;color:#6b7280;">Email</td><td style="padding:8px;color:#111827;">${escapeHtml(email)}</td></tr>
+          <tr><td style="padding:8px 0;color:#6b7280;">Secteur</td><td style="padding:8px 0;color:#111827;">${escapeHtml(verticalLabels[vertical] || vertical)}</td></tr>
+          <tr style="background:#f9fafb;"><td style="padding:8px;color:#6b7280;">Forfait</td><td style="padding:8px;color:#111827;">${escapeHtml(planLabels[plan] || plan)}</td></tr>
+          <tr><td style="padding:8px 0;color:#6b7280;">Date</td><td style="padding:8px 0;color:#111827;">${new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}</td></tr>
+        </table>
+        <a href="https://app.reputyapp.com/admin" style="display:inline-block;background:#4f46e5;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Voir dans le backoffice</a>
+      </div>
+    `,
+  }).catch(err => logger.logWarn('SIGNUP_NOTIFY_FAILED', `Could not send admin signup notification: ${err.message}`, { orgId, email }));
+
   // Response based on plan
   const response = {
     ok: true,
