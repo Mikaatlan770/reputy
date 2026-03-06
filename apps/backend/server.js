@@ -3948,6 +3948,9 @@ function buildSettingsOptionsUpdate(body) {
   if (body.smsTemplate !== undefined) {
     const tpl = body.smsTemplate.trim();
     if (tpl && tpl.length <= 300) {
+      if (!tpl.includes('{lien}')) {
+        return { error: 'VALIDATION_ERROR', message: 'Le template SMS doit contenir {lien} pour inclure le lien de collecte.' };
+      }
       optionsUpdate.smsTemplate = tpl;
     }
   }
@@ -3960,6 +3963,7 @@ function saveSettingsSqlite(sessionAuth, body) {
   if (!repos || !repos.org) return null;
 
   const optionsUpdate = buildSettingsOptionsUpdate(body);
+  if (optionsUpdate?.error) return optionsUpdate;
   repos.org.updateOptions(org.id, optionsUpdate);
 
   if (body.cabinetName !== undefined && body.cabinetName.trim()) {
@@ -4000,6 +4004,7 @@ async function handleSaveSettings(req, res) {
 
     const result = saveSettingsSqlite(sessionAuth, body);
     if (!result) return sendJson(res, 500, { error: 'Base de données non disponible' });
+    if (result.error) return sendJson(res, 400, result);
     return sendJson(res, 200, result);
   }
 

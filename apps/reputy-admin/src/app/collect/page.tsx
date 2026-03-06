@@ -348,6 +348,10 @@ export default function CollectPage() {
   // Has the SMS template been modified?
   const smsTemplateChanged = smsMessage !== smsMessageOriginal
 
+  // {lien} is mandatory — block save if absent
+  const smsHasLien = !smsMessage || smsMessage.includes('{lien}')
+  const smsCanSave = smsTemplateChanged && smsValid && smsHasLien
+
   // Initial load
   useEffect(() => {
     if (!authLoading && isClient) {
@@ -533,7 +537,7 @@ export default function CollectPage() {
               <div className="flex items-center gap-3">
                 <Button
                   onClick={saveSmsTemplate}
-                  disabled={!smsTemplateChanged || savingSmsTemplate || !smsValid}
+                  disabled={!smsCanSave || savingSmsTemplate}
                   className="gap-2"
                   size="sm"
                 >
@@ -548,9 +552,16 @@ export default function CollectPage() {
                   <span className="text-xs text-muted-foreground">Modifications non enregistrées</span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                💡 Utilisez <code className="bg-slate-100 px-1 rounded">{'{lien}'}</code> dans votre message pour insérer automatiquement le lien de collecte.
-              </p>
+              {!smsHasLien && smsMessage && (
+                <p className="text-xs text-red-600 font-medium flex items-center gap-1">
+                  ⚠️ Le lien de collecte est obligatoire. Ajoutez <code className="bg-red-50 px-1 rounded">{'{lien}'}</code> dans votre message pour pouvoir enregistrer.
+                </p>
+              )}
+              {smsHasLien && (
+                <p className="text-xs text-muted-foreground">
+                  💡 Utilisez <code className="bg-slate-100 px-1 rounded">{'{lien}'}</code> dans votre message pour insérer automatiquement le lien de collecte.
+                </p>
+              )}
             </div>
 
             {/* Configuration et stats */}
