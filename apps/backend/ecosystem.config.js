@@ -32,7 +32,8 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_restarts: 10,
-      restart_delay: 3000,               // attendre 3s avant de redémarrer
+      restart_delay: 5000,               // attendre 5s avant de redémarrer (laisse le port se libérer)
+      kill_timeout: 8000,                // attendre 8s pour l'arrêt gracieux avant SIGKILL
       min_uptime: '10s',                 // considéré stable après 10s
       max_memory_restart: '512M',        // redémarre si > 512 Mo RAM
       env: {
