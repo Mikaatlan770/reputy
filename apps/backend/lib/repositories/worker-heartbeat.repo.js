@@ -12,8 +12,17 @@
 const db = require('../db');
 
 // ── Thresholds ───────────────────────────────────────────────
-const STALE_MINUTES = 15;   // "stale" if last_ok_at > 15 min ago
-const DOWN_MINUTES = 60;    // "down" if last_ok_at > 60 min ago
+const STALE_MINUTES = 15;   // default "stale" threshold
+const DOWN_MINUTES = 60;    // default "down" threshold
+
+// Per-worker overrides — must be > cron interval + safety margin
+const WORKER_STALE_MINUTES = {
+  sms_worker:         10,  // cron: every 2 min
+  email_worker:       10,  // cron: every 2 min
+  auto_reply_worker:  30,  // cron: every 15 min — needs wider margin
+  competitor_worker:  180, // cron: weekly
+  mrr_worker:         2880 // cron: monthly
+};
 
 // ── Upsert ───────────────────────────────────────────────────
 
@@ -125,14 +134,17 @@ function getUnhealthy(expectedWorkers = ['sms_worker', 'email_worker', 'auto_rep
  * @param {string|null} lastOkAt - ISO timestamp
  * @returns {'ok'|'stale'|'down'|'never_seen'}
  */
-function computeStatus(lastOkAt) {
+function computeStatus(lastOkAt, workerName) {
   if (!lastOkAt) return 'never_seen';
 
   const elapsed = Date.now() - new Date(lastOkAt).getTime();
   const elapsedMinutes = elapsed / (60 * 1000);
 
-  if (elapsedMinutes <= STALE_MINUTES) return 'ok';
-  if (elapsedMinutes <= DOWN_MINUTES) return 'stale';
+  const staleMin = (workerName && WORKER_STALE_MINUTES[workerName]) || STALE_MINUTES;
+  const downMin  = Math.max(staleMin * 4, DOWN_MINUTES);
+
+  if (elapsedMinutes <= staleMin) return 'ok';
+  if (elapsedMinutes <= downMin)  return 'stale';
   return 'down';
 }
 
@@ -140,7 +152,7 @@ function parseRow(row) {
   const lastOkAt = row.last_ok_at || null;
   return {
     workerName: row.worker_name,
-    status: computeStatus(lastOkAt),
+    status: computeStatus(lastOkAt, row.worker_name),
     lastRunAt: row.last_run_at,
     lastOkAt,
     lastError: row.last_error,
