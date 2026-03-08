@@ -3112,6 +3112,35 @@ function handleHealth(res) {
 
 async function _handleSendReviewSQLite(req, res, body, orgId, startTime) {
   const repos = storage.getRepos();
+
+  const freshOrg = repos.org.getById(orgId);
+  if (!freshOrg) return sendJson(res, 500, { ok: false, error: 'ORG_NOT_FOUND' });
+
+  const channel = body.channel;
+
+  // Quota check before creating the request (fail-fast)
+  const billing = effectiveBilling.computeEffectiveBilling({ org: freshOrg, repos });
+  if (channel === 'sms' && billing.totalAvailableThisMonth.sms <= 0) {
+    return sendJson(res, 402, {
+      ok: false,
+      error: 'SMS_QUOTA_EXCEEDED',
+      errorCategory: 'QUOTA_SMS_EXCEEDED',
+      message: 'Quota SMS atteint pour cette période. Passez au plan supérieur ou achetez un pack.',
+      action: 'UPGRADE_PLAN',
+      remainingSms: 0,
+    });
+  }
+  if (channel === 'email' && billing.totalAvailableThisMonth.email <= 0) {
+    return sendJson(res, 402, {
+      ok: false,
+      error: 'EMAIL_QUOTA_EXCEEDED',
+      errorCategory: 'QUOTA_EMAIL_EXCEEDED',
+      message: 'Quota email atteint pour cette période. Passez au plan supérieur ou achetez un pack.',
+      action: 'UPGRADE_PLAN',
+      remainingEmail: 0,
+    });
+  }
+
   const idempotencyKey = body.requestId || body.idempotencyKey || randomBytes(12).toString('hex');
   const feedbackUrl = `${REVIEWS_BASE_URL}/r/${idempotencyKey}`;
 
@@ -3126,10 +3155,6 @@ async function _handleSendReviewSQLite(req, res, body, orgId, startTime) {
     return sendJson(res, 200, { ok: true, requestId: dbRequest.idempotencyKey, feedbackUrl: dbRequest.feedbackUrl, duplicate: true, reason: 'Requête déjà traitée (idempotent)' });
   }
 
-  const freshOrg = repos.org.getById(orgId);
-  if (!freshOrg) return sendJson(res, 500, { ok: false, error: 'ORG_NOT_FOUND' });
-
-  const channel = body.channel;
   const recipient = channel === 'email' ? body.patientEmail : body.patientPhone;
 
   const smsResult = _enqueueSqliteChannel(repos, dbRequest, body, orgId, channel);

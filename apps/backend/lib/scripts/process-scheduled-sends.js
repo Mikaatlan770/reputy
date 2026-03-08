@@ -28,6 +28,7 @@ const smsTemplates = require('../sms/templates');
 const heartbeatRepo = require('../repositories/worker-heartbeat.repo');
 const cronLocks = require('../repositories/cron-locks.repo');
 const sentry = require('../sentry');
+const { getPlanQuotas, normalizePlanCode } = require('../billing/plan-catalog');
 sentry.setTag('worker', 'sms_worker');
 
 const WORKER_NAME = 'sms_worker';
@@ -109,6 +110,30 @@ function validateOrg(entry) {
   return { status: 'ok', org };
 }
 
+function checkSmsQuota(entry, org) {
+  const planCode = normalizePlanCode(org.plan?.code);
+  const planQuotas = getPlanQuotas(planCode);
+  const smsIncluded = planQuotas.smsIncluded || 0;
+  const packSms = org.packWallet?.smsRemaining || org.balances?.smsRemaining || 0;
+
+  if (smsIncluded <= 0 && packSms <= 0) {
+    console.log(`  ⛔ SMS quota: plan has no SMS included and no pack credits — skipping`);
+    scheduledSendRepo.updateStatus(entry.id, 'failed', { error: 'quota:plan_no_sms' });
+    return false;
+  }
+
+  const smsUsed = org.subscriptionCredits?.smsUsedThisPeriod || 0;
+  const totalAvailable = Math.max(0, smsIncluded - smsUsed) + packSms;
+
+  if (totalAvailable <= 0) {
+    console.log(`  ⛔ SMS quota exceeded (${smsUsed}/${smsIncluded} subscription + ${packSms} pack) — skipping`);
+    scheduledSendRepo.updateStatus(entry.id, 'failed', { error: 'quota:sms_exceeded' });
+    return false;
+  }
+
+  return true;
+}
+
 function buildSmsContent(entry, org) {
   const feedbackUrl = entry.payload?.feedbackUrl
     || `${REVIEWS_BASE_URL}/r/${entry.payload?.requestId || entry.id}`;
@@ -186,6 +211,9 @@ async function processSingleEntry(entry) {
   if (orgCheck.status !== 'ok') return orgCheck.status;
 
   const { org } = orgCheck;
+
+  if (!checkSmsQuota(entry, org)) return 'failed';
+
   scheduledSendRepo.updateStatus(entry.id, 'sending');
   scheduledSendRepo.incrementAttempts(entry.id);
 
