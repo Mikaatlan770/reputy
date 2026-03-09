@@ -3792,8 +3792,20 @@ function handleEmailReviewLink(req, res, urlParams) {
 
   // Check existing feedback
   const existingFeedback = repos.feedback.getByRequestDbId(dbRequest.id);
-  const settings = getSettings();
-  
+
+  // Charger les settings de l'org propriétaire du RDV (comme dans /r/:id)
+  let settings;
+  if (dbRequest.orgId && repos.org) {
+    const org = repos.org.getById(dbRequest.orgId);
+    settings = {
+      cabinetName: org?.name || DEFAULT_SETTINGS.cabinetName,
+      googleReviewUrl: org?.options?.googleReviewUrl || DEFAULT_SETTINGS.googleReviewUrl,
+      reviewRouting: org?.options?.reviewRouting || DEFAULT_SETTINGS.reviewRouting,
+    };
+  } else {
+    settings = getSettings();
+  }
+
   // Use idempotencyKey as the requestId for the rating page (POST /r/:id uses this)
   return sendHtml(res, 200, generateRatingPage(dbRequest.idempotencyKey, dbRequest, existingFeedback, settings));
 }
