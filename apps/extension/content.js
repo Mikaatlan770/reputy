@@ -348,6 +348,14 @@ function markAsSeen(rootEl) {
   }
 }
 
+// Vérifie si deux noms partagent au moins un mot significatif (>= 3 chars)
+function _namesOverlap(a, b) {
+  if (!a || !b) return false;
+  const wordsA = a.toUpperCase().replace(/[^A-ZÀ-ÖØ-Þà-öø-ÿ ]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+  const wordsB = b.toUpperCase().replace(/[^A-ZÀ-ÖØ-Þà-öø-ÿ ]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+  return wordsA.some(w => wordsB.includes(w));
+}
+
 function _buildIdentity(lastName, firstName) {
   return {
     lastName: (lastName || "").toUpperCase(),
@@ -1201,35 +1209,44 @@ function injectReputyButtons() {
         const rootEl = lastContextMenuEl || resolveRootFromEvent(e);
         const patientInfo = extractPatientInfo(rootEl);
         const now = Date.now();
-        if (!patientInfo.phone && lastHoverPhone && (now - lastHoverTs) < 10000) {
-          patientInfo.phone = lastHoverPhone;
-          patientInfo.missing = false;
-          console.log('[REPUTY][AGENDA] using hover phone');
-        }
-        if (!patientInfo.name && lastRightClickPatientName) {
-          patientInfo.name = lastRightClickPatientName;
-          const parsed = parseFullName(lastRightClickPatientName);
-          patientInfo.firstName = parsed.firstName;
-          patientInfo.lastName = parsed.lastName;
-          patientInfo.missing = false;
-          console.log('[REPUTY][AGENDA] name from appointment:', lastRightClickPatientName);
-        }
 
-        // MOD: panneau gauche = source de vérité SEULEMENT si le téléphone correspond
+        // Nom de référence = ce qu’on a capturé depuis le bloc RDV cliqué
+        const appointmentName = lastRightClickPatientName || patientInfo.name || '';
+
+        // Panneau gauche : valider par recoupement de nom avec le bloc RDV
         const left = extractIdentityFromLeftPanel();
-        if (left?.full) {
-          const leftPhone = (left.phone || '').replace(/[^\d]/g, '');
-          const currentPhone = (patientInfo.phone || '').replace(/[^\d]/g, '');
-          // Les 6 derniers chiffres doivent correspondre (gère variantes +33/06)
-          const phonesCoherent = !leftPhone || !currentPhone ||
-            leftPhone.slice(-6) === currentPhone.slice(-6);
-          if (phonesCoherent) {
-            patientInfo.name = left.full;
-            patientInfo.firstName = left.firstName;
-            patientInfo.lastName = left.lastName;
-            console.log('[REPUTY][AGENDA] left panel name accepted:', left.full);
-          } else {
-            console.log('[REPUTY][AGENDA] left panel name rejected (phone mismatch):', left.full, leftPhone, '≠', currentPhone);
+        const leftMatchesAppointment = !!(left?.full && appointmentName && _namesOverlap(left.full, appointmentName));
+
+        if (leftMatchesAppointment) {
+          // Panneau gauche cohérent avec le RDV cliqué → source de vérité
+          patientInfo.name = left.full;
+          patientInfo.firstName = left.firstName;
+          patientInfo.lastName = left.lastName;
+          if (left.phone && !patientInfo.phone) {
+            patientInfo.phone = left.phone;
+          }
+          patientInfo.missing = false;
+          console.log('[REPUTY][AGENDA] left panel accepted (name match):', left.full);
+        } else {
+          // Panneau gauche absent ou périmé → on se base sur le bloc RDV uniquement
+          if (left?.full) {
+            console.log('[REPUTY][AGENDA] left panel rejected (name mismatch):', left.full, '≠', appointmentName);
+          }
+          // Nom depuis le bloc RDV
+          if (!patientInfo.name && appointmentName) {
+            patientInfo.name = appointmentName;
+            const parsed = parseFullName(appointmentName);
+            patientInfo.firstName = parsed.firstName;
+            patientInfo.lastName = parsed.lastName;
+            patientInfo.missing = false;
+            console.log('[REPUTY][AGENDA] name from appointment block:', appointmentName);
+          }
+          // Téléphone hover uniquement si pas de panneau gauche
+          // (si le panneau est périmé, son hover phone l’est aussi)
+          if (!patientInfo.phone && !left?.full && lastHoverPhone && (now - lastHoverTs) < 10000) {
+            patientInfo.phone = lastHoverPhone;
+            patientInfo.missing = false;
+            console.log('[REPUTY][AGENDA] using hover phone (no left panel)');
           }
         }
 
