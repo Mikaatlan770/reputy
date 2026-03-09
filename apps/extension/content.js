@@ -443,18 +443,26 @@ function extractIdentityFromLeftPanel() {
 
   const pool = hoverPanels;
 
+  // Extrait le téléphone brut depuis le texte d’un élément du panneau
+  const extractPanelPhone = (el) => {
+    const m = (el.innerText || '').match(phoneRe);
+    return m ? m[0].replace(/[^\d+]/g, '') : '';
+  };
+
   for (const el of pool) {
     const lines = (el.innerText || "").split("\n").map((s) => s.trim()).filter(Boolean);
     if (lines.length < 2) continue;
 
     const inlineResult = _tryInlineCivility(lines);
-    if (inlineResult) return inlineResult;
+    if (inlineResult) return { ...inlineResult, phone: extractPanelPhone(el) };
 
     const sepResult = _trySeparateCivility(lines);
-    if (sepResult && sepResult !== 'skip') return sepResult;
+    if (sepResult && sepResult !== 'skip') return { ...sepResult, phone: extractPanelPhone(el) };
   }
 
-  return _tryUppercasePair(pool) || _tryCombinedName(pool) || null;
+  const result = _tryUppercasePair(pool) || _tryCombinedName(pool) || null;
+  if (result) return { ...result, phone: extractPanelPhone(pool[0]) };
+  return null;
 }
 
 /**
@@ -1207,12 +1215,22 @@ function injectReputyButtons() {
           console.log('[REPUTY][AGENDA] name from appointment:', lastRightClickPatientName);
         }
 
-        // MOD: si identité gauche dispo, elle écrase (source de vérité)
+        // MOD: panneau gauche = source de vérité SEULEMENT si le téléphone correspond
         const left = extractIdentityFromLeftPanel();
         if (left?.full) {
-          patientInfo.name = left.full;
-          patientInfo.firstName = left.firstName;
-          patientInfo.lastName = left.lastName;
+          const leftPhone = (left.phone || '').replace(/[^\d]/g, '');
+          const currentPhone = (patientInfo.phone || '').replace(/[^\d]/g, '');
+          // Les 6 derniers chiffres doivent correspondre (gère variantes +33/06)
+          const phonesCoherent = !leftPhone || !currentPhone ||
+            leftPhone.slice(-6) === currentPhone.slice(-6);
+          if (phonesCoherent) {
+            patientInfo.name = left.full;
+            patientInfo.firstName = left.firstName;
+            patientInfo.lastName = left.lastName;
+            console.log('[REPUTY][AGENDA] left panel name accepted:', left.full);
+          } else {
+            console.log('[REPUTY][AGENDA] left panel name rejected (phone mismatch):', left.full, leftPhone, '≠', currentPhone);
+          }
         }
 
         createModal(patientInfo, rootEl);
