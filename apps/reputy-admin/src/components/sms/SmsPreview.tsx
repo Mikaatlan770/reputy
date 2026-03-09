@@ -70,19 +70,20 @@ export function SmsPreview({
     }
   }, [propMessage])
 
-  // Message final avec placeholders résolus (pour preview et validation)
+  // Message avec uniquement {cabinet} substitué (pour l'édition dans le textarea)
+  const displayMessage = useMemo(() => {
+    if (!orgName) return message
+    return message.replace(/\{cabinet\}/g, orgName)
+  }, [message, orgName])
+
+  // Message final avec tous les placeholders résolus (pour validation et compteur)
   const finalMessage = useMemo(() => {
-    let msg = message
-    // Remplacer {cabinet} par le nom de l'org (preview only)
-    if (orgName) {
-      msg = msg.replace(/\{cabinet\}/g, orgName)
-    }
-    // Remplacer {lien} ou ajouter le lien en fin
+    let msg = displayMessage
     if (!shortUrl) return msg
     return msg.includes('{lien}')
       ? msg.replace('{lien}', shortUrl)
       : `${msg}\n${shortUrl}`
-  }, [message, shortUrl, orgName])
+  }, [displayMessage, shortUrl])
 
   // Validation
   const validation = useMemo<SmsValidationResult>(
@@ -170,7 +171,7 @@ export function SmsPreview({
               </p>
             ) : (
               <textarea
-                value={message}
+                value={displayMessage}
                 onChange={(e) => handleMessageChange(e.target.value)}
                 className="w-full text-sm bg-transparent resize-none focus:outline-none leading-relaxed"
                 rows={4}
