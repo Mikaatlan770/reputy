@@ -3190,9 +3190,16 @@ function _enqueueSqliteChannel(repos, dbRequest, body, orgId, channel) {
     if (repos.scheduledSend.hasRecentSend(orgId, body.patientPhone)) {
       return { status: 429, body: { ok: false, error: 'ANTI_SPAM', message: 'Ce destinataire a déjà été contacté par SMS récemment (max 1 par semaine).' } };
     }
+    let smsFeedbackUrl = dbRequest.feedbackUrl;
+    try {
+      const smsShortlink = repos.shortlink.create(orgId, 'sms', dbRequest.feedbackUrl, 'SMS demande avis');
+      smsFeedbackUrl = repos.shortlink.buildShortUrl(smsShortlink.code, REVIEWS_BASE_URL);
+    } catch (slErr) {
+      console.warn('[REPUTY][SMS] Shortlink creation failed, using full URL:', slErr.message);
+    }
     repos.scheduledSend.create({
       orgId, recipient: body.patientPhone,
-      payload: { patientName: body.patientName, patientFirstName: body.patientFirstName || '', requestId: dbRequest.idempotencyKey, feedbackUrl: dbRequest.feedbackUrl },
+      payload: { patientName: body.patientName, patientFirstName: body.patientFirstName || '', requestId: dbRequest.idempotencyKey, feedbackUrl: dbRequest.feedbackUrl, shortUrl: smsFeedbackUrl },
       requestDbId: dbRequest.id,
     });
     repos.request.setLifecycleStatus(dbRequest.id, 'queued');
@@ -8166,28 +8173,31 @@ function handleShortlinkRedirect(req, res, code) {
     return;
   }
   
-  // V2: Vérifier la limite de scans (200 pour Bronze, 1000 pour plans payants/packs)
-  const org = repos.org.getById(shortlink.orgId);
-  const planCode = org?.plan?.code || 'health_bronze';
-  const isBronze = planCode.includes('bronze') || planCode.includes('basic');
-  const maxScans = isBronze ? 200 : 1000;
-  
-  if (shortlink.clicks >= maxScans) {
-    res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`
-      <!DOCTYPE html>
-      <html>
-      <head><title>Limite atteinte</title></head>
-      <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-        <h1>📱 Limite de scans atteinte</h1>
-        <p>Ce QR code/tag NFC a atteint sa limite de ${maxScans} scans.</p>
-        <p>Contactez votre praticien pour plus d'informations.</p>
-      </body>
-      </html>
-    `);
-    return;
+  // SMS review shortlinks are single-use (one per patient) → no scan limit
+  if (shortlink.type !== 'sms') {
+    // V2: Vérifier la limite de scans (200 pour Bronze, 1000 pour plans payants/packs)
+    const org = repos.org.getById(shortlink.orgId);
+    const planCode = org?.plan?.code || 'health_bronze';
+    const isBronze = planCode.includes('bronze') || planCode.includes('basic');
+    const maxScans = isBronze ? 200 : 1000;
+
+    if (shortlink.clicks >= maxScans) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Limite atteinte</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+          <h1>📱 Limite de scans atteinte</h1>
+          <p>Ce QR code/tag NFC a atteint sa limite de ${maxScans} scans.</p>
+          <p>Contactez votre praticien pour plus d'informations.</p>
+        </body>
+        </html>
+      `);
+      return;
+    }
   }
-  
+
   // Increment clicks counter
   repos.shortlink.incrementClicks(code);
   

@@ -135,7 +135,8 @@ function checkSmsQuota(entry, org) {
 }
 
 function buildSmsContent(entry, org) {
-  const feedbackUrl = entry.payload?.feedbackUrl
+  const feedbackUrl = entry.payload?.shortUrl
+    || entry.payload?.feedbackUrl
     || `${REVIEWS_BASE_URL}/r/${entry.payload?.requestId || entry.id}`;
 
   const customTpl = org.options?.smsTemplate;
