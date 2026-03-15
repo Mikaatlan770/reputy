@@ -525,7 +525,7 @@ export default function CollectPage() {
             <div className="space-y-3">
               <SmsPreview
                 message={smsMessage || undefined}
-                shortUrl={primaryShortlink?.shortUrl || 'rpt.ly/votre-lien'}
+                shortUrl={primaryShortlink?.shortUrl || 'https://api.reputyapp.com/r/exemple'}
                 phoneNumber={currentLocation?.name ? `Client de ${currentLocation.name}` : undefined}
                 orgName={(clientOrg as any)?.name || undefined}
                 onMessageChange={setSmsMessage}

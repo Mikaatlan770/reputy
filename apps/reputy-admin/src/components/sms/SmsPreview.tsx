@@ -45,6 +45,10 @@ interface SmsPreviewProps {
   className?: string
 }
 
+// URL réelle envoyée dans les SMS (https://api.reputyapp.com/r/ + 8 chars = 36 chars)
+// Utilisée pour le compteur afin de refléter fidèlement le coût en segments réels.
+const REAL_SMS_URL_PLACEHOLDER = 'https://api.reputyapp.com/r/Ab3xY9kL'
+
 // ===== COMPOSANT PRINCIPAL =====
 
 export function SmsPreview({
@@ -76,7 +80,7 @@ export function SmsPreview({
     return message.replace(/\{cabinet\}/g, orgName)
   }, [message, orgName])
 
-  // Message final avec tous les placeholders résolus (pour validation et compteur)
+  // Message final pour l'affichage (utilise le shortUrl visuel passé en prop)
   const finalMessage = useMemo(() => {
     let msg = displayMessage
     if (!shortUrl) return msg
@@ -85,16 +89,25 @@ export function SmsPreview({
       : `${msg}\n${shortUrl}`
   }, [displayMessage, shortUrl])
 
-  // Validation
+  // Message pour le compteur : utilise l'URL réelle (36 chars) pour refléter
+  // fidèlement ce que Brevo va réellement envoyer, indépendamment du shortUrl visuel.
+  const countMessage = useMemo(() => {
+    let msg = displayMessage
+    return msg.includes('{lien}')
+      ? msg.replace('{lien}', REAL_SMS_URL_PLACEHOLDER)
+      : `${msg}\n${REAL_SMS_URL_PLACEHOLDER}`
+  }, [displayMessage])
+
+  // Validation (basée sur le message réel)
   const validation = useMemo<SmsValidationResult>(
-    () => validateSms(finalMessage),
-    [finalMessage]
+    () => validateSms(countMessage),
+    [countMessage]
   )
 
-  // Longueur
+  // Longueur (basée sur le message réel)
   const length = useMemo(
-    () => calculateSmsLength(finalMessage),
-    [finalMessage]
+    () => calculateSmsLength(countMessage),
+    [countMessage]
   )
 
   // Notifier les changements de validation
@@ -282,6 +295,7 @@ export function SmsPreview({
         {/* Tooltip info */}
         <p className="text-xs text-muted-foreground text-center">
           Les SMS sont limités à 160 caractères (encodage GSM-7) pour garantir un coût maîtrisé.
+          Le compteur inclut les 36 caractères du lien de suivi réel envoyé au patient.
         </p>
       </CardContent>
     </Card>
