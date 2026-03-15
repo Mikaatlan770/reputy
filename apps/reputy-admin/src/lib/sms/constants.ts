@@ -12,8 +12,18 @@ export const SMS_MAX_LENGTH_GSM7 = 160
 /** Longueur maximale d'un SMS en encodage UCS-2/Unicode (1 segment) */
 export const SMS_MAX_LENGTH_UCS2 = 70
 
-/** Longueur max autorisée (on force GSM-7 = 160) */
-export const SMS_MAX_LENGTH = SMS_MAX_LENGTH_GSM7
+/**
+ * Caractères ajoutés automatiquement par Brevo pour le STOP opt-out
+ * obligatoire en France (ex: " STOP au 36180" = ~14 chars)
+ */
+export const BREVO_STOP_LENGTH = 14
+
+/**
+ * Longueur max effective à utiliser pour la validation.
+ * = 160 (GSM-7) - 14 (STOP Brevo ajouté automatiquement)
+ * Garantit que le SMS réel envoyé tient en 1 segment.
+ */
+export const SMS_MAX_LENGTH = SMS_MAX_LENGTH_GSM7 - BREVO_STOP_LENGTH // 146
 
 /** Nombre de segments autorisés (toujours 1) */
 export const SMS_MAX_SEGMENTS = 1
@@ -85,7 +95,7 @@ export const SMS_SELLING_PRICE = SMS_COST_PER_SEGMENT * (1 + SMS_MARGIN_PERCENT)
 
 export const SMS_ERRORS = {
   UNICODE_DETECTED: 'Votre message contient des caractères non compatibles SMS (Unicode). Retirez les accents spéciaux, emojis ou caractères spéciaux.',
-  TOO_LONG: 'Votre message dépasse 160 caractères. Raccourcissez-le pour garantir 1 SMS.',
+  TOO_LONG: 'Votre message dépasse 146 caractères. Raccourcissez-le pour garantir 1 SMS (Brevo ajoute ~14 chars pour le STOP opt-out).',
   MULTI_SEGMENT: 'Ce message nécessiterait plusieurs SMS. Simplifiez-le pour rester à 1 segment.',
   URL_TOO_LONG: 'L\'URL est trop longue. Utilisez un lien court (ex: rpt.ly/abc).',
   EMPTY_MESSAGE: 'Le message ne peut pas être vide.',

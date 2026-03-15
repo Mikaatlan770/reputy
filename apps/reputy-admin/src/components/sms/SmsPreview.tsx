@@ -294,8 +294,8 @@ export function SmsPreview({
 
         {/* Tooltip info */}
         <p className="text-xs text-muted-foreground text-center">
-          Les SMS sont limités à 160 caractères (encodage GSM-7) pour garantir un coût maîtrisé.
-          Le compteur inclut les 36 caractères du lien de suivi réel envoyé au patient.
+          Limite effective : 146 caractères (160 GSM-7 − 14 STOP Brevo − 36 pour le lien).
+          Au-delà, Brevo découpe en 2 segments = 2× le coût.
         </p>
       </CardContent>
     </Card>
