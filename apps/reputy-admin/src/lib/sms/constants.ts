@@ -97,6 +97,8 @@ export const SHORT_URL_DOMAINS = [
   'rpt.ly',
   'rpty.io',
   'reputy.link',
+  // Domaine production des shortlinks Reputy (/r/{8-char-code})
+  'api.reputyapp.com',
   // Development domains
   '127.0.0.1:8787',
   'localhost:8787',
